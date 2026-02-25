@@ -1,0 +1,28 @@
+# Build artifacts
+target/
+*.so
+*.dylib
+*.dll
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config
+local.toml
+.env
+
+# Logs
+*.log
+logs/
+
+# Keys
+*.pem
+*.key
+!config/

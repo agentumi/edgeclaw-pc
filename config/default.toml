@@ -1,0 +1,33 @@
+[agent]
+device_name = "my-workstation"
+listen_port = 8443
+max_connections = 50
+
+[transport]
+tcp_enabled = true
+quic_enabled = false
+ble_enabled = false
+
+[security]
+policy_mode = "strict"
+default_role = "viewer"
+session_timeout_secs = 3600
+key_rotation_secs = 3600
+
+[execution]
+sandbox_enabled = true
+max_concurrent = 5
+default_timeout_secs = 60
+max_timeout_secs = 3600
+allowed_paths = []
+
+[resource]
+cpu_limit_percent = 80
+memory_limit_percent = 85
+gpu_enabled = false
+
+[logging]
+level = "info"
+format = "json"
+rotation = "daily"
+max_files = 30

@@ -1,83 +1,164 @@
-# EdgeClaw PC Agent (v2.0)
+<p align="center">
+  <img src="https://img.shields.io/badge/EdgeClaw-Desktop%20Agent-blue?style=for-the-badge&logo=windows&logoColor=white" alt="EdgeClaw Desktop Agent" />
+</p>
 
-[![CI](https://github.com/agentumi/edgeclaw-pc/actions/workflows/ci.yml/badge.svg)](https://github.com/agentumi/edgeclaw-pc/actions)
+<h1 align="center">EdgeClaw Desktop Agent</h1>
 
-A zero-trust edge AI orchestration agent for desktop/server environments. EdgeClaw PC Agent runs as a background daemon, manages device identity via Ed25519/X25519 cryptography, enforces RBAC-based policy controls, and communicates with peers over the ECNP (EdgeClaw Network Protocol) v1.1 binary protocol.
+<p align="center">
+  <strong>Zero-Trust Edge AI Orchestration Agent for Desktop & Server</strong>
+</p>
 
-## Features
+<p align="center">
+  <a href="https://github.com/agentumi/edgeclaw_desktop/actions/workflows/ci.yml"><img src="https://github.com/agentumi/edgeclaw_desktop/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <img src="https://img.shields.io/badge/version-0.1.0-blue" alt="Version" />
+  <img src="https://img.shields.io/badge/license-MIT%20%7C%20Apache--2.0-green" alt="License" />
+  <img src="https://img.shields.io/badge/rust-1.75%2B-orange?logo=rust" alt="Rust" />
+  <img src="https://img.shields.io/badge/tests-62%20passed-success" alt="Tests" />
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platform" />
+</p>
 
-- **Device Identity** — Ed25519 signing keys + X25519 key exchange, platform-aware identity generation
-- **Session Management** — ECDH → HKDF → AES-256-GCM encrypted sessions with replay protection
-- **RBAC Policy Engine** — 17 capabilities across 5 roles (Owner, Admin, Operator, Viewer, Guest) with sandbox enforcement
-- **ECNP v1.1 Protocol** — Binary framing with version, type, length, and payload encoding
-- **System Monitoring** — CPU, memory, disk, process listing, and capability auto-detection
-- **Async Command Execution** — Concurrent execution with configurable limits, path restrictions, and timeouts
-- **Peer Management** — Connection pool with role tracking and max-peer limits
-- **TCP Server** — Async listener with broadcast shutdown and connection pooling
-- **Cross-Platform** — Windows, macOS, Linux support
+<p align="center">
+  <a href="#-features">Features</a> •
+  <a href="#-architecture">Architecture</a> •
+  <a href="#-quick-start">Quick Start</a> •
+  <a href="#-cli-commands">CLI</a> •
+  <a href="#-security-model">Security</a> •
+  <a href="#%EF%B8%8F-configuration">Config</a> •
+  <a href="#-testing">Testing</a> •
+  <a href="#-contributing">Contributing</a>
+</p>
 
-## Architecture
+---
+
+> **EdgeClaw Desktop Agent** runs as a background daemon on desktop/server systems,
+> providing zero-trust device identity, encrypted communication, RBAC policy enforcement,
+> and system monitoring — all orchestrated through the ECNP v1.1 binary protocol.
+
+## ✨ Features
+
+| Category | Feature | Details |
+|----------|---------|---------|
+| 🔐 **Identity** | Ed25519 + X25519 | Device fingerprinting, signing, & ECDH key exchange |
+| 🛡️ **Encryption** | AES-256-GCM | ECDH → HKDF-SHA256 → session encryption with replay protection |
+| 👤 **Access Control** | 5-Role RBAC | Owner / Admin / Operator / Viewer / Guest (17 capabilities) |
+| 📦 **Protocol** | ECNP v1.1 | Binary framing with version, type, length, payload |
+| 💻 **Monitoring** | System Info | CPU, memory, disk, process listing, capability detection |
+| ⚡ **Execution** | Async Commands | Concurrent execution with limits, path restrictions, timeouts |
+| 🔗 **Networking** | TCP Server | Async listener with connection pooling & broadcast shutdown |
+| 🤝 **Peers** | Peer Manager | Connection tracking, role assignment, max-peer limits |
+| ⚙️ **Config** | TOML | Platform-aware configuration with hot-reload |
+| 🖥️ **Cross-Platform** | Win / Mac / Linux | Native builds on all major desktop platforms |
+
+## 🏗️ Architecture
 
 ```
-┌──────────────────────────────────────────────┐
-│              CLI (clap)                       │
-├──────────────────────────────────────────────┤
-│            AgentEngine                        │
-│  ┌──────────┬──────────┬──────────┐          │
-│  │ Identity │ Session  │  Policy  │          │
-│  │ Manager  │ Manager  │  Engine  │          │
-│  ├──────────┼──────────┼──────────┤          │
-│  │ Executor │  System  │   Peer   │          │
-│  │          │ Monitor  │ Manager  │          │
-│  ├──────────┴──────────┴──────────┤          │
-│  │        TCP Server              │          │
-│  │        ECNP Codec              │          │
-│  └────────────────────────────────┘          │
-└──────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                        CLI (clap)                            │
+│  start │ status │ identity │ capabilities │ info │ init      │
+├─────────────────────────────────────────────────────────────┤
+│                      AgentEngine                             │
+│  ┌──────────────┬──────────────┬──────────────────────────┐  │
+│  │  Identity     │  Session     │  Policy Engine           │  │
+│  │  Manager      │  Manager     │  (RBAC, 5 roles,         │  │
+│  │  (Ed25519/    │  (ECDH +     │   17 capabilities)       │  │
+│  │   X25519)     │   AES-GCM)   │                          │  │
+│  ├──────────────┼──────────────┼──────────────────────────┤  │
+│  │  Command      │  System      │  Peer Manager            │  │
+│  │  Executor     │  Monitor     │  (Connection pool,       │  │
+│  │  (Async +     │  (CPU, Mem,  │   role tracking)         │  │
+│  │   Limits)     │   Disk)      │                          │  │
+│  ├──────────────┴──────────────┴──────────────────────────┤  │
+│  │               TCP Server (tokio async)                  │  │
+│  │           ECNP v1.1 Codec (binary framing)              │  │
+│  └─────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## Quick Start
+## 🚀 Quick Start
 
-### Build
+### Prerequisites
+
+| Tool | Version | Install |
+|------|---------|---------|
+| Rust | 1.75+ | [rustup.rs](https://rustup.rs/) |
+
+### Build & Run
 
 ```bash
+# 1. Clone
+git clone https://github.com/agentumi/edgeclaw_desktop.git
+cd edgeclaw_desktop
+
+# 2. Build
 cargo build --release
-```
 
-### Initialize Configuration
-
-```bash
+# 3. Initialize configuration
 ./target/release/edgeclaw-agent init
-```
 
-This creates a default configuration file at the platform-specific config directory.
-
-### Start the Agent
-
-```bash
+# 4. Start the agent daemon
 ./target/release/edgeclaw-agent start
+
+# 5. Check status
+./target/release/edgeclaw-agent status
 ```
 
-### CLI Commands
+## 🖥️ CLI Commands
 
-| Command        | Description                                     |
-| -------------- | ----------------------------------------------- |
-| `start`        | Start the agent daemon on the configured port   |
-| `status`       | Show running status and uptime                  |
-| `identity`     | Display device identity (public key, device ID) |
-| `capabilities` | List system capabilities detected on this host  |
-| `info`         | Show full system information (CPU, memory, etc) |
-| `init`         | Generate default configuration file             |
+| Command | Description | Example |
+|---------|-------------|---------|
+| `start` | Start the agent daemon on configured port | `edgeclaw-agent start` |
+| `status` | Show running status and uptime | `edgeclaw-agent status` |
+| `identity` | Display device identity (public key, device ID) | `edgeclaw-agent identity` |
+| `capabilities` | List system capabilities detected on this host | `edgeclaw-agent capabilities` |
+| `info` | Show full system information (CPU, memory, disk) | `edgeclaw-agent info` |
+| `init` | Generate default configuration file | `edgeclaw-agent init` |
 
-## Configuration
+## 🔐 Security Model
 
-Configuration is loaded from TOML format. Default path:
+### RBAC — 5 Roles, 17 Capabilities
 
-- **Windows**: `%APPDATA%\edgeclaw\agent.toml`
-- **macOS**: `~/Library/Application Support/edgeclaw/agent.toml`
-- **Linux**: `~/.config/edgeclaw/agent.toml`
+| Role | Count | Key Capabilities |
+|------|-------|-----------------|
+| **Owner** | 17 | All capabilities including `shell_exec`, `firmware_update`, `policy_override` |
+| **Admin** | 14 | All except `shell_exec`, `firmware_update`, `policy_override` |
+| **Operator** | 8 | `file_read`, `file_write`, `process_manage`, `docker`, `network_scan` |
+| **Viewer** | 3 | `status_query`, `log_read`, `system_info` |
+| **Guest** | 1 | `status_query` only |
 
-Example configuration (`config/default.toml`):
+### Cryptography Stack
+
+```
+Device Identity ──── Ed25519 (signing + verification)
+        │
+Key Exchange ─────── X25519 ECDH (ephemeral)
+        │
+Key Derivation ───── HKDF-SHA256 (info: "ecnp-session-v2")
+        │
+Message Encrypt ──── AES-256-GCM (12-byte random nonce)
+        │
+Anti-Replay ──────── Message counter + nonce tracking
+```
+
+### Protocol: ECNP v1.1
+
+```
+┌─────────┬──────────┬────────────┬─────────────┐
+│ Version │ Type     │ Length     │ Payload     │
+│ (1B)    │ (1B)     │ (4B BE)   │ (N bytes)   │
+└─────────┴──────────┴────────────┴─────────────┘
+```
+
+## ⚙️ Configuration
+
+Configuration is stored in TOML format. Default path by platform:
+
+| Platform | Path |
+|----------|------|
+| **Windows** | `%APPDATA%\edgeclaw\agent.toml` |
+| **macOS** | `~/Library/Application Support/edgeclaw/agent.toml` |
+| **Linux** | `~/.config/edgeclaw/agent.toml` |
+
+### Default Configuration
 
 ```toml
 [agent]
@@ -112,59 +193,103 @@ file = "edgeclaw-agent.log"
 max_size_mb = 50
 ```
 
-## Security Model
+## 📁 Project Structure
 
-### Roles & Capabilities
+```
+edgeclaw_desktop/
+├── src/
+│   ├── main.rs          # CLI entry point (clap subcommands)
+│   ├── lib.rs           # AgentEngine orchestrator
+│   ├── config.rs        # TOML configuration management
+│   ├── error.rs         # Error types (AgentError enum)
+│   ├── identity.rs      # Ed25519/X25519 identity management
+│   ├── session.rs       # ECDH + AES-256-GCM session encryption
+│   ├── policy.rs        # RBAC policy engine (17 capabilities)
+│   ├── protocol.rs      # Message types (ECM, EAP, Heartbeat)
+│   ├── ecnp.rs          # ECNP v1.1 binary codec
+│   ├── system.rs        # System info & capability detection
+│   ├── executor.rs      # Async command execution with limits
+│   ├── peer.rs          # Peer connection management
+│   └── server.rs        # TCP server with connection pool
+├── config/
+│   └── default.toml     # Default agent configuration
+│
+├── .github/workflows/ci.yml
+├── AGENTS.md            # AI agent guidelines
+├── CLAUDE.md            # Claude AI guidelines
+├── CONTRIBUTING.md      # Contribution guide
+├── SECURITY.md          # Security policy
+├── CHANGELOG.md         # Release history
+├── CODE_OF_CONDUCT.md   # Community standards
+├── LICENSE-MIT          # MIT License
+├── LICENSE-APACHE       # Apache 2.0 License
+├── NOTICE               # Third-party attributions
+└── Cargo.toml
+```
 
-| Role     | Key Capabilities                                           |
-| -------- | ---------------------------------------------------------- |
-| Owner    | All 17 capabilities including `shell_exec`, `firmware_update` |
-| Admin    | 14 capabilities (no `shell_exec`, `firmware_update`, `policy_override`) |
-| Operator | 8 capabilities (file read/write, process list, docker)     |
-| Viewer   | 3 capabilities (status query, log read, system info)       |
-| Guest    | 1 capability (status query only)                           |
+## 🧪 Testing
 
-### Cryptography
+### Test Summary
 
-- **Identity**: Ed25519 signing + X25519 Diffie-Hellman
-- **Session Keys**: ECDH → HKDF-SHA256 (info: `"ecnp-session-v2"`) → AES-256-GCM
-- **Message Integrity**: 12-byte random nonce per message, replay protection via message counters
+| Module | Tests | Command |
+|--------|-------|---------|
+| Config | — | `cargo test config::tests` |
+| Identity | 4 | `cargo test identity::tests` |
+| Session | 5 | `cargo test session::tests` |
+| Policy | 10 | `cargo test policy::tests` |
+| Executor | — | `cargo test executor::tests` |
+| Peer | — | `cargo test peer::tests` |
+| Server | — | `cargo test server::tests` |
+| **Total** | **62** | `cargo test` |
 
-## Testing
+### Run Tests
 
 ```bash
-# Run all 62 tests
+# All 62 tests
 cargo test
 
-# Run with verbose output
+# Verbose output
 cargo test -- --nocapture
 
-# Run specific module tests
+# Single-threaded (for debugging)
+cargo test -- --test-threads=1
+
+# Specific module
 cargo test policy::tests
-cargo test executor::tests
 ```
 
-## Project Structure
+### Lint & Format
 
-```
-src/
-├── main.rs       # CLI entry point (clap subcommands)
-├── lib.rs        # AgentEngine orchestrator
-├── config.rs     # TOML configuration management
-├── error.rs      # Error types (AgentError enum)
-├── identity.rs   # Ed25519/X25519 identity management
-├── session.rs    # ECDH + AES-256-GCM session encryption
-├── policy.rs     # RBAC policy engine (17 capabilities)
-├── protocol.rs   # Message types (ECM, EAP, Heartbeat, etc.)
-├── ecnp.rs       # ECNP v1.1 binary codec
-├── system.rs     # System info & capability detection
-├── executor.rs   # Async command execution with limits
-├── peer.rs       # Peer connection management
-└── server.rs     # TCP server with connection pool
-config/
-└── default.toml  # Default agent configuration
+```bash
+# Clippy — zero warnings policy
+cargo clippy --all-targets -- -D warnings
+
+# Format check
+cargo fmt --check
+
+# Auto-format
+cargo fmt
 ```
 
-## License
+## 🤝 Contributing
 
-Copyright (c) 2025 EdgeClaw. All rights reserved.
+We welcome contributions! Please read:
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — Development workflow & PR process
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Community standards
+- [SECURITY.md](SECURITY.md) — Vulnerability reporting
+
+## 📜 License
+
+Dual-licensed under **MIT** or **Apache-2.0** at your option.
+
+- [LICENSE-MIT](LICENSE-MIT)
+- [LICENSE-APACHE](LICENSE-APACHE)
+
+Copyright (c) 2025-2026 EdgeClaw Contributors.
+
+---
+
+<p align="center">
+  <sub>Built with 🦀 Rust + ⚡ tokio — Part of the <a href="https://github.com/agentumi">EdgeClaw</a> ecosystem</sub>
+</p>

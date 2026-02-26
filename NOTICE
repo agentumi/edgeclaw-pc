@@ -1,0 +1,53 @@
+NOTICE
+
+EdgeClaw Desktop Agent
+
+Copyright (c) 2025-2026 EdgeClaw Contributors
+
+This software includes components from:
+
+Rust Standard Library
+  - License: MIT OR Apache-2.0
+  - https://github.com/rust-lang/rust
+
+curve25519-dalek
+  - License: BSD-3-Clause
+  - https://github.com/dalek-cryptography/curve25519-dalek
+
+ed25519-dalek
+  - License: BSD-3-Clause
+  - https://github.com/dalek-cryptography/ed25519-dalek
+
+x25519-dalek
+  - License: BSD-3-Clause
+  - https://github.com/dalek-cryptography/x25519-dalek
+
+aes-gcm
+  - License: Apache-2.0 OR MIT
+  - https://github.com/RustCrypto/AEADs
+
+sha2
+  - License: Apache-2.0 OR MIT
+  - https://github.com/RustCrypto/hashes
+
+serde
+  - License: MIT OR Apache-2.0
+  - https://github.com/serde-rs/serde
+
+serde_json
+  - License: MIT OR Apache-2.0
+  - https://github.com/serde-rs/json
+
+thiserror
+  - License: MIT OR Apache-2.0
+  - https://github.com/dtolnay/thiserror
+
+tokio
+  - License: MIT
+  - https://github.com/tokio-rs/tokio
+
+clap
+  - License: MIT OR Apache-2.0
+  - https://github.com/clap-rs/clap
+
+All rights reserved. See LICENSE-MIT and LICENSE-APACHE for full license text.

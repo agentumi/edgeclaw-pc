@@ -6,8 +6,9 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::path::PathBuf;
 use std::sync::Mutex;
-use tracing::info;
+use tracing::{info, warn};
 
 /// A single audit log entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -188,9 +189,11 @@ impl AuditLog {
     }
 }
 
-/// Thread-safe audit log wrapper
+/// Thread-safe audit log wrapper with optional file persistence
 pub struct AuditManager {
     log: Mutex<AuditLog>,
+    /// Path to the audit log file (JSON lines format)
+    persist_path: Option<PathBuf>,
 }
 
 impl Default for AuditManager {
@@ -204,6 +207,35 @@ impl AuditManager {
     pub fn new() -> Self {
         Self {
             log: Mutex::new(AuditLog::new()),
+            persist_path: None,
+        }
+    }
+
+    /// Create an audit manager that persists entries to a file.
+    ///
+    /// Each entry is appended as a single JSON line (jsonl format).
+    pub fn with_persistence(path: PathBuf) -> Self {
+        // Try to load existing entries
+        let mut audit_log = AuditLog::new();
+        if path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                for line in content.lines() {
+                    if let Ok(entry) = serde_json::from_str::<AuditEntry>(line) {
+                        audit_log.current_sequence = audit_log.current_sequence.max(entry.sequence);
+                        audit_log.entries.push(entry);
+                    }
+                }
+                if !audit_log.entries.is_empty() {
+                    info!(
+                        count = audit_log.entries.len(),
+                        "Loaded audit log from disk"
+                    );
+                }
+            }
+        }
+        Self {
+            log: Mutex::new(audit_log),
+            persist_path: Some(path),
         }
     }
 
@@ -218,7 +250,31 @@ impl AuditManager {
         details: Option<&str>,
     ) -> AuditEntry {
         let mut log = self.log.lock().unwrap_or_else(|e| e.into_inner());
-        log.log(device_id, actor_role, capability, action, result, details)
+        let entry = log.log(device_id, actor_role, capability, action, result, details);
+
+        // Persist to file if configured
+        if let Some(ref path) = self.persist_path {
+            if let Ok(json) = serde_json::to_string(&entry) {
+                use std::io::Write;
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                match std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                {
+                    Ok(mut f) => {
+                        let _ = writeln!(f, "{}", json);
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Failed to persist audit entry");
+                    }
+                }
+            }
+        }
+
+        entry
     }
 
     /// Verify chain integrity

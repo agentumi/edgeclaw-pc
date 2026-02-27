@@ -98,7 +98,7 @@ pub struct WebUiSection {
     /// Enable the web chat UI
     #[serde(default = "default_true")]
     pub enabled: bool,
-    /// Port for the web UI HTTP server
+    /// Base port for the web UI HTTP server (agents use port, port+1, ..., port+max_agents-1)
     #[serde(default = "default_webui_port")]
     pub port: u16,
     /// Bind address (default: 127.0.0.1 — local only)
@@ -107,6 +107,15 @@ pub struct WebUiSection {
     /// Auto-open browser on start
     #[serde(default = "default_true")]
     pub auto_open: bool,
+    /// Maximum agent instances (1-10, determined by license tier)
+    #[serde(default = "default_max_agents")]
+    pub max_agents: u16,
+    /// License tier: "free" (1), "pro" (5), "enterprise" (10)
+    #[serde(default = "default_license_tier")]
+    pub license_tier: String,
+    /// Work profile: "system", "software_dev", "marketing", "all"
+    #[serde(default = "default_work_profile")]
+    pub work_profile: String,
 }
 
 impl Default for WebUiSection {
@@ -116,6 +125,9 @@ impl Default for WebUiSection {
             port: default_webui_port(),
             bind: default_webui_bind(),
             auto_open: true,
+            max_agents: default_max_agents(),
+            license_tier: default_license_tier(),
+            work_profile: default_work_profile(),
         }
     }
 }
@@ -125,6 +137,37 @@ fn default_webui_port() -> u16 {
 }
 fn default_webui_bind() -> String {
     "127.0.0.1".to_string()
+}
+fn default_max_agents() -> u16 {
+    1
+}
+fn default_license_tier() -> String {
+    "free".to_string()
+}
+fn default_work_profile() -> String {
+    "all".to_string()
+}
+
+impl WebUiSection {
+    /// Get the maximum agents allowed by license tier
+    pub fn max_agents_for_tier(&self) -> u16 {
+        match self.license_tier.to_lowercase().as_str() {
+            "free" => 1,
+            "pro" | "professional" => 5,
+            "enterprise" | "unlimited" => 10,
+            _ => 1,
+        }
+    }
+
+    /// Get the effective max agents (min of config and tier limit)
+    pub fn effective_max_agents(&self) -> u16 {
+        self.max_agents.min(self.max_agents_for_tier())
+    }
+
+    /// Get the port for a specific agent index (0-based)
+    pub fn agent_port(&self, index: u16) -> u16 {
+        self.port + index
+    }
 }
 
 // Default value functions

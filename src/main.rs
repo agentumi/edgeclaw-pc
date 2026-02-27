@@ -45,6 +45,8 @@ enum Commands {
     },
     /// Verify audit chain integrity
     AuditVerify,
+    /// Check agent health (for monitoring/Docker)
+    Health,
     /// Launch web chat UI (opens browser)
     WebUi {
         /// Port for the web UI server
@@ -219,6 +221,23 @@ async fn main() -> anyhow::Result<()> {
             }
             Ok(())
         }
+        Commands::Health => {
+            let engine = AgentEngine::new(config);
+            let ai = engine.ai_status();
+            let sys = edgeclaw_agent::system::collect_system_info();
+            let healthy = sys.cpu_usage < 95.0 && sys.memory_usage_percent < 95.0;
+            if healthy {
+                println!("{{\"status\":\"ok\",\"version\":\"1.0.0\",\"ai\":\"{}\",\"cpu\":{:.1},\"mem\":{:.1}}}",
+                    ai["provider"], sys.cpu_usage, sys.memory_usage_percent);
+                Ok(())
+            } else {
+                eprintln!(
+                    "UNHEALTHY: cpu={:.1}% mem={:.1}%",
+                    sys.cpu_usage, sys.memory_usage_percent
+                );
+                std::process::exit(1);
+            }
+        }
         Commands::Start => {
             info!(
                 version = "1.0.0",
@@ -240,6 +259,8 @@ async fn main() -> anyhow::Result<()> {
             // Register web-client as owner peer for chat
             engine.add_peer("web-client", "WebUI", "browser", "127.0.0.1", "owner")?;
 
+            let num_agents = config.webui.effective_max_agents();
+
             // Print agent startup banner
             println!("╔══════════════════════════════════════════╗");
             println!("║     EdgeClaw PC Agent v1.0.0             ║");
@@ -256,29 +277,66 @@ async fn main() -> anyhow::Result<()> {
                     "║  Chat: http://{}:{}            ║",
                     config.webui.bind, config.webui.port
                 );
+                println!(
+                    "║  Tier: {} ({} agent{})               ║",
+                    config.webui.license_tier,
+                    num_agents,
+                    if num_agents > 1 { "s" } else { "" }
+                );
+                println!(
+                    "║  Profile: {:16}              ║",
+                    config.webui.work_profile
+                );
             }
             println!("╚══════════════════════════════════════════╝");
 
-            // Start Web UI server (if enabled)
+            // Start Web UI server(s) — multi-agent: one per port
             if config.webui.enabled {
-                let webui_bind = format!("{}:{}", config.webui.bind, config.webui.port);
-                let webui_engine = engine.clone();
-                let auto_open = config.webui.auto_open;
-                let webui_url = format!("http://{}", webui_bind);
-                tokio::spawn(async move {
-                    let mut webui = WebUiServer::new(
-                        WebUiConfig {
-                            bind_addr: webui_bind,
-                        },
-                        webui_engine,
+                for i in 0..num_agents {
+                    let port = config.webui.agent_port(i);
+                    let webui_bind = format!("{}:{}", config.webui.bind, port);
+                    let webui_engine = engine.clone();
+                    let auto_open = config.webui.auto_open && i == 0; // only open first
+                    let webui_url = format!("http://{}", webui_bind);
+                    let agent_idx = i;
+
+                    // Register each agent's peer
+                    if i > 0 {
+                        let peer_id = format!("web-client-{}", i);
+                        let _ = engine.add_peer(
+                            &peer_id,
+                            &format!("WebUI-{}", i),
+                            "browser",
+                            "127.0.0.1",
+                            "owner",
+                        );
+                    }
+
+                    info!(port = port, agent = agent_idx, "Starting Web UI agent");
+
+                    tokio::spawn(async move {
+                        let mut webui = WebUiServer::new(
+                            WebUiConfig {
+                                bind_addr: webui_bind,
+                            },
+                            webui_engine,
+                        );
+                        if auto_open {
+                            let _ = open_browser(&webui_url);
+                        }
+                        if let Err(e) = webui.start().await {
+                            error!(error = %e, agent = agent_idx, "Web UI server error");
+                        }
+                    });
+                }
+                if num_agents > 1 {
+                    println!(
+                        "  Agents: {} instances on ports {}-{}",
+                        num_agents,
+                        config.webui.port,
+                        config.webui.agent_port(num_agents - 1)
                     );
-                    if auto_open {
-                        let _ = open_browser(&webui_url);
-                    }
-                    if let Err(e) = webui.start().await {
-                        error!(error = %e, "Web UI server error");
-                    }
-                });
+                }
             }
 
             // Start TCP server
@@ -304,9 +362,21 @@ async fn main() -> anyhow::Result<()> {
                 }
             });
 
-            // Run server until shutdown
-            if let Err(e) = tcp_server.start(msg_tx).await {
-                error!(error = %e, "TCP server error");
+            // Graceful shutdown on Ctrl+C
+            let tcp_handle = tokio::spawn(async move {
+                if let Err(e) = tcp_server.start(msg_tx).await {
+                    error!(error = %e, "TCP server error");
+                }
+            });
+
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    info!("Ctrl+C received — shutting down gracefully");
+                    println!("\nShutting down...");
+                }
+                _ = tcp_handle => {
+                    info!("TCP server stopped");
+                }
             }
 
             info!("EdgeClaw Agent stopped");

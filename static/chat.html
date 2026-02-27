@@ -52,8 +52,8 @@ body {
 }
 .header-info h1 { font-size: 16px; font-weight: 600; }
 .header-info .sub { font-size: 12px; color: var(--text-muted); }
+.header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
 .header-status {
-  margin-left: auto;
   display: flex; align-items: center; gap: 6px;
   font-size: 12px; color: var(--success);
 }
@@ -66,25 +66,73 @@ body {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
+.agent-badge {
+  font-size: 11px;
+  background: rgba(108,99,255,0.2);
+  color: var(--primary-light);
+  border: 1px solid rgba(108,99,255,0.3);
+  border-radius: 12px;
+  padding: 2px 10px;
+}
+
+/* ── Profile Tabs ── */
+.profile-tabs {
+  background: var(--surface);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  padding: 6px 16px;
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.profile-tab {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 5px 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.profile-tab:hover { background: var(--surface2); color: var(--text); }
+.profile-tab.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
 
 /* ── Quick Actions ── */
 .quick-actions {
   background: var(--surface);
   border-bottom: 1px solid rgba(255,255,255,0.06);
-  padding: 10px 16px;
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
+  padding: 8px 16px 10px;
   flex-shrink: 0;
+  max-height: 180px;
+  overflow-y: auto;
 }
-.quick-actions::-webkit-scrollbar { height: 0; }
+.quick-actions::-webkit-scrollbar { width: 4px; }
+.quick-actions::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+.qa-group-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+  margin: 6px 0 4px 2px;
+}
+.qa-group-label:first-child { margin-top: 0; }
+.qa-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
 .quick-btn {
   background: var(--surface2);
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 20px;
-  padding: 6px 14px;
+  border-radius: 16px;
+  padding: 4px 12px;
   color: var(--text);
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.2s;
@@ -93,6 +141,15 @@ body {
   background: var(--primary);
   border-color: var(--primary);
   color: #fff;
+}
+.quick-btn.confirm {
+  border-color: rgba(245,158,11,0.3);
+  color: var(--warning);
+}
+.quick-btn.confirm:hover {
+  background: var(--warning);
+  border-color: var(--warning);
+  color: #000;
 }
 
 /* ── Chat Messages ── */
@@ -165,6 +222,55 @@ body {
   font-size: 12px;
   color: var(--success);
   display: flex; align-items: center; gap: 6px;
+}
+
+/* ── Execution Result ── */
+.exec-result {
+  margin-top: 8px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.exec-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.exec-header.success { background: rgba(16,185,129,0.15); color: var(--success); }
+.exec-header.failed { background: rgba(239,68,68,0.15); color: var(--error); }
+.exec-header .duration {
+  margin-left: auto;
+  font-weight: 400;
+  opacity: 0.8;
+}
+.exec-output {
+  background: rgba(0,0,0,0.4);
+  padding: 10px 12px;
+  font-size: 12px;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+  line-height: 1.5;
+  color: #d4d4d4;
+}
+.exec-output::-webkit-scrollbar { width: 4px; }
+.exec-output::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+.exec-stderr {
+  border-top: 1px solid rgba(239,68,68,0.2);
+  background: rgba(239,68,68,0.05);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #f87171;
+  max-height: 150px;
+  overflow-y: auto;
 }
 
 /* ── Typing Indicator ── */
@@ -259,10 +365,21 @@ body {
     <h1>EdgeClaw Agent</h1>
     <div class="sub" id="headerSub">Connecting...</div>
   </div>
-  <div class="header-status" id="statusBadge">
-    <span class="dot"></span>
-    <span id="statusText">Online</span>
+  <div class="header-right">
+    <span class="agent-badge" id="agentBadge"></span>
+    <div class="header-status" id="statusBadge">
+      <span class="dot"></span>
+      <span id="statusText">Online</span>
+    </div>
   </div>
+</div>
+
+<!-- Profile Tabs -->
+<div class="profile-tabs" id="profileTabs">
+  <button class="profile-tab active" data-profile="all">All</button>
+  <button class="profile-tab" data-profile="System">System</button>
+  <button class="profile-tab" data-profile="SoftwareDev">Software Dev</button>
+  <button class="profile-tab" data-profile="Marketing">Marketing</button>
 </div>
 
 <!-- Quick Actions -->
@@ -271,20 +388,20 @@ body {
 <!-- Chat Area -->
 <div class="chat-area" id="chatArea">
   <div class="msg system">
-    <div class="msg-content">EdgeClaw Agent Chat — Zero-Trust Edge AI</div>
+    <div class="msg-content">EdgeClaw Agent Chat — Zero-Trust Edge AI<br>Type <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-size:12px;">help</code> for available commands</div>
   </div>
 </div>
 
 <!-- Typing Indicator -->
 <div class="typing" id="typingIndicator">
   <div class="typing-dots"><span></span><span></span><span></span></div>
-  <span class="typing-text">Agent is thinking...</span>
+  <span class="typing-text">Agent is executing...</span>
 </div>
 
 <!-- Input -->
 <div class="input-area">
   <div class="input-wrap">
-    <textarea id="chatInput" rows="1" placeholder="Type a message or command..." autocomplete="off"></textarea>
+    <textarea id="chatInput" rows="1" placeholder="Type a command... (status, cpu, git status, build, help)" autocomplete="off"></textarea>
   </div>
   <button class="send-btn" id="sendBtn" title="Send">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -304,8 +421,21 @@ const quickActions = document.getElementById('quickActions');
 const headerSub = document.getElementById('headerSub');
 const statusBadge = document.getElementById('statusBadge');
 const statusText = document.getElementById('statusText');
+const agentBadge = document.getElementById('agentBadge');
 
 let sending = false;
+let allActions = [];
+let activeProfile = 'all';
+
+// ── Profile Tab Switching ──
+document.getElementById('profileTabs').addEventListener('click', (e) => {
+  const tab = e.target.closest('.profile-tab');
+  if (!tab) return;
+  document.querySelectorAll('.profile-tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  activeProfile = tab.dataset.profile;
+  renderQuickActions();
+});
 
 // ── Auto-resize textarea ──
 chatInput.addEventListener('input', () => {
@@ -332,7 +462,6 @@ function addMessage(role, text, meta) {
   let avatar = role !== 'system' ? `<div class="msg-avatar">${avatarChar}</div>` : '';
 
   let content = escapeHtml(text);
-  // Simple code block rendering
   content = content.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
   content = content.replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-size:12px;">$1</code>');
   content = content.replace(/\n/g, '<br>');
@@ -342,6 +471,30 @@ function addMessage(role, text, meta) {
     intentHtml = `<div class="msg-intent">&#9654; [${escapeHtml(meta.intent.capability)}] ${escapeHtml(meta.intent.command)}</div>`;
   }
 
+  // Execution result display
+  let execHtml = '';
+  if (meta && meta.exec_result) {
+    const exec = meta.exec_result;
+    const statusClass = exec.success ? 'success' : 'failed';
+    const statusIcon = exec.success ? '&#10003;' : '&#10007;';
+    const statusLabel = exec.success ? 'Executed Successfully' : 'Execution Failed';
+    const duration = exec.duration_ms ? `${exec.duration_ms}ms` : '';
+    const exitCode = exec.exit_code !== null ? ` (exit: ${exec.exit_code})` : '';
+
+    execHtml = `<div class="exec-result">`;
+    execHtml += `<div class="exec-header ${statusClass}">${statusIcon} ${statusLabel}${exitCode}<span class="duration">${duration}</span></div>`;
+    if (exec.stdout && exec.stdout.trim()) {
+      execHtml += `<div class="exec-output">${escapeHtml(exec.stdout)}</div>`;
+    }
+    if (exec.stderr && exec.stderr.trim()) {
+      execHtml += `<div class="exec-stderr">${escapeHtml(exec.stderr)}</div>`;
+    }
+    if (!exec.stdout?.trim() && !exec.stderr?.trim()) {
+      execHtml += `<div class="exec-output" style="color:var(--text-muted);font-style:italic;">(no output)</div>`;
+    }
+    execHtml += `</div>`;
+  }
+
   let metaHtml = '';
   if (meta && meta.provider) {
     metaHtml = `<div class="msg-meta">${escapeHtml(meta.provider)} · ${(meta.confidence * 100).toFixed(0)}%</div>`;
@@ -349,7 +502,7 @@ function addMessage(role, text, meta) {
     metaHtml = `<div class="msg-meta">${new Date().toLocaleTimeString()}</div>`;
   }
 
-  div.innerHTML = `${avatar}<div><div class="msg-content">${content}${intentHtml}</div>${metaHtml}</div>`;
+  div.innerHTML = `${avatar}<div style="flex:1;min-width:0"><div class="msg-content">${content}${intentHtml}${execHtml}</div>${metaHtml}</div>`;
   chatArea.appendChild(div);
   chatArea.scrollTop = chatArea.scrollHeight;
 }
@@ -391,6 +544,7 @@ async function sendMessage() {
       provider: data.provider,
       confidence: data.confidence,
       intent: data.intent,
+      exec_result: data.exec_result,
     });
   } catch (err) {
     addMessage('system', `Error: ${err.message}`);
@@ -402,23 +556,54 @@ async function sendMessage() {
   }
 }
 
+// ── Render quick actions (grouped by profile/group) ──
+function renderQuickActions() {
+  const filtered = activeProfile === 'all'
+    ? allActions
+    : allActions.filter(a => a.profile === activeProfile || a.profile === 'System');
+
+  // Group by group label
+  const groups = {};
+  filtered.forEach(a => {
+    const key = a.group || 'Other';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(a);
+  });
+
+  quickActions.innerHTML = '';
+  for (const [groupName, actions] of Object.entries(groups)) {
+    const label = document.createElement('div');
+    label.className = 'qa-group-label';
+    label.textContent = groupName;
+    quickActions.appendChild(label);
+
+    const row = document.createElement('div');
+    row.className = 'qa-row';
+    actions.forEach(a => {
+      const btn = document.createElement('button');
+      btn.className = `quick-btn${a.needs_confirmation ? ' confirm' : ''}`;
+      btn.textContent = a.label;
+      btn.title = a.command;
+      btn.onclick = () => {
+        if (a.needs_confirmation) {
+          if (!confirm(`Execute: ${a.command}?`)) return;
+        }
+        chatInput.value = a.command;
+        sendMessage();
+      };
+      row.appendChild(btn);
+    });
+    quickActions.appendChild(row);
+  }
+}
+
 // ── Load quick actions ──
 async function loadQuickActions() {
   try {
     const res = await fetch(`${API}/api/quick-actions`);
     if (!res.ok) return;
-    const actions = await res.json();
-    quickActions.innerHTML = '';
-    actions.forEach(a => {
-      const btn = document.createElement('button');
-      btn.className = 'quick-btn';
-      btn.textContent = a.label;
-      btn.onclick = () => {
-        chatInput.value = a.command;
-        sendMessage();
-      };
-      quickActions.appendChild(btn);
-    });
+    allActions = await res.json();
+    renderQuickActions();
   } catch (_) {}
 }
 
@@ -428,7 +613,7 @@ async function loadStatus() {
     const res = await fetch(`${API}/api/status`);
     if (!res.ok) throw new Error();
     const data = await res.json();
-    headerSub.textContent = `${data.provider || 'none'} · Port ${data.port || '?'} · ${data.capabilities || 0} capabilities`;
+    headerSub.textContent = `${data.provider || 'none'} · Port ${data.port || '?'} · ${data.capabilities || 0} caps`;
     statusText.textContent = 'Online';
     statusBadge.querySelector('.dot').style.background = 'var(--success)';
     statusBadge.style.color = 'var(--success)';
@@ -440,9 +625,24 @@ async function loadStatus() {
   }
 }
 
+// ── Load agent info ──
+async function loadAgents() {
+  try {
+    const res = await fetch(`${API}/api/agents`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const tier = data.license_tier || 'free';
+    const max = data.max_agents || 1;
+    agentBadge.textContent = `${tier} · ${max} agent${max > 1 ? 's' : ''}`;
+  } catch (_) {
+    agentBadge.textContent = '';
+  }
+}
+
 // ── Init ──
 loadStatus();
 loadQuickActions();
+loadAgents();
 chatInput.focus();
 
 // Refresh status every 30s

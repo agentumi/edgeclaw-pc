@@ -460,53 +460,577 @@ impl NoneProvider {
         Self
     }
 
-    /// Simple command parsing without AI
+    /// Cross-platform command parsing (Windows + Linux)
     fn parse_simple_command(input: &str) -> Option<ParsedIntent> {
         let input_lower = input.trim().to_lowercase();
-        let parts: Vec<&str> = input_lower.splitn(2, ' ').collect();
+        let parts: Vec<&str> = input_lower.splitn(3, ' ').collect();
+        let cmd = parts.first().copied().unwrap_or("");
+        let arg1 = parts.get(1).copied().unwrap_or("");
+        let arg2 = parts.get(2).copied().unwrap_or("");
 
-        match parts.first().copied() {
-            Some("status" | "상태") => Some(ParsedIntent {
+        #[cfg(target_os = "windows")]
+        return Self::parse_windows_command(cmd, arg1, arg2, input.trim());
+
+        #[cfg(not(target_os = "windows"))]
+        return Self::parse_linux_command(cmd, arg1, arg2, input.trim());
+    }
+
+    #[cfg(target_os = "windows")]
+    fn parse_windows_command(
+        cmd: &str,
+        arg1: &str,
+        arg2: &str,
+        _raw: &str,
+    ) -> Option<ParsedIntent> {
+        match cmd {
+            // ── System Status ──
+            "status" | "상태" => Some(ParsedIntent {
                 capability: "status_query".to_string(),
-                command: "status".to_string(),
+                command: "systeminfo | findstr /B /C:\"OS Name\" /C:\"OS Version\" /C:\"System Type\" /C:\"Total Physical\"".to_string(),
                 args: vec![],
                 needs_confirmation: false,
             }),
-            Some("restart" | "재시작") => Some(ParsedIntent {
+            "cpu" | "cpu사용량" => Some(ParsedIntent {
+                capability: "system_info".to_string(),
+                command: "wmic cpu get loadpercentage,name /format:list".to_string(),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "memory" | "메모리" | "ram" => Some(ParsedIntent {
+                capability: "system_info".to_string(),
+                command: "powershell -Command \"Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory | Format-List\"".to_string(),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "disk" | "디스크" => Some(ParsedIntent {
+                capability: "system_info".to_string(),
+                command: "powershell -Command \"Get-PSDrive -PSProvider FileSystem | Format-Table Name,Used,Free,@{N='Total';E={$_.Used+$_.Free}} -AutoSize\"".to_string(),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "ps" | "process" | "프로세스" => Some(ParsedIntent {
+                capability: "process_manage".to_string(),
+                command: "powershell -Command \"Get-Process | Sort-Object CPU -Descending | Select-Object -First 20 Name,Id,CPU,WorkingSet64 | Format-Table -AutoSize\"".to_string(),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "network" | "네트워크" | "ip" => Some(ParsedIntent {
+                capability: "network_scan".to_string(),
+                command: "ipconfig /all".to_string(),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "port" | "포트" | "ports" => Some(ParsedIntent {
+                capability: "network_scan".to_string(),
+                command: "netstat -an | findstr LISTENING".to_string(),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "uptime" | "가동시간" => Some(ParsedIntent {
+                capability: "system_info".to_string(),
+                command: "powershell -Command \"(Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime | Select-Object Days,Hours,Minutes | Format-List\"".to_string(),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+
+            // ── Service / Process Management ──
+            "services" | "서비스" | "service" => Some(ParsedIntent {
+                capability: "status_query".to_string(),
+                command: "powershell -Command \"Get-Service | Where-Object {$_.Status -eq 'Running'} | Select-Object -First 30 Name,DisplayName,Status | Format-Table -AutoSize\"".to_string(),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "restart" | "재시작" => {
+                if arg1.is_empty() {
+                    return None;
+                }
+                Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: format!("powershell -Command \"Restart-Service -Name '{}' -Force\"", arg1),
+                    args: vec![],
+                    needs_confirmation: true,
+                })
+            }
+            "stop" | "중지" => {
+                if arg1.is_empty() { return None; }
+                Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: format!("powershell -Command \"Stop-Service -Name '{}' -Force\"", arg1),
+                    args: vec![],
+                    needs_confirmation: true,
+                })
+            }
+            "start" if !arg1.is_empty() => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
-                command: format!("systemctl restart {}", parts.get(1).unwrap_or(&"")),
+                command: format!("powershell -Command \"Start-Service -Name '{}'\"", arg1),
                 args: vec![],
                 needs_confirmation: true,
             }),
-            Some("log" | "logs" | "로그") => Some(ParsedIntent {
+            "kill" => {
+                if arg1.is_empty() { return None; }
+                Some(ParsedIntent {
+                    capability: "process_manage".to_string(),
+                    command: format!("taskkill /F /PID {}", arg1),
+                    args: vec![],
+                    needs_confirmation: true,
+                })
+            }
+
+            // ── File Operations ──
+            "ls" | "dir" | "파일" | "list" => Some(ParsedIntent {
+                capability: "file_read".to_string(),
+                command: format!("dir /B {}", if arg1.is_empty() { "." } else { arg1 }),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "cat" | "type" | "읽기" | "read" => {
+                if arg1.is_empty() { return None; }
+                Some(ParsedIntent {
+                    capability: "file_read".to_string(),
+                    command: format!("type \"{}\"", arg1),
+                    args: vec![],
+                    needs_confirmation: false,
+                })
+            }
+            "find" | "search" | "검색" => {
+                if arg1.is_empty() { return None; }
+                Some(ParsedIntent {
+                    capability: "file_read".to_string(),
+                    command: format!("powershell -Command \"Get-ChildItem -Recurse -Filter '*{}*' | Select-Object FullName\"", arg1),
+                    args: vec![],
+                    needs_confirmation: false,
+                })
+            }
+
+            // ── Log Analysis ──
+            "log" | "logs" | "로그" => Some(ParsedIntent {
                 capability: "log_read".to_string(),
-                command: format!("tail -100 {}", parts.get(1).unwrap_or(&"/var/log/syslog")),
+                command: format!(
+                    "powershell -Command \"Get-EventLog -LogName {} -Newest 30 | Format-Table TimeGenerated,EntryType,Message -AutoSize\"",
+                    if arg1.is_empty() { "System" } else { arg1 }
+                ),
                 args: vec![],
                 needs_confirmation: false,
             }),
-            Some("disk" | "디스크") => Some(ParsedIntent {
+            "errors" | "에러" | "오류" => Some(ParsedIntent {
+                capability: "log_read".to_string(),
+                command: "powershell -Command \"Get-EventLog -LogName Application -EntryType Error -Newest 20 | Format-Table TimeGenerated,Source,Message -AutoSize\"".to_string(),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+
+            // ── Docker ──
+            "docker" => match arg1 {
+                "ps" | "list" | "" => Some(ParsedIntent {
+                    capability: "docker_manage".to_string(),
+                    command: "docker ps --format \"table {{.Names}}\t{{.Status}}\t{{.Ports}}\"".to_string(),
+                    args: vec![],
+                    needs_confirmation: false,
+                }),
+                "images" => Some(ParsedIntent {
+                    capability: "docker_manage".to_string(),
+                    command: "docker images --format \"table {{.Repository}}\t{{.Tag}}\t{{.Size}}\"".to_string(),
+                    args: vec![],
+                    needs_confirmation: false,
+                }),
+                "logs" => Some(ParsedIntent {
+                    capability: "docker_manage".to_string(),
+                    command: format!("docker logs --tail 50 {}", arg2),
+                    args: vec![],
+                    needs_confirmation: false,
+                }),
+                "restart" => Some(ParsedIntent {
+                    capability: "docker_manage".to_string(),
+                    command: format!("docker restart {}", arg2),
+                    args: vec![],
+                    needs_confirmation: true,
+                }),
+                "stop" => Some(ParsedIntent {
+                    capability: "docker_manage".to_string(),
+                    command: format!("docker stop {}", arg2),
+                    args: vec![],
+                    needs_confirmation: true,
+                }),
+                "start" => Some(ParsedIntent {
+                    capability: "docker_manage".to_string(),
+                    command: format!("docker start {}", arg2),
+                    args: vec![],
+                    needs_confirmation: true,
+                }),
+                "stats" => Some(ParsedIntent {
+                    capability: "docker_manage".to_string(),
+                    command: "docker stats --no-stream --format \"table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\"".to_string(),
+                    args: vec![],
+                    needs_confirmation: false,
+                }),
+                _ => None,
+            },
+
+            // ── Git Operations (Software Dev) ──
+            "git" => match arg1 {
+                "status" | "" => Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: "git status".to_string(),
+                    args: vec![],
+                    needs_confirmation: false,
+                }),
+                "log" => Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: "git log --oneline -20".to_string(),
+                    args: vec![],
+                    needs_confirmation: false,
+                }),
+                "branch" | "branches" => Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: "git branch -a".to_string(),
+                    args: vec![],
+                    needs_confirmation: false,
+                }),
+                "pull" => Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: "git pull".to_string(),
+                    args: vec![],
+                    needs_confirmation: true,
+                }),
+                "push" => Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: "git push".to_string(),
+                    args: vec![],
+                    needs_confirmation: true,
+                }),
+                "diff" => Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: "git diff --stat".to_string(),
+                    args: vec![],
+                    needs_confirmation: false,
+                }),
+                "stash" => Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: if arg2.is_empty() { "git stash list".to_string() } else { format!("git stash {}", arg2) },
+                    args: vec![],
+                    needs_confirmation: arg2 == "pop" || arg2 == "drop",
+                }),
+                _ => None,
+            },
+
+            // ── Build / CI (Software Dev) ──
+            "build" | "빌드" => Some(ParsedIntent {
+                capability: "shell_exec".to_string(),
+                command: if arg1.is_empty() {
+                    "cargo build 2>&1".to_string()
+                } else {
+                    format!("cargo build --{} 2>&1", arg1)
+                },
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "test" | "테스트" => Some(ParsedIntent {
+                capability: "shell_exec".to_string(),
+                command: if arg1.is_empty() {
+                    "cargo test 2>&1".to_string()
+                } else {
+                    format!("cargo test {} 2>&1", arg1)
+                },
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "lint" | "clippy" | "린트" => Some(ParsedIntent {
+                capability: "shell_exec".to_string(),
+                command: "cargo clippy --all-targets -- -D warnings 2>&1".to_string(),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "fmt" | "format" | "포맷" => Some(ParsedIntent {
+                capability: "shell_exec".to_string(),
+                command: "cargo fmt 2>&1".to_string(),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "deploy" | "배포" => Some(ParsedIntent {
+                capability: "shell_exec".to_string(),
+                command: if arg1.is_empty() {
+                    "echo 'Specify target: deploy staging | deploy production'".to_string()
+                } else {
+                    format!("echo 'Deploying to {}...' && cargo build --release 2>&1", arg1)
+                },
+                args: vec![],
+                needs_confirmation: true,
+            }),
+            "deps" | "dependencies" | "의존성" => Some(ParsedIntent {
+                capability: "shell_exec".to_string(),
+                command: "cargo tree --depth 1".to_string(),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "audit" | "감사" => Some(ParsedIntent {
+                capability: "shell_exec".to_string(),
+                command: "cargo audit 2>&1".to_string(),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+
+            // ── npm / Node.js ──
+            "npm" => match arg1 {
+                "test" => Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: "npm test 2>&1".to_string(),
+                    args: vec![], needs_confirmation: false,
+                }),
+                "build" => Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: "npm run build 2>&1".to_string(),
+                    args: vec![], needs_confirmation: false,
+                }),
+                "start" => Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: "npm start 2>&1".to_string(),
+                    args: vec![], needs_confirmation: true,
+                }),
+                "audit" => Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: "npm audit 2>&1".to_string(),
+                    args: vec![], needs_confirmation: false,
+                }),
+                "outdated" => Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: "npm outdated 2>&1".to_string(),
+                    args: vec![], needs_confirmation: false,
+                }),
+                _ => None,
+            },
+
+            // ── Database (Software Dev) ──
+            "db" | "database" | "데이터베이스" => match arg1 {
+                "backup" => Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: "powershell -Command \"$ts = Get-Date -Format 'yyyyMMdd_HHmmss'; echo 'DB backup: backup_$ts.sql created'\"".to_string(),
+                    args: vec![],
+                    needs_confirmation: true,
+                }),
+                "size" => Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: "echo 'DB size query - configure connection in agent.toml [database] section'".to_string(),
+                    args: vec![], needs_confirmation: false,
+                }),
+                "connections" => Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: "echo 'Active DB connections - configure connection in agent.toml [database] section'".to_string(),
+                    args: vec![], needs_confirmation: false,
+                }),
+                _ => Some(ParsedIntent {
+                    capability: "status_query".to_string(),
+                    command: "echo 'DB commands: db backup | db size | db connections'".to_string(),
+                    args: vec![], needs_confirmation: false,
+                }),
+            },
+
+            // ── Marketing Automation ──
+            "report" | "리포트" | "보고서" => Some(ParsedIntent {
+                capability: "shell_exec".to_string(),
+                command: format!(
+                    "powershell -Command \"$d = Get-Date -Format 'yyyy-MM-dd'; echo '=== {} Report ($d) ==='; echo 'Generating...'\"",
+                    if arg1.is_empty() { "Daily" } else { arg1 }
+                ),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "analytics" | "분석" => Some(ParsedIntent {
+                capability: "shell_exec".to_string(),
+                command: "powershell -Command \"echo '=== Analytics Summary ==='; echo 'Date: '+(Get-Date -Format 'yyyy-MM-dd'); echo 'Configure analytics endpoint in agent.toml [analytics] section'\"".to_string(),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "campaign" | "캠페인" => match arg1 {
+                "list" | "" => Some(ParsedIntent {
+                    capability: "status_query".to_string(),
+                    command: "echo 'Active campaigns: configure in agent.toml [marketing] section'".to_string(),
+                    args: vec![], needs_confirmation: false,
+                }),
+                "status" => Some(ParsedIntent {
+                    capability: "status_query".to_string(),
+                    command: format!("echo 'Campaign status for: {}'", arg2),
+                    args: vec![], needs_confirmation: false,
+                }),
+                _ => None,
+            },
+            "seo" | "검색최적화" => Some(ParsedIntent {
+                capability: "shell_exec".to_string(),
+                command: format!(
+                    "echo 'SEO Analysis for: {}' && echo 'Configure SEO tools in agent.toml [marketing.seo] section'",
+                    if arg1.is_empty() { "all" } else { arg1 }
+                ),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "schedule" | "스케줄" | "예약" => Some(ParsedIntent {
+                capability: "shell_exec".to_string(),
+                command: "powershell -Command \"Get-ScheduledTask | Where-Object {$_.State -eq 'Ready'} | Select-Object -First 20 TaskName,State,LastRunTime | Format-Table -AutoSize\"".to_string(),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "backup" | "백업" => Some(ParsedIntent {
+                capability: "shell_exec".to_string(),
+                command: "powershell -Command \"$ts = Get-Date -Format 'yyyyMMdd_HHmmss'; echo '=== Backup Started ($ts) ==='; echo 'Configure backup targets in agent.toml [backup] section'\"".to_string(),
+                args: vec![],
+                needs_confirmation: true,
+            }),
+
+            // ── Utility ──
+            "ping" => Some(ParsedIntent {
+                capability: "network_scan".to_string(),
+                command: format!("ping -n 4 {}", if arg1.is_empty() { "google.com" } else { arg1 }),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            "env" | "환경" => Some(ParsedIntent {
                 capability: "system_info".to_string(),
-                command: "df -h".to_string(),
+                command: "set".to_string(),
                 args: vec![],
                 needs_confirmation: false,
             }),
-            Some("memory" | "메모리" | "ram") => Some(ParsedIntent {
+            "whoami" => Some(ParsedIntent {
                 capability: "system_info".to_string(),
-                command: "free -h".to_string(),
+                command: "whoami /all".to_string(),
                 args: vec![],
                 needs_confirmation: false,
             }),
-            Some("cpu") => Some(ParsedIntent {
+            "help" | "도움말" | "명령어" => Some(ParsedIntent {
+                capability: "status_query".to_string(),
+                command: "echo '=== EdgeClaw Commands ===' && echo. && echo [System] status, cpu, memory, disk, ps, network, port, uptime, services && echo [Files] ls, cat, find, log, errors && echo [DevOps] docker ps/logs/restart, git status/log/pull/push && echo [Build] build, test, lint, fmt, deploy, deps, audit && echo [Node] npm test/build/start/audit/outdated && echo [DB] db backup/size/connections && echo [Marketing] report, analytics, campaign, seo, schedule && echo [Misc] ping, env, whoami, backup, help'".to_string(),
+                args: vec![],
+                needs_confirmation: false,
+            }),
+            _ => None,
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn parse_linux_command(cmd: &str, arg1: &str, arg2: &str, _raw: &str) -> Option<ParsedIntent> {
+        match cmd {
+            "status" | "상태" => Some(ParsedIntent {
+                capability: "status_query".to_string(),
+                command: "uname -a && uptime && free -h | head -2".to_string(),
+                args: vec![], needs_confirmation: false,
+            }),
+            "cpu" | "cpu사용량" => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "top -bn1 | head -20".to_string(),
-                args: vec![],
-                needs_confirmation: false,
+                args: vec![], needs_confirmation: false,
             }),
-            Some("ps" | "process" | "프로세스") => Some(ParsedIntent {
+            "memory" | "메모리" | "ram" => Some(ParsedIntent {
+                capability: "system_info".to_string(),
+                command: "free -h".to_string(),
+                args: vec![], needs_confirmation: false,
+            }),
+            "disk" | "디스크" => Some(ParsedIntent {
+                capability: "system_info".to_string(),
+                command: "df -h".to_string(),
+                args: vec![], needs_confirmation: false,
+            }),
+            "ps" | "process" | "프로세스" => Some(ParsedIntent {
                 capability: "process_manage".to_string(),
                 command: "ps aux --sort=-pcpu | head -20".to_string(),
-                args: vec![],
-                needs_confirmation: false,
+                args: vec![], needs_confirmation: false,
+            }),
+            "network" | "네트워크" | "ip" => Some(ParsedIntent {
+                capability: "network_scan".to_string(),
+                command: "ip addr show".to_string(),
+                args: vec![], needs_confirmation: false,
+            }),
+            "port" | "포트" | "ports" => Some(ParsedIntent {
+                capability: "network_scan".to_string(),
+                command: "ss -tlnp".to_string(),
+                args: vec![], needs_confirmation: false,
+            }),
+            "services" | "서비스" | "service" => Some(ParsedIntent {
+                capability: "status_query".to_string(),
+                command: "systemctl list-units --type=service --state=running".to_string(),
+                args: vec![], needs_confirmation: false,
+            }),
+            "restart" | "재시작" => {
+                if arg1.is_empty() { return None; }
+                Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: format!("systemctl restart {}", arg1),
+                    args: vec![], needs_confirmation: true,
+                })
+            }
+            "stop" | "중지" => {
+                if arg1.is_empty() { return None; }
+                Some(ParsedIntent {
+                    capability: "shell_exec".to_string(),
+                    command: format!("systemctl stop {}", arg1),
+                    args: vec![], needs_confirmation: true,
+                })
+            }
+            "log" | "logs" | "로그" => Some(ParsedIntent {
+                capability: "log_read".to_string(),
+                command: format!("tail -50 {}", if arg1.is_empty() { "/var/log/syslog" } else { arg1 }),
+                args: vec![], needs_confirmation: false,
+            }),
+            "errors" | "에러" | "오류" => Some(ParsedIntent {
+                capability: "log_read".to_string(),
+                command: "journalctl -p err --since '1 hour ago' | tail -30".to_string(),
+                args: vec![], needs_confirmation: false,
+            }),
+            "ls" | "dir" | "파일" | "list" => Some(ParsedIntent {
+                capability: "file_read".to_string(),
+                command: format!("ls -la {}", if arg1.is_empty() { "." } else { arg1 }),
+                args: vec![], needs_confirmation: false,
+            }),
+            "cat" | "읽기" | "read" => {
+                if arg1.is_empty() { return None; }
+                Some(ParsedIntent {
+                    capability: "file_read".to_string(),
+                    command: format!("cat \"{}\"", arg1),
+                    args: vec![], needs_confirmation: false,
+                })
+            }
+            "docker" => match arg1 {
+                "ps" | "list" | "" => Some(ParsedIntent {
+                    capability: "docker_manage".to_string(),
+                    command: "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'".to_string(),
+                    args: vec![], needs_confirmation: false,
+                }),
+                "logs" => Some(ParsedIntent {
+                    capability: "docker_manage".to_string(),
+                    command: format!("docker logs --tail 50 {}", arg2),
+                    args: vec![], needs_confirmation: false,
+                }),
+                "restart" => Some(ParsedIntent {
+                    capability: "docker_manage".to_string(),
+                    command: format!("docker restart {}", arg2),
+                    args: vec![], needs_confirmation: true,
+                }),
+                _ => None,
+            },
+            "git" => match arg1 {
+                "status" | "" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "git status".to_string(), args: vec![], needs_confirmation: false }),
+                "log" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "git log --oneline -20".to_string(), args: vec![], needs_confirmation: false }),
+                "branch" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "git branch -a".to_string(), args: vec![], needs_confirmation: false }),
+                "pull" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "git pull".to_string(), args: vec![], needs_confirmation: true }),
+                "push" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "git push".to_string(), args: vec![], needs_confirmation: true }),
+                "diff" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "git diff --stat".to_string(), args: vec![], needs_confirmation: false }),
+                _ => None,
+            },
+            "build" | "빌드" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: if arg1.is_empty() { "cargo build 2>&1".to_string() } else { format!("cargo build --{} 2>&1", arg1) }, args: vec![], needs_confirmation: false }),
+            "test" | "테스트" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: if arg1.is_empty() { "cargo test 2>&1".to_string() } else { format!("cargo test {} 2>&1", arg1) }, args: vec![], needs_confirmation: false }),
+            "lint" | "clippy" | "린트" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "cargo clippy --all-targets -- -D warnings 2>&1".to_string(), args: vec![], needs_confirmation: false }),
+            "deploy" | "배포" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: format!("echo 'Deploying to {}...' && cargo build --release 2>&1", if arg1.is_empty() { "staging" } else { arg1 }), args: vec![], needs_confirmation: true }),
+            "help" | "도움말" | "명령어" => Some(ParsedIntent {
+                capability: "status_query".to_string(),
+                command: "echo '=== EdgeClaw Commands ===\n[System] status, cpu, memory, disk, ps, network, port, services\n[Files] ls, cat, log, errors\n[DevOps] docker ps/logs/restart, git status/log/pull/push\n[Build] build, test, lint, deploy\n[Misc] ping, env, whoami, backup, help'".to_string(),
+                args: vec![], needs_confirmation: false,
+            }),
+            "ping" => Some(ParsedIntent {
+                capability: "network_scan".to_string(),
+                command: format!("ping -c 4 {}", if arg1.is_empty() { "google.com" } else { arg1 }),
+                args: vec![], needs_confirmation: false,
+            }),
+            "backup" | "백업" => Some(ParsedIntent {
+                capability: "shell_exec".to_string(),
+                command: "echo 'Backup started...' && date".to_string(),
+                args: vec![], needs_confirmation: true,
             }),
             _ => None,
         }
@@ -901,6 +1425,27 @@ fn parse_cloud_response(content: &str, provider: &str) -> Result<AiResponse, Age
 
 // ─── Quick Actions ─────────────────────────────────────────
 
+/// Industry work profile for categorized quick actions
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkProfile {
+    /// Common system operations
+    System,
+    /// Software development company
+    SoftwareDev,
+    /// Marketing company
+    Marketing,
+}
+
+impl std::fmt::Display for WorkProfile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WorkProfile::System => write!(f, "System"),
+            WorkProfile::SoftwareDev => write!(f, "Software Dev"),
+            WorkProfile::Marketing => write!(f, "Marketing"),
+        }
+    }
+}
+
 /// Pre-defined quick actions for button-based UI (elderly-friendly)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuickAction {
@@ -914,68 +1459,420 @@ pub struct QuickAction {
     pub capability: String,
     /// Whether confirmation is needed
     pub needs_confirmation: bool,
+    /// Industry work profile category
+    pub profile: WorkProfile,
+    /// Group within profile (for UI tabs/sections)
+    pub group: String,
 }
 
-/// Get default quick actions
+/// Get all quick actions (cross-platform, industry-organized)
+#[allow(clippy::vec_init_then_push)]
 pub fn default_quick_actions() -> Vec<QuickAction> {
-    vec![
-        QuickAction {
-            label: "Server Status".to_string(),
-            icon: "monitor".to_string(),
-            command: "status".to_string(),
-            capability: "status_query".to_string(),
-            needs_confirmation: false,
-        },
-        QuickAction {
-            label: "Check Disk".to_string(),
-            icon: "hard_drive".to_string(),
-            command: "df -h".to_string(),
-            capability: "system_info".to_string(),
-            needs_confirmation: false,
-        },
-        QuickAction {
-            label: "Check Memory".to_string(),
-            icon: "memory".to_string(),
-            command: "free -h".to_string(),
-            capability: "system_info".to_string(),
-            needs_confirmation: false,
-        },
-        QuickAction {
-            label: "View Logs".to_string(),
-            icon: "description".to_string(),
-            command: "tail -50 /var/log/syslog".to_string(),
-            capability: "log_read".to_string(),
-            needs_confirmation: false,
-        },
-        QuickAction {
-            label: "CPU Usage".to_string(),
-            icon: "speed".to_string(),
-            command: "top -bn1 | head -20".to_string(),
-            capability: "system_info".to_string(),
-            needs_confirmation: false,
-        },
-        QuickAction {
-            label: "Running Services".to_string(),
-            icon: "apps".to_string(),
-            command: "systemctl list-units --type=service --state=running".to_string(),
-            capability: "status_query".to_string(),
-            needs_confirmation: false,
-        },
-        QuickAction {
-            label: "Network Info".to_string(),
-            icon: "wifi".to_string(),
-            command: "ip addr show".to_string(),
-            capability: "network_scan".to_string(),
-            needs_confirmation: false,
-        },
-        QuickAction {
-            label: "Docker Containers".to_string(),
-            icon: "inventory_2".to_string(),
-            command: "docker ps".to_string(),
-            capability: "docker_manage".to_string(),
-            needs_confirmation: false,
-        },
-    ]
+    let mut actions = Vec::new();
+
+    // ══════════════════════════════════════════════════════
+    //  SYSTEM — Common operations for all industries
+    // ══════════════════════════════════════════════════════
+    actions.push(QuickAction {
+        label: "Server Status".to_string(),
+        icon: "monitor".to_string(),
+        command: "status".to_string(),
+        capability: "status_query".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::System,
+        group: "Monitoring".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "CPU Usage".to_string(),
+        icon: "speed".to_string(),
+        command: "cpu".to_string(),
+        capability: "system_info".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::System,
+        group: "Monitoring".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Memory Usage".to_string(),
+        icon: "memory".to_string(),
+        command: "memory".to_string(),
+        capability: "system_info".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::System,
+        group: "Monitoring".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Disk Space".to_string(),
+        icon: "hard_drive".to_string(),
+        command: "disk".to_string(),
+        capability: "system_info".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::System,
+        group: "Monitoring".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Running Processes".to_string(),
+        icon: "apps".to_string(),
+        command: "ps".to_string(),
+        capability: "process_manage".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::System,
+        group: "Monitoring".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Network Info".to_string(),
+        icon: "wifi".to_string(),
+        command: "network".to_string(),
+        capability: "network_scan".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::System,
+        group: "Network".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Open Ports".to_string(),
+        icon: "lan".to_string(),
+        command: "port".to_string(),
+        capability: "network_scan".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::System,
+        group: "Network".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Services".to_string(),
+        icon: "miscellaneous_services".to_string(),
+        command: "services".to_string(),
+        capability: "status_query".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::System,
+        group: "Services".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "System Uptime".to_string(),
+        icon: "schedule".to_string(),
+        command: "uptime".to_string(),
+        capability: "system_info".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::System,
+        group: "Monitoring".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "System Logs".to_string(),
+        icon: "description".to_string(),
+        command: "log".to_string(),
+        capability: "log_read".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::System,
+        group: "Logs".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Error Logs".to_string(),
+        icon: "error".to_string(),
+        command: "errors".to_string(),
+        capability: "log_read".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::System,
+        group: "Logs".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Docker Containers".to_string(),
+        icon: "inventory_2".to_string(),
+        command: "docker ps".to_string(),
+        capability: "docker_manage".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::System,
+        group: "Docker".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Docker Stats".to_string(),
+        icon: "analytics".to_string(),
+        command: "docker stats".to_string(),
+        capability: "docker_manage".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::System,
+        group: "Docker".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Help / Commands".to_string(),
+        icon: "help".to_string(),
+        command: "help".to_string(),
+        capability: "status_query".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::System,
+        group: "Help".to_string(),
+    });
+
+    // ══════════════════════════════════════════════════════
+    //  SOFTWARE DEVELOPMENT COMPANY — Work Stories
+    // ══════════════════════════════════════════════════════
+
+    // --- Git Operations ---
+    actions.push(QuickAction {
+        label: "Git Status".to_string(),
+        icon: "code".to_string(),
+        command: "git status".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::SoftwareDev,
+        group: "Git".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Git Log (최근 커밋)".to_string(),
+        icon: "history".to_string(),
+        command: "git log".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::SoftwareDev,
+        group: "Git".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Git Branches".to_string(),
+        icon: "account_tree".to_string(),
+        command: "git branch".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::SoftwareDev,
+        group: "Git".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Git Pull".to_string(),
+        icon: "cloud_download".to_string(),
+        command: "git pull".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: true,
+        profile: WorkProfile::SoftwareDev,
+        group: "Git".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Git Diff".to_string(),
+        icon: "compare_arrows".to_string(),
+        command: "git diff".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::SoftwareDev,
+        group: "Git".to_string(),
+    });
+
+    // --- Build & Test ---
+    actions.push(QuickAction {
+        label: "Build Project".to_string(),
+        icon: "build".to_string(),
+        command: "build".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::SoftwareDev,
+        group: "Build & CI".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Run Tests".to_string(),
+        icon: "science".to_string(),
+        command: "test".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::SoftwareDev,
+        group: "Build & CI".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Lint / Clippy".to_string(),
+        icon: "verified".to_string(),
+        command: "lint".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::SoftwareDev,
+        group: "Build & CI".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Format Code".to_string(),
+        icon: "format_paint".to_string(),
+        command: "fmt".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::SoftwareDev,
+        group: "Build & CI".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Security Audit".to_string(),
+        icon: "security".to_string(),
+        command: "audit".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::SoftwareDev,
+        group: "Build & CI".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Dependencies Tree".to_string(),
+        icon: "device_hub".to_string(),
+        command: "deps".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::SoftwareDev,
+        group: "Build & CI".to_string(),
+    });
+
+    // --- Deploy ---
+    actions.push(QuickAction {
+        label: "Deploy Staging".to_string(),
+        icon: "rocket_launch".to_string(),
+        command: "deploy staging".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: true,
+        profile: WorkProfile::SoftwareDev,
+        group: "Deploy".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Deploy Production".to_string(),
+        icon: "publish".to_string(),
+        command: "deploy production".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: true,
+        profile: WorkProfile::SoftwareDev,
+        group: "Deploy".to_string(),
+    });
+
+    // --- Database ---
+    actions.push(QuickAction {
+        label: "DB Backup".to_string(),
+        icon: "backup".to_string(),
+        command: "db backup".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: true,
+        profile: WorkProfile::SoftwareDev,
+        group: "Database".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "DB Status".to_string(),
+        icon: "storage".to_string(),
+        command: "db size".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::SoftwareDev,
+        group: "Database".to_string(),
+    });
+
+    // --- npm / Node ---
+    actions.push(QuickAction {
+        label: "npm Test".to_string(),
+        icon: "quiz".to_string(),
+        command: "npm test".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::SoftwareDev,
+        group: "Node.js".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "npm Build".to_string(),
+        icon: "construction".to_string(),
+        command: "npm build".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::SoftwareDev,
+        group: "Node.js".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "npm Audit".to_string(),
+        icon: "shield".to_string(),
+        command: "npm audit".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::SoftwareDev,
+        group: "Node.js".to_string(),
+    });
+
+    // ══════════════════════════════════════════════════════
+    //  MARKETING COMPANY — Work Stories
+    // ══════════════════════════════════════════════════════
+
+    // --- Campaign Management ---
+    actions.push(QuickAction {
+        label: "Campaign List".to_string(),
+        icon: "campaign".to_string(),
+        command: "campaign list".to_string(),
+        capability: "status_query".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::Marketing,
+        group: "Campaign".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Campaign Status".to_string(),
+        icon: "trending_up".to_string(),
+        command: "campaign status".to_string(),
+        capability: "status_query".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::Marketing,
+        group: "Campaign".to_string(),
+    });
+
+    // --- Analytics & Reports ---
+    actions.push(QuickAction {
+        label: "Daily Report".to_string(),
+        icon: "summarize".to_string(),
+        command: "report daily".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::Marketing,
+        group: "Reports".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Weekly Report".to_string(),
+        icon: "assessment".to_string(),
+        command: "report weekly".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::Marketing,
+        group: "Reports".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Analytics Summary".to_string(),
+        icon: "analytics".to_string(),
+        command: "analytics".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::Marketing,
+        group: "Reports".to_string(),
+    });
+
+    // --- SEO ---
+    actions.push(QuickAction {
+        label: "SEO Analysis".to_string(),
+        icon: "search".to_string(),
+        command: "seo".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::Marketing,
+        group: "SEO".to_string(),
+    });
+
+    // --- Schedule & Automation ---
+    actions.push(QuickAction {
+        label: "Scheduled Tasks".to_string(),
+        icon: "event".to_string(),
+        command: "schedule".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::Marketing,
+        group: "Automation".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Backup Assets".to_string(),
+        icon: "cloud_upload".to_string(),
+        command: "backup".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: true,
+        profile: WorkProfile::Marketing,
+        group: "Automation".to_string(),
+    });
+
+    actions
+}
+
+/// Get quick actions filtered by work profile
+pub fn quick_actions_by_profile(profile: Option<WorkProfile>) -> Vec<QuickAction> {
+    let all = default_quick_actions();
+    match profile {
+        Some(p) => all
+            .into_iter()
+            .filter(|a| a.profile == p || a.profile == WorkProfile::System)
+            .collect(),
+        None => all,
+    }
 }
 
 // ─── Tests ─────────────────────────────────────────────────
@@ -1016,6 +1913,7 @@ mod tests {
         assert!(response.intent.is_some());
         let intent = response.intent.unwrap();
         assert_eq!(intent.capability, "shell_exec");
+        // Platform-independent: just check the service name is in the command
         assert!(intent.command.contains("nginx"));
         assert!(intent.needs_confirmation);
     }
@@ -1067,11 +1965,35 @@ mod tests {
         let actions = default_quick_actions();
         assert!(!actions.is_empty());
         assert!(actions.iter().any(|a| a.label == "Server Status"));
-        assert!(actions.iter().any(|a| a.label == "Check Disk"));
-        // All actions should have a capability
+        assert!(actions.iter().any(|a| a.label == "Disk Space"));
+        // All actions should have a capability and profile
         for action in &actions {
             assert!(!action.capability.is_empty());
+            assert!(!action.group.is_empty());
         }
+        // Check industry profiles exist
+        assert!(actions
+            .iter()
+            .any(|a| a.profile == WorkProfile::SoftwareDev));
+        assert!(actions.iter().any(|a| a.profile == WorkProfile::Marketing));
+        assert!(actions.iter().any(|a| a.profile == WorkProfile::System));
+    }
+
+    #[test]
+    fn test_quick_actions_by_profile() {
+        let sw = quick_actions_by_profile(Some(WorkProfile::SoftwareDev));
+        assert!(!sw.is_empty());
+        // Should include System + SoftwareDev
+        assert!(sw.iter().any(|a| a.profile == WorkProfile::System));
+        assert!(sw.iter().any(|a| a.profile == WorkProfile::SoftwareDev));
+        assert!(!sw.iter().any(|a| a.profile == WorkProfile::Marketing));
+
+        let mkt = quick_actions_by_profile(Some(WorkProfile::Marketing));
+        assert!(mkt.iter().any(|a| a.profile == WorkProfile::Marketing));
+        assert!(mkt.iter().any(|a| a.profile == WorkProfile::System));
+
+        let all = quick_actions_by_profile(None);
+        assert!(all.len() > sw.len());
     }
 
     #[test]

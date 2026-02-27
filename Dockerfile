@@ -7,6 +7,7 @@ FROM rust:1.75-slim AS builder
 WORKDIR /build
 COPY Cargo.toml Cargo.lock* ./
 COPY src/ src/
+COPY static/ static/
 
 RUN cargo build --release && \
     strip target/release/edgeclaw-agent
@@ -27,7 +28,7 @@ USER edgeclaw
 EXPOSE 9443
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD ["/usr/local/bin/edgeclaw-agent", "status"]
+    CMD ["/usr/local/bin/edgeclaw-agent", "health"]
 
 ENTRYPOINT ["/usr/local/bin/edgeclaw-agent"]
 CMD ["start"]

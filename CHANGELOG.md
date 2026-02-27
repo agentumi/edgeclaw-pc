@@ -14,6 +14,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.1] - 2026-02-27
+
+### Added
+- `/health` and `/api/health` HTTP endpoints for Docker/load-balancer health checks
+- `health` CLI subcommand for monitoring tools
+- Crate-level documentation with `//!` doc comment and doc-test
+- Persistent audit log (JSON lines to `audit.jsonl`, survives restarts)
+- Rate limiter wired into Web UI HTTP server (per-IP, 60 req/min + 10 burst)
+- HTTP 413 (Payload Too Large) and 429 (Too Many Requests) status codes
+- `[ai]` and `[webui]` sections in default configuration file
+- Graceful Ctrl+C shutdown handler with `tokio::signal`
+
+### Changed
+- CORS restricted from wildcard (`*`) to `http://127.0.0.1:9444` (localhost only)
+- Dockerfile HEALTHCHECK updated to use `health` subcommand
+- Audit log now loads previous entries from disk on startup
+
+### Security
+- Web UI rate limiting prevents DoS attacks on HTTP endpoints
+- CORS origin restriction prevents cross-origin requests from untrusted sites
+
+---
+
 ## [1.0.0] - 2026-02-27
 
 ### Added

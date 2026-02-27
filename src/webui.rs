@@ -6,6 +6,7 @@
 
 use crate::ai::QuickAction;
 use crate::error::AgentError;
+use crate::security::{RateLimitConfig, RateLimiter};
 use crate::AgentEngine;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -28,6 +29,7 @@ pub struct WebUiServer {
     config: WebUiConfig,
     engine: Arc<AgentEngine>,
     shutdown_tx: Option<broadcast::Sender<()>>,
+    rate_limiter: Arc<RateLimiter>,
 }
 
 impl WebUiServer {
@@ -37,6 +39,7 @@ impl WebUiServer {
             config,
             engine,
             shutdown_tx: None,
+            rate_limiter: Arc::new(RateLimiter::new(RateLimitConfig::default())),
         }
     }
 
@@ -65,9 +68,10 @@ impl WebUiServer {
                     match result {
                         Ok((stream, addr)) => {
                             let eng = engine.clone();
+                            let limiter = self.rate_limiter.clone();
                             let mut shutdown = shutdown_tx.subscribe();
                             tokio::spawn(async move {
-                                if let Err(e) = handle_http(stream, eng, &mut shutdown).await {
+                                if let Err(e) = handle_http(stream, eng, &limiter, &mut shutdown).await {
                                     warn!(peer = %addr, error = %e, "HTTP handler error");
                                 }
                             });
@@ -99,8 +103,26 @@ impl WebUiServer {
 async fn handle_http(
     mut stream: TcpStream,
     engine: Arc<AgentEngine>,
+    rate_limiter: &RateLimiter,
     shutdown: &mut broadcast::Receiver<()>,
 ) -> Result<(), AgentError> {
+    // Rate-limit by peer IP
+    let peer_ip = stream
+        .peer_addr()
+        .map(|a| a.ip().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+    let rate_result = rate_limiter.check(&peer_ip);
+    if !rate_result.is_allowed() {
+        send_response(
+            &mut stream,
+            429,
+            "application/json",
+            b"{\"error\":\"too many requests\"}",
+        )
+        .await?;
+        return Ok(());
+    }
+
     let mut buf = Vec::with_capacity(65536);
     let mut tmp = [0u8; 8192];
 
@@ -185,8 +207,10 @@ async fn handle_http(
             )
             .await
         }
+        ("GET", "/health") | ("GET", "/api/health") => handle_health(&mut stream, &engine).await,
         ("GET", "/api/status") => handle_status(&mut stream, &engine).await,
         ("GET", "/api/quick-actions") => handle_quick_actions(&mut stream, &engine).await,
+        ("GET", "/api/agents") => handle_agents_info(&mut stream, &engine).await,
         ("POST", "/api/chat") => {
             let body = extract_body(&request);
             handle_chat(&mut stream, &engine, &body).await
@@ -202,6 +226,23 @@ async fn handle_http(
             .await
         }
     }
+}
+
+/// GET /health, /api/health — Lightweight health check for Docker/load balancers
+async fn handle_health(stream: &mut TcpStream, engine: &AgentEngine) -> Result<(), AgentError> {
+    let body = serde_json::json!({
+        "status": "ok",
+        "version": "1.0.0",
+        "uptime_secs": engine.uptime_secs(),
+        "components": {
+            "identity": "ok",
+            "ai": engine.ai_status()["provider"],
+            "webui": "ok",
+            "executor": "ok",
+        }
+    });
+    let json = serde_json::to_vec(&body).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json).await
 }
 
 /// GET /api/status
@@ -237,6 +278,40 @@ async fn handle_quick_actions(
     send_response(stream, 200, "application/json", &json).await
 }
 
+/// GET /api/agents — Multi-agent instance info
+async fn handle_agents_info(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+) -> Result<(), AgentError> {
+    let config = engine.config();
+    let max = config.webui.effective_max_agents();
+    let mut instances = Vec::new();
+    for i in 0..max {
+        let port = config.webui.agent_port(i);
+        instances.push(serde_json::json!({
+            "index": i,
+            "port": port,
+            "url": format!("http://{}:{}", config.webui.bind, port),
+            "peer_id": if i == 0 { "web-client".to_string() } else { format!("web-client-{}", i) },
+        }));
+    }
+    let body = serde_json::json!({
+        "license_tier": config.webui.license_tier,
+        "max_agents": max,
+        "max_agents_for_tier": config.webui.max_agents_for_tier(),
+        "work_profile": config.webui.work_profile,
+        "base_port": config.webui.port,
+        "instances": instances,
+        "pricing": {
+            "free": { "agents": 1, "price": "$0/mo" },
+            "pro": { "agents": 5, "price": "$29/mo" },
+            "enterprise": { "agents": 10, "price": "$99/mo" },
+        }
+    });
+    let json = serde_json::to_vec(&body).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json).await
+}
+
 /// POST /api/chat
 async fn handle_chat(
     stream: &mut TcpStream,
@@ -264,9 +339,20 @@ async fn handle_chat(
         return send_response(stream, 400, "application/json", &json).await;
     }
 
-    // Process chat through AI engine (use "web-client" as peer id)
-    match engine.chat("web-client", req.message.trim()) {
-        Ok(resp) => {
+    // Process chat through AI engine AND execute the intent
+    match engine.chat_execute("web-client", req.message.trim()).await {
+        Ok((ai_resp, exec_result)) => {
+            let mut resp = serde_json::to_value(&ai_resp).unwrap_or_default();
+            if let Some(exec) = exec_result {
+                resp["exec_result"] = serde_json::json!({
+                    "success": exec.success,
+                    "exit_code": exec.exit_code,
+                    "stdout": exec.stdout,
+                    "stderr": exec.stderr,
+                    "duration_ms": exec.duration_ms,
+                    "action": exec.action,
+                });
+            }
             let json = serde_json::to_vec(&resp).unwrap_or_default();
             send_response(stream, 200, "application/json", &json).await
         }
@@ -314,6 +400,8 @@ async fn send_response(
         200 => "OK",
         400 => "Bad Request",
         404 => "Not Found",
+        413 => "Payload Too Large",
+        429 => "Too Many Requests",
         500 => "Internal Server Error",
         _ => "Unknown",
     };
@@ -322,7 +410,7 @@ async fn send_response(
         "HTTP/1.1 {} {}\r\n\
          Content-Type: {}\r\n\
          Content-Length: {}\r\n\
-         Access-Control-Allow-Origin: *\r\n\
+         Access-Control-Allow-Origin: http://127.0.0.1:9444\r\n\
          Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
          Access-Control-Allow-Headers: Content-Type\r\n\
          Connection: close\r\n\
@@ -408,5 +496,6 @@ mod tests {
         };
         let server = WebUiServer::new(config, engine);
         assert!(server.shutdown_tx.is_none());
+        assert_eq!(server.rate_limiter.tracked_clients(), 0);
     }
 }

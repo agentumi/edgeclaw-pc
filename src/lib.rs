@@ -1,3 +1,29 @@
+//! # EdgeClaw Desktop Agent
+//!
+//! Zero-trust edge AI executor for peer-to-peer device management.
+//!
+//! This crate provides the core [`AgentEngine`] that orchestrates:
+//! - **Identity** — Ed25519/X25519 device authentication ([`identity`])
+//! - **Sessions** — ECDH + AES-256-GCM encrypted channels ([`session`])
+//! - **Policy** — Role-based access control with 5 roles & 17 capabilities ([`policy`])
+//! - **AI** — Pluggable AI providers: Ollama, OpenAI, Claude, or built-in ([`ai`])
+//! - **Execution** — Sandboxed async command execution ([`executor`])
+//! - **Audit** — SHA-256 hash-chained tamper-evident logging ([`audit`])
+//! - **Protocol** — ECNP v1.1 binary framing ([`ecnp`])
+//! - **Web UI** — Embedded HTTP chat interface ([`webui`])
+//!
+//! # Quick Start
+//!
+//! ```no_run
+//! use edgeclaw_agent::AgentEngine;
+//! use edgeclaw_agent::config::AgentConfig;
+//!
+//! let config = AgentConfig::default();
+//! let engine = AgentEngine::new(config);
+//! let identity = engine.generate_identity().unwrap();
+//! println!("Device: {}", identity.device_id);
+//! ```
+
 pub mod ai;
 pub mod audit;
 pub mod config;
@@ -54,6 +80,15 @@ impl AgentEngine {
         );
         let ai_manager = AiManager::from_config(&config.ai);
 
+        // Use persistent audit log if config dir is available
+        let audit_manager = {
+            let audit_path = dirs::data_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join("edgeclaw")
+                .join("audit.jsonl");
+            AuditManager::with_persistence(audit_path)
+        };
+
         Self {
             config,
             identity_manager: Mutex::new(IdentityManager::new()),
@@ -62,7 +97,7 @@ impl AgentEngine {
             policy_engine: PolicyEngine::new(),
             executor,
             ai_manager,
-            audit_manager: AuditManager::new(),
+            audit_manager,
             chat_history: Mutex::new(Vec::new()),
             start_time: chrono::Utc::now(),
         }
@@ -435,9 +470,15 @@ impl AgentEngine {
         }
     }
 
-    /// Get quick actions available for the given role
+    /// Get quick actions available for the given role (filtered by work profile from config)
     pub fn get_quick_actions(&self, role: &str) -> Vec<ai::QuickAction> {
-        ai::default_quick_actions()
+        let profile = match self.config().webui.work_profile.to_lowercase().as_str() {
+            "software_dev" | "softwaredev" | "dev" => Some(ai::WorkProfile::SoftwareDev),
+            "marketing" | "mkt" => Some(ai::WorkProfile::Marketing),
+            "system" => Some(ai::WorkProfile::System),
+            _ => None, // "all" — show everything
+        };
+        ai::quick_actions_by_profile(profile)
             .into_iter()
             .filter(|a| {
                 self.policy_engine

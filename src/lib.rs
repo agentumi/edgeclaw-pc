@@ -45,6 +45,7 @@ pub mod session;
 pub mod system;
 pub mod websocket;
 pub mod webui;
+pub mod workflows;
 
 use std::sync::{Arc, Mutex};
 

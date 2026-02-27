@@ -1389,6 +1389,8 @@ pub enum WorkProfile {
     SoftwareDev,
     /// Marketing company
     Marketing,
+    /// DevOps / Infrastructure
+    DevOps,
 }
 
 impl std::fmt::Display for WorkProfile {
@@ -1397,6 +1399,7 @@ impl std::fmt::Display for WorkProfile {
             WorkProfile::System => write!(f, "System"),
             WorkProfile::SoftwareDev => write!(f, "Software Dev"),
             WorkProfile::Marketing => write!(f, "Marketing"),
+            WorkProfile::DevOps => write!(f, "DevOps"),
         }
     }
 }
@@ -1815,6 +1818,90 @@ pub fn default_quick_actions() -> Vec<QuickAction> {
         group: "Automation".to_string(),
     });
 
+    // ══════════════════════════════════════════════════════
+    //  DEVOPS — Infrastructure & Operations
+    // ══════════════════════════════════════════════════════
+
+    // --- Docker ---
+    actions.push(QuickAction {
+        label: "Docker Status".to_string(),
+        icon: "inventory_2".to_string(),
+        command: "docker_status".to_string(),
+        capability: "docker_manage".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::DevOps,
+        group: "Docker".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Docker Prune".to_string(),
+        icon: "delete_sweep".to_string(),
+        command: "docker_prune".to_string(),
+        capability: "docker_manage".to_string(),
+        needs_confirmation: true,
+        profile: WorkProfile::DevOps,
+        group: "Docker".to_string(),
+    });
+
+    // --- Disk & Infra ---
+    actions.push(QuickAction {
+        label: "Disk Check".to_string(),
+        icon: "hard_drive".to_string(),
+        command: "disk_check".to_string(),
+        capability: "system_info".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::DevOps,
+        group: "Infrastructure".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Disk Cleanup".to_string(),
+        icon: "cleaning_services".to_string(),
+        command: "disk_cleanup".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: true,
+        profile: WorkProfile::DevOps,
+        group: "Infrastructure".to_string(),
+    });
+
+    // --- Services ---
+    actions.push(QuickAction {
+        label: "Service Restart".to_string(),
+        icon: "restart_alt".to_string(),
+        command: "service_restart".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: true,
+        profile: WorkProfile::DevOps,
+        group: "Services".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Failed Services".to_string(),
+        icon: "error_outline".to_string(),
+        command: "services_failed".to_string(),
+        capability: "status_query".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::DevOps,
+        group: "Services".to_string(),
+    });
+
+    // --- Logs & Certs ---
+    actions.push(QuickAction {
+        label: "Tail Logs".to_string(),
+        icon: "description".to_string(),
+        command: "log_tail".to_string(),
+        capability: "log_read".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::DevOps,
+        group: "Logs".to_string(),
+    });
+    actions.push(QuickAction {
+        label: "Cert Check".to_string(),
+        icon: "verified_user".to_string(),
+        command: "cert_check".to_string(),
+        capability: "shell_exec".to_string(),
+        needs_confirmation: false,
+        profile: WorkProfile::DevOps,
+        group: "Security".to_string(),
+    });
+
     actions
 }
 
@@ -1931,6 +2018,7 @@ mod tests {
             .iter()
             .any(|a| a.profile == WorkProfile::SoftwareDev));
         assert!(actions.iter().any(|a| a.profile == WorkProfile::Marketing));
+        assert!(actions.iter().any(|a| a.profile == WorkProfile::DevOps));
         assert!(actions.iter().any(|a| a.profile == WorkProfile::System));
     }
 

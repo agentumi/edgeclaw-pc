@@ -95,6 +95,17 @@ pub struct OllamaProvider {
     timeout: Duration,
 }
 
+/// Info about an available Ollama model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OllamaModelInfo {
+    /// Model name (e.g., "llama3.2:3b").
+    pub name: String,
+    /// Model size in bytes.
+    pub size: u64,
+    /// Modified date string.
+    pub modified_at: String,
+}
+
 impl OllamaProvider {
     /// Create a new Ollama provider
     pub fn new(endpoint: &str, model: &str, timeout_ms: u64) -> Self {
@@ -103,6 +114,86 @@ impl OllamaProvider {
             model: model.to_string(),
             timeout: Duration::from_millis(timeout_ms),
         }
+    }
+
+    /// List all locally available Ollama models.
+    pub fn list_models(&self) -> Result<Vec<OllamaModelInfo>, AgentError> {
+        let url = format!("{}/api/tags", self.endpoint);
+        let resp = ureq_get_with_timeout(&url, self.timeout)?;
+
+        #[derive(Deserialize)]
+        struct TagsResp {
+            models: Vec<OllamaModelInfo>,
+        }
+
+        let tags: TagsResp = serde_json::from_str(&resp)
+            .map_err(|e| AgentError::SerializationError(format!("tags: {e}")))?;
+        Ok(tags.models)
+    }
+
+    /// Auto-select the best available model from installed models.
+    /// Prefers models matching a priority list, falls back to first available.
+    pub fn auto_select_model(&self) -> Result<String, AgentError> {
+        let models = self.list_models()?;
+        if models.is_empty() {
+            return Err(AgentError::ExecutionError(
+                "No Ollama models installed".into(),
+            ));
+        }
+
+        // Priority order
+        let preferred = [
+            "llama3.2",
+            "llama3.1",
+            "llama3",
+            "mistral",
+            "codellama",
+            "phi",
+        ];
+        for pref in &preferred {
+            if let Some(m) = models.iter().find(|m| m.name.starts_with(pref)) {
+                return Ok(m.name.clone());
+            }
+        }
+        Ok(models[0].name.clone())
+    }
+
+    /// Pull (download) a model from Ollama registry.
+    pub fn pull_model(&self, model: &str) -> Result<String, AgentError> {
+        let url = format!("{}/api/pull", self.endpoint);
+        let body = serde_json::json!({ "name": model, "stream": false });
+        ureq_post_json_with_timeout(&url, &body, Duration::from_secs(600))
+    }
+
+    /// Analyze command output using AI to provide a human-friendly explanation.
+    pub fn analyze_output(&self, command: &str, output: &str) -> Result<AiResponse, AgentError> {
+        let prompt = format!(
+            r#"Analyze this command output and provide a brief, clear summary.
+
+Command: {command}
+Output:
+{output}
+
+Respond in JSON: {{"message": "your analysis summary", "intent": null, "confidence": 0.9}}"#,
+        );
+
+        let url = format!("{}/api/generate", self.endpoint);
+        let body = serde_json::json!({
+            "model": self.model,
+            "prompt": prompt,
+            "stream": false,
+            "options": { "temperature": 0.2, "num_predict": 256 }
+        });
+
+        let resp = ureq_post_json_with_timeout(&url, &body, self.timeout)?;
+
+        #[derive(Deserialize)]
+        struct OllamaResp {
+            response: String,
+        }
+        let raw: OllamaResp = serde_json::from_str(&resp)
+            .map_err(|e| AgentError::SerializationError(format!("ollama: {e}")))?;
+        self.parse_response(&raw.response)
     }
 
     /// Build the prompt for intent classification
@@ -1207,6 +1298,32 @@ impl AiManager {
     pub fn requires_consent(&self) -> bool {
         self.require_consent
     }
+
+    /// Escalate a request to cloud AI if local confidence is too low.
+    /// Returns the cloud response, or the original if escalation is not possible.
+    pub fn escalate_to_cloud(
+        &self,
+        request: &AiRequest,
+        local_response: &AiResponse,
+    ) -> Result<AiResponse, AgentError> {
+        if local_response.confidence >= self.escalation_threshold {
+            return Ok(local_response.clone());
+        }
+        if self.contains_sensitive(&request.user_input) {
+            return Err(AgentError::PolicyDenied(
+                "Cannot escalate: sensitive content detected".into(),
+            ));
+        }
+        // Try cloud fallback if available and primary is local
+        if self.primary.is_local() {
+            if let Some(fallback) = &self.fallback {
+                if !fallback.is_local() {
+                    return fallback.process(request);
+                }
+            }
+        }
+        Ok(local_response.clone())
+    }
 }
 
 // ─── HTTP Helpers (ureq — supports HTTP + HTTPS) ──────────────────────────
@@ -2147,5 +2264,78 @@ mod tests {
         assert_eq!(parsed.host, "localhost");
         assert_eq!(parsed.port, 11434);
         assert_eq!(parsed.path, "/api/generate");
+    }
+
+    #[test]
+    fn test_ollama_model_info_serialize() {
+        let info = OllamaModelInfo {
+            name: "llama3.2:3b".into(),
+            size: 2_000_000_000,
+            modified_at: "2026-01-01T00:00:00Z".into(),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("llama3.2:3b"));
+        let parsed: OllamaModelInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, "llama3.2:3b");
+    }
+
+    #[test]
+    fn test_escalation_not_needed() {
+        let config = crate::config::AiConfig {
+            primary: "none".to_string(),
+            ..Default::default()
+        };
+        let manager = AiManager::from_config(&config);
+
+        let request = AiRequest {
+            user_input: "status".to_string(),
+            available_capabilities: vec!["status_query".to_string()],
+            peer_role: "owner".to_string(),
+            system_context: None,
+            history: vec![],
+        };
+        let response = manager.process(&request).unwrap();
+        // NoneProvider gives high confidence for known commands
+        let escalated = manager.escalate_to_cloud(&request, &response).unwrap();
+        assert_eq!(escalated.provider, response.provider);
+    }
+
+    #[test]
+    fn test_escalation_blocked_sensitive() {
+        let config = crate::config::AiConfig {
+            primary: "none".to_string(),
+            ..Default::default()
+        };
+        let manager = AiManager::from_config(&config);
+
+        let request = AiRequest {
+            user_input: "show me the password".to_string(),
+            available_capabilities: vec![],
+            peer_role: "owner".to_string(),
+            system_context: None,
+            history: vec![],
+        };
+        let low_confidence = AiResponse {
+            message: "idk".into(),
+            intent: None,
+            confidence: 0.1,
+            provider: "none".into(),
+            is_local: true,
+        };
+        let result = manager.escalate_to_cloud(&request, &low_confidence);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_work_profile_devops() {
+        let actions = default_quick_actions();
+        let devops: Vec<_> = actions
+            .iter()
+            .filter(|a| a.profile == WorkProfile::DevOps)
+            .collect();
+        assert!(devops.len() >= 6);
+        assert!(devops.iter().any(|a| a.label == "Docker Status"));
+        assert!(devops.iter().any(|a| a.label == "Disk Check"));
+        assert!(devops.iter().any(|a| a.label == "Cert Check"));
     }
 }

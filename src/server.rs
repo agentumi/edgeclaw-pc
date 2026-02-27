@@ -1,12 +1,15 @@
-//! TCP server for ECNP connections.
+//! TCP / Transport-agnostic server for ECNP connections.
 //!
-//! Accepts and manages TCP connections with handshake timeout,
+//! Accepts and manages connections with handshake timeout,
 //! connection tracking, and ECNP frame dispatch to message handlers.
+//! Supports pluggable transport backends via the `Transport` trait
+//! from `transport.rs`.
 
 use crate::ecnp::{EcnpCodec, EcnpMessage};
 use crate::error::AgentError;
 use crate::protocol::MessageType;
 use crate::security::ConnectionTracker;
+use crate::transport::{Transport, TransportProtocol};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -226,6 +229,132 @@ pub async fn send_frame(
     Ok(())
 }
 
+// ─── Transport-Agnostic Server ────────────────────────────────
+
+/// Configuration for the transport-agnostic server
+pub struct TransportServerConfig {
+    pub bind_addr: String,
+    pub max_connections: usize,
+    pub handshake_timeout_secs: u64,
+    pub protocol: TransportProtocol,
+}
+
+/// Transport-agnostic ECNP server that wraps any `Transport` implementation.
+///
+/// This supports both TCP and QUIC backends via the `Transport` trait.
+/// For direct TCP usage, `TcpServer` remains available for backward compatibility.
+pub struct TransportServer<T: Transport> {
+    config: TransportServerConfig,
+    transport: T,
+    shutdown_tx: Option<broadcast::Sender<()>>,
+    #[allow(dead_code)]
+    conn_tracker: Arc<ConnectionTracker>,
+}
+
+impl<T: Transport + 'static> TransportServer<T> {
+    /// Create a new transport server with the given backend.
+    pub fn new(config: TransportServerConfig, transport: T) -> Self {
+        Self {
+            config,
+            transport,
+            shutdown_tx: None,
+            conn_tracker: Arc::new(ConnectionTracker::new()),
+        }
+    }
+
+    /// Start accepting connections via the Transport trait.
+    ///
+    /// Incoming data is dispatched as `IncomingMessage` to the provided channel.
+    pub async fn start(
+        &mut self,
+        message_tx: tokio::sync::mpsc::Sender<IncomingMessage>,
+    ) -> Result<(), AgentError> {
+        let (shutdown_tx, _) = broadcast::channel::<()>(1);
+        self.shutdown_tx = Some(shutdown_tx.clone());
+
+        let conn_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        info!(
+            addr = %self.config.bind_addr,
+            protocol = %self.config.protocol,
+            "Transport server listening"
+        );
+
+        loop {
+            let mut shutdown_rx = shutdown_tx.subscribe();
+
+            tokio::select! {
+                result = self.transport.accept() => {
+                    match result {
+                        Ok(conn_id) => {
+                            let current = conn_count.load(std::sync::atomic::Ordering::SeqCst);
+                            if current >= self.config.max_connections {
+                                warn!(conn = %conn_id, "max connections reached, closing");
+                                let _ = self.transport.close(conn_id).await;
+                                continue;
+                            }
+
+                            conn_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            info!(conn = %conn_id, "transport connection accepted");
+
+                            // Read initial handshake frame via transport
+                            let mut buf = vec![0u8; 65536];
+                            match tokio::time::timeout(
+                                std::time::Duration::from_secs(self.config.handshake_timeout_secs),
+                                self.transport.recv(conn_id, &mut buf),
+                            )
+                            .await
+                            {
+                                Ok(Ok(n)) if n > 0 => {
+                                    match EcnpCodec::decode(&buf[..n]) {
+                                        Ok(msg) => {
+                                            let _ = message_tx.send(IncomingMessage {
+                                                peer_addr: conn_id.to_string(),
+                                                message: msg,
+                                            }).await;
+                                        }
+                                        Err(e) => {
+                                            warn!(conn = %conn_id, error = %e, "invalid frame");
+                                            let _ = self.transport.close(conn_id).await;
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    warn!(conn = %conn_id, "handshake timeout or empty read");
+                                    let _ = self.transport.close(conn_id).await;
+                                }
+                            }
+
+                            conn_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        Err(e) => {
+                            error!(error = %e, "transport accept error");
+                        }
+                    }
+                }
+                _ = shutdown_rx.recv() => {
+                    info!("Transport server shutting down");
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Signal the transport server to shut down.
+    pub fn shutdown(&self) {
+        if let Some(tx) = &self.shutdown_tx {
+            let _ = tx.send(());
+        }
+    }
+
+    /// Get current protocol.
+    pub fn protocol(&self) -> TransportProtocol {
+        self.config.protocol
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -251,5 +380,30 @@ mod tests {
         };
         let server = TcpServer::new(config);
         assert!(server.shutdown_tx.is_none());
+    }
+
+    #[test]
+    fn test_transport_server_config() {
+        let config = TransportServerConfig {
+            bind_addr: "0.0.0.0:8443".to_string(),
+            max_connections: 100,
+            handshake_timeout_secs: 10,
+            protocol: TransportProtocol::Tcp,
+        };
+        assert_eq!(config.bind_addr, "0.0.0.0:8443");
+        assert_eq!(config.max_connections, 100);
+        assert_eq!(config.protocol, TransportProtocol::Tcp);
+    }
+
+    #[test]
+    fn test_incoming_message_debug() {
+        let msg = EcnpCodec::encode(MessageType::Heartbeat, b"ping").unwrap();
+        let decoded = EcnpCodec::decode(&msg).unwrap();
+        let incoming = IncomingMessage {
+            peer_addr: "127.0.0.1:9443".to_string(),
+            message: decoded,
+        };
+        let debug = format!("{:?}", incoming);
+        assert!(debug.contains("127.0.0.1:9443"));
     }
 }

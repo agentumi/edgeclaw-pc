@@ -548,11 +548,14 @@ impl AgentEngine {
 
     /// Get quick actions available for the given role (filtered by work profile from config)
     pub fn get_quick_actions(&self, role: &str) -> Vec<ai::QuickAction> {
-        let profile = match self.config().webui.work_profile.to_lowercase().as_str() {
+        let profile_str = self.config().webui.work_profile.to_lowercase();
+        let profile = match profile_str.as_str() {
             "software_dev" | "softwaredev" | "dev" => Some(ai::WorkProfile::SoftwareDev),
             "marketing" | "mkt" => Some(ai::WorkProfile::Marketing),
             "system" => Some(ai::WorkProfile::System),
-            _ => None, // "all" — show everything
+            "devops" | "ops" => Some(ai::WorkProfile::DevOps),
+            "all" | "" => None, // show everything
+            custom => Some(ai::WorkProfile::Custom(custom.to_string())),
         };
         ai::quick_actions_by_profile(profile)
             .into_iter()

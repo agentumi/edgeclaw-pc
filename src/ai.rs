@@ -1498,7 +1498,7 @@ fn parse_cloud_response(content: &str, provider: &str) -> Result<AiResponse, Age
 // ─── Quick Actions ─────────────────────────────────────────
 
 /// Industry work profile for categorized quick actions
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WorkProfile {
     /// Common system operations
     System,
@@ -1508,6 +1508,8 @@ pub enum WorkProfile {
     Marketing,
     /// DevOps / Infrastructure
     DevOps,
+    /// User-defined custom profile
+    Custom(String),
 }
 
 impl std::fmt::Display for WorkProfile {
@@ -1517,6 +1519,7 @@ impl std::fmt::Display for WorkProfile {
             WorkProfile::SoftwareDev => write!(f, "Software Dev"),
             WorkProfile::Marketing => write!(f, "Marketing"),
             WorkProfile::DevOps => write!(f, "DevOps"),
+            WorkProfile::Custom(name) => write!(f, "Custom({name})"),
         }
     }
 }
@@ -2337,5 +2340,31 @@ mod tests {
         assert!(devops.iter().any(|a| a.label == "Docker Status"));
         assert!(devops.iter().any(|a| a.label == "Disk Check"));
         assert!(devops.iter().any(|a| a.label == "Cert Check"));
+    }
+
+    #[test]
+    fn test_work_profile_custom() {
+        let profile = WorkProfile::Custom("finance".to_string());
+        assert_eq!(profile.to_string(), "Custom(finance)");
+
+        // Custom profile filtering returns only System actions (no matching custom)
+        let actions = quick_actions_by_profile(Some(WorkProfile::Custom("finance".to_string())));
+        assert!(!actions.is_empty());
+        // Should include System actions
+        assert!(actions.iter().all(|a| a.profile == WorkProfile::System
+            || a.profile == WorkProfile::Custom("finance".to_string())));
+    }
+
+    #[test]
+    fn test_work_profile_serialization() {
+        let custom = WorkProfile::Custom("healthcare".to_string());
+        let json = serde_json::to_string(&custom).unwrap();
+        let parsed: WorkProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, custom);
+
+        let system = WorkProfile::System;
+        let json = serde_json::to_string(&system).unwrap();
+        let parsed: WorkProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, system);
     }
 }

@@ -140,6 +140,55 @@ impl PeerManager {
     pub fn get_peer_role(&self, peer_id: &str) -> Option<String> {
         self.peers.get(peer_id).map(|e| e.info.role.clone())
     }
+
+    /// Connect to a remote peer: TCP connect + ECDH handshake.
+    ///
+    /// Registers the peer and returns `(session_id, remote_payload)`.
+    pub async fn connect_to_peer(
+        &mut self,
+        address: &str,
+        session_mgr: &mut SessionManager,
+        local_secret: &[u8; 32],
+        local_payload: &HandshakePayload,
+    ) -> Result<(String, HandshakePayload), AgentError> {
+        let mut stream = tokio::net::TcpStream::connect(address)
+            .await
+            .map_err(|e| AgentError::ConnectionError(format!("connect to {address}: {e}")))?;
+
+        let (session_id, remote_payload) =
+            perform_handshake(&mut stream, session_mgr, local_secret, local_payload).await?;
+
+        // Auto-register peer
+        self.add_peer(
+            &remote_payload.device_id,
+            &remote_payload.agent_name,
+            "agent",
+            address,
+            "viewer", // default role until renegotiated
+        )?;
+
+        Ok((session_id, remote_payload))
+    }
+
+    /// Send an encrypted ECNP message to a connected peer.
+    pub async fn send_message(
+        stream: &mut tokio::net::TcpStream,
+        session_mgr: &mut SessionManager,
+        session_id: &str,
+        msg_type: MessageType,
+        plaintext: &[u8],
+    ) -> Result<(), AgentError> {
+        send_encrypted_message(stream, session_mgr, session_id, msg_type, plaintext).await
+    }
+
+    /// Receive and decrypt an ECNP message from a connected peer.
+    pub async fn receive_message(
+        stream: &mut tokio::net::TcpStream,
+        session_mgr: &mut SessionManager,
+        session_id: &str,
+    ) -> Result<(MessageType, Vec<u8>), AgentError> {
+        receive_encrypted_message(stream, session_mgr, session_id).await
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -612,6 +661,63 @@ mod tests {
         let hp2: HandshakePayload = serde_json::from_str(&json).unwrap();
         assert_eq!(hp2.device_id, "dev");
         assert_eq!(hp2.x25519_public_hex, hp.x25519_public_hex);
+    }
+
+    // -----------------------------------------------------------------------
+    // PeerManager high-level method tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_peer_manager_connect_to_peer() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let secret_a = x25519_dalek::StaticSecret::random_from_rng(rand::rngs::OsRng);
+        let public_a = x25519_dalek::PublicKey::from(&secret_a);
+        let payload_a =
+            build_handshake_payload(public_a.as_bytes(), &[0u8; 64], "agent-a", "Alice");
+
+        let secret_b = x25519_dalek::StaticSecret::random_from_rng(rand::rngs::OsRng);
+        let secret_b_bytes = secret_b.to_bytes();
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 65536];
+            let n = stream.read(&mut buf).await.unwrap();
+            let msg = EcnpCodec::decode(&buf[..n]).unwrap();
+            let _client_hs: HandshakePayload = serde_json::from_slice(&msg.payload).unwrap();
+
+            let secret_b_s = x25519_dalek::StaticSecret::from(secret_b_bytes);
+            let public_b_s = x25519_dalek::PublicKey::from(&secret_b_s);
+            let server_hs =
+                build_handshake_payload(public_b_s.as_bytes(), &[0u8; 64], "agent-b", "Bob");
+            let resp_json = serde_json::to_vec(&server_hs).unwrap();
+            let resp_frame = EcnpCodec::encode(MessageType::Handshake, &resp_json).unwrap();
+            stream.write_all(&resp_frame).await.unwrap();
+        });
+
+        let mut mgr = PeerManager::new(10);
+        let mut session_mgr = SessionManager::new();
+        let (session_id, remote_payload) = mgr
+            .connect_to_peer(
+                &addr.to_string(),
+                &mut session_mgr,
+                &secret_a.to_bytes(),
+                &payload_a,
+            )
+            .await
+            .unwrap();
+
+        assert!(!session_id.is_empty());
+        assert_eq!(remote_payload.device_id, "agent-b");
+        // Peer should be registered in manager
+        assert!(mgr.get_peer("agent-b").is_some());
+        assert_eq!(mgr.connected_count(), 1);
+
+        server.await.unwrap();
     }
 
     // -----------------------------------------------------------------------

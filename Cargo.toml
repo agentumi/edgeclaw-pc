@@ -39,7 +39,7 @@ rcgen = "0.13"
 ureq = { version = "2", features = ["tls", "json"] }
 
 # WebSocket
-tokio-tungstenite = "0.24"
+tokio-tungstenite = "0.28"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 
 # mDNS Service Discovery

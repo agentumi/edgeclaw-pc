@@ -35,6 +35,9 @@ quinn = "0.11"
 rustls = { version = "0.23", features = ["ring"] }
 rcgen = "0.13"
 
+# HTTP client (HTTPS support for cloud AI)
+ureq = { version = "2", features = ["tls", "json"] }
+
 # System info
 sysinfo = "0.32"
 hostname = "0.4"

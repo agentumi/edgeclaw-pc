@@ -1,6 +1,10 @@
 use crate::error::AgentError;
+use crate::security::InputSanitizer;
 use std::time::Instant;
 use tokio::process::Command;
+
+/// Maximum stdout/stderr size (1 MB)
+const MAX_OUTPUT_SIZE: usize = 1_048_576;
 
 /// Execution request
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -52,6 +56,15 @@ impl Executor {
 
     /// Execute a command with timeout and resource limits
     pub async fn execute(&self, request: ExecRequest) -> Result<ExecResponse, AgentError> {
+        // Sanitize command input
+        let sanitized_command = InputSanitizer::sanitize_command(&request.command);
+        if InputSanitizer::has_injection_risk(&sanitized_command) {
+            return Err(AgentError::PolicyDenied(format!(
+                "command rejected: injection risk detected in '{}'",
+                sanitized_command.chars().take(80).collect::<String>()
+            )));
+        }
+
         // Check concurrency limit
         let current = self
             .active_count
@@ -65,7 +78,12 @@ impl Executor {
             )));
         }
 
-        let result = self.execute_inner(request).await;
+        let sanitized_request = ExecRequest {
+            command: sanitized_command,
+            ..request
+        };
+
+        let result = self.execute_inner(sanitized_request).await;
 
         self.active_count
             .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
@@ -108,13 +126,35 @@ impl Executor {
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
+        // Truncate oversized output
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stdout = if stdout.len() > MAX_OUTPUT_SIZE {
+            format!(
+                "{}... [truncated at {} bytes]",
+                &stdout[..MAX_OUTPUT_SIZE],
+                MAX_OUTPUT_SIZE
+            )
+        } else {
+            stdout
+        };
+        let stderr = if stderr.len() > MAX_OUTPUT_SIZE {
+            format!(
+                "{}... [truncated at {} bytes]",
+                &stderr[..MAX_OUTPUT_SIZE],
+                MAX_OUTPUT_SIZE
+            )
+        } else {
+            stderr
+        };
+
         Ok(ExecResponse {
             execution_id: request.execution_id,
             action: request.action,
             success: output.status.success(),
             exit_code: output.status.code(),
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            stdout,
+            stderr,
             duration_ms,
         })
     }
@@ -149,9 +189,15 @@ impl Executor {
         if self.allowed_paths.is_empty() {
             return true; // no restriction if not configured
         }
-        self.allowed_paths
-            .iter()
-            .any(|allowed| path.starts_with(allowed))
+        // Resolve symlinks / canonicalize to prevent path traversal
+        let canonical =
+            std::fs::canonicalize(path).unwrap_or_else(|_| std::path::PathBuf::from(path));
+        let canonical_str = canonical.to_string_lossy();
+        self.allowed_paths.iter().any(|allowed| {
+            let allowed_canonical = std::fs::canonicalize(allowed)
+                .unwrap_or_else(|_| std::path::PathBuf::from(allowed));
+            canonical_str.starts_with(&*allowed_canonical.to_string_lossy())
+        })
     }
 
     /// Get current number of active executions
@@ -230,5 +276,22 @@ mod tests {
     fn test_empty_allowed_paths() {
         let executor = Executor::new(5, 10, 60, vec![]);
         assert!(executor.is_allowed_path("/anything/goes"));
+    }
+
+    #[tokio::test]
+    async fn test_injection_rejected() {
+        let executor = test_executor();
+        let request = ExecRequest {
+            execution_id: "test-inject".to_string(),
+            action: "shell_exec".to_string(),
+            command: "echo hello; rm -rf /".to_string(),
+            args: vec![],
+            timeout_secs: 5,
+            working_dir: None,
+        };
+        let result = executor.execute(request).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("injection risk"));
     }
 }

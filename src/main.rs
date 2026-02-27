@@ -1,10 +1,11 @@
 use clap::{Parser, Subcommand};
 use edgeclaw_agent::config::AgentConfig;
+use edgeclaw_agent::protocol::MessageType;
 use edgeclaw_agent::webui::{WebUiConfig, WebUiServer};
 use edgeclaw_agent::AgentEngine;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[derive(Parser)]
 #[command(name = "edgeclaw-agent")]
@@ -134,12 +135,40 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Commands::Status => {
-            println!("EdgeClaw Agent v1.0.0");
-            println!("Status: running");
-            println!("Config: {}", config_path.display());
-            println!("Port:   {}", config.agent.listen_port);
-            println!("Mode:   {}", config.security.policy_mode);
-            println!("AI:     {}", config.ai.primary);
+            // Try to reach running agent health endpoint
+            let health_url = format!(
+                "http://{}:{}/api/health",
+                config.webui.bind, config.webui.port
+            );
+            let mut live = false;
+            if let Ok(resp) = ureq::AgentBuilder::new()
+                .timeout(std::time::Duration::from_secs(2))
+                .build()
+                .get(&health_url)
+                .call()
+            {
+                if let Ok(body) = resp.into_string() {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                        println!("EdgeClaw Agent v1.0.0 — RUNNING");
+                        println!("  Uptime: {}s", json["uptime_secs"]);
+                        println!("  AI:     {}", json["components"]["ai"]);
+                        println!("  Port:   {}", config.agent.listen_port);
+                        println!(
+                            "  WebUI:  http://{}:{}",
+                            config.webui.bind, config.webui.port
+                        );
+                        live = true;
+                    }
+                }
+            }
+            if !live {
+                println!("EdgeClaw Agent v1.0.0 — NOT RUNNING");
+                println!("  Config: {}", config_path.display());
+                println!("  Port:   {}", config.agent.listen_port);
+                println!("  Mode:   {}", config.security.policy_mode);
+                println!("  AI:     {}", config.ai.primary);
+                println!("  Tip:    Run `edgeclaw-agent start` to start");
+            }
             Ok(())
         }
         Commands::Chat => {
@@ -167,11 +196,23 @@ async fn main() -> anyhow::Result<()> {
                     break;
                 }
 
-                match engine.chat("console", input) {
-                    Ok(resp) => {
+                match engine.chat_execute("console", input).await {
+                    Ok((resp, exec_result)) => {
                         println!("Agent: {}", resp.message);
                         if let Some(intent) = &resp.intent {
                             println!("  → [{}] {}", intent.capability, intent.command);
+                        }
+                        if let Some(exec) = exec_result {
+                            if exec.success {
+                                if !exec.stdout.is_empty() {
+                                    println!("{}", exec.stdout.trim_end());
+                                }
+                            } else {
+                                println!("  ⚠ Exit code: {:?}", exec.exit_code);
+                                if !exec.stderr.is_empty() {
+                                    println!("  {}", exec.stderr.trim_end());
+                                }
+                            }
                         }
                     }
                     Err(e) => println!("Error: {}", e),
@@ -299,6 +340,8 @@ async fn main() -> anyhow::Result<()> {
                     let auto_open = config.webui.auto_open && i == 0; // only open first
                     let webui_url = format!("http://{}", webui_bind);
                     let agent_idx = i;
+                    let auth_pw = config.webui.auth_password.clone();
+                    let cors_orig = config.webui.cors_origin.clone();
 
                     // Register each agent's peer
                     if i > 0 {
@@ -318,6 +361,8 @@ async fn main() -> anyhow::Result<()> {
                         let mut webui = WebUiServer::new(
                             WebUiConfig {
                                 bind_addr: webui_bind,
+                                auth_password: auth_pw,
+                                cors_origin: cors_orig,
                             },
                             webui_engine,
                         );
@@ -350,15 +395,53 @@ async fn main() -> anyhow::Result<()> {
                     max_connections: engine.config().agent.max_connections,
                 });
 
-            // Message handler task
+            // Message handler task — dispatch by message type
+            let _handler_engine = engine.clone();
             tokio::spawn(async move {
                 while let Some(msg) = msg_rx.recv().await {
-                    info!(
-                        peer = %msg.peer_addr,
-                        msg_type = msg.message.msg_type,
-                        payload_len = msg.message.payload.len(),
-                        "received ECNP message"
-                    );
+                    let msg_type = MessageType::try_from(msg.message.msg_type);
+                    match msg_type {
+                        Ok(MessageType::Heartbeat) => {
+                            info!(
+                                peer = %msg.peer_addr,
+                                payload_len = msg.message.payload.len(),
+                                "heartbeat received"
+                            );
+                        }
+                        Ok(MessageType::Handshake) => {
+                            info!(peer = %msg.peer_addr, "handshake received");
+                            if let Ok(text) = String::from_utf8(msg.message.payload.clone()) {
+                                if let Ok(ecm) = edgeclaw_agent::protocol::parse_ecm(&text) {
+                                    info!(
+                                        device_id = %ecm.device_id,
+                                        device_name = %ecm.device_name,
+                                        caps = ecm.capabilities.len(),
+                                        "peer registered from handshake"
+                                    );
+                                }
+                            }
+                        }
+                        Ok(MessageType::Data) => {
+                            info!(
+                                peer = %msg.peer_addr,
+                                payload_len = msg.message.payload.len(),
+                                "data message received"
+                            );
+                        }
+                        Ok(MessageType::Telemetry) => {
+                            info!(peer = %msg.peer_addr, "telemetry received");
+                        }
+                        Ok(mt) => {
+                            info!(
+                                peer = %msg.peer_addr,
+                                msg_type = ?mt,
+                                "unhandled message type"
+                            );
+                        }
+                        Err(e) => {
+                            warn!(peer = %msg.peer_addr, error = %e, "unknown message type");
+                        }
+                    }
                 }
             });
 
@@ -403,6 +486,8 @@ async fn main() -> anyhow::Result<()> {
             let mut webui = WebUiServer::new(
                 WebUiConfig {
                     bind_addr: webui_bind,
+                    auth_password: config.webui.auth_password.clone(),
+                    cors_origin: config.webui.cors_origin.clone(),
                 },
                 engine,
             );

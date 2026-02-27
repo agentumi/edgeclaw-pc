@@ -2,26 +2,90 @@
 //!
 //! Serves an embedded single-page chat application and exposes JSON API endpoints
 //! for chat, quick actions, and status queries. Uses raw tokio TCP — no HTTP framework
-//! dependency needed.
+//! dependency needed. Includes session-based authentication and rate limiting.
 
 use crate::ai::QuickAction;
 use crate::error::AgentError;
 use crate::security::{RateLimitConfig, RateLimiter};
 use crate::AgentEngine;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Mutex};
 use tracing::{error, info, warn};
 
 /// Embedded HTML chat page (compiled into the binary)
 const CHAT_HTML: &str = include_str!("../static/chat.html");
+
+/// Session token validity duration (1 hour)
+const SESSION_TTL: Duration = Duration::from_secs(3600);
 
 /// Web UI server configuration
 #[derive(Debug, Clone)]
 pub struct WebUiConfig {
     /// Address to bind (e.g. "127.0.0.1:9444")
     pub bind_addr: String,
+    /// Authentication password (empty = no auth required)
+    pub auth_password: String,
+    /// CORS allowed origin (empty = derive from bind_addr)
+    pub cors_origin: String,
+}
+
+/// Active session entry
+struct SessionEntry {
+    created_at: Instant,
+    peer_ip: String,
+}
+
+/// Session manager for web UI authentication
+struct SessionManager {
+    sessions: Mutex<HashMap<String, SessionEntry>>,
+}
+
+impl SessionManager {
+    fn new() -> Self {
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Create a new session, returning the token
+    async fn create_session(&self, peer_ip: &str) -> String {
+        let token = uuid::Uuid::new_v4().to_string();
+        let mut sessions = self.sessions.lock().await;
+        // Cleanup expired sessions
+        sessions.retain(|_, entry| entry.created_at.elapsed() < SESSION_TTL);
+        sessions.insert(
+            token.clone(),
+            SessionEntry {
+                created_at: Instant::now(),
+                peer_ip: peer_ip.to_string(),
+            },
+        );
+        token
+    }
+
+    /// Validate a session token
+    async fn validate(&self, token: &str, peer_ip: &str) -> bool {
+        let sessions = self.sessions.lock().await;
+        if let Some(entry) = sessions.get(token) {
+            entry.created_at.elapsed() < SESSION_TTL && entry.peer_ip == peer_ip
+        } else {
+            false
+        }
+    }
+
+    /// Number of active sessions (for tests)
+    #[cfg(test)]
+    async fn count(&self) -> usize {
+        let sessions = self.sessions.lock().await;
+        sessions
+            .iter()
+            .filter(|(_, e)| e.created_at.elapsed() < SESSION_TTL)
+            .count()
+    }
 }
 
 /// Lightweight HTTP server for the chat web UI
@@ -30,6 +94,7 @@ pub struct WebUiServer {
     engine: Arc<AgentEngine>,
     shutdown_tx: Option<broadcast::Sender<()>>,
     rate_limiter: Arc<RateLimiter>,
+    sessions: Arc<SessionManager>,
 }
 
 impl WebUiServer {
@@ -40,6 +105,7 @@ impl WebUiServer {
             engine,
             shutdown_tx: None,
             rate_limiter: Arc::new(RateLimiter::new(RateLimitConfig::default())),
+            sessions: Arc::new(SessionManager::new()),
         }
     }
 
@@ -57,7 +123,21 @@ impl WebUiServer {
         let (shutdown_tx, _) = broadcast::channel::<()>(1);
         self.shutdown_tx = Some(shutdown_tx.clone());
 
-        info!(addr = %self.config.bind_addr, "Web UI server listening");
+        // Compute effective CORS origin
+        let cors_origin = if self.config.cors_origin.is_empty() {
+            format!("http://{}", self.config.bind_addr)
+        } else {
+            self.config.cors_origin.clone()
+        };
+
+        let auth_password = self.config.auth_password.clone();
+        let auth_required = !auth_password.is_empty();
+
+        info!(
+            addr = %self.config.bind_addr,
+            auth = auth_required,
+            "Web UI server listening"
+        );
 
         loop {
             let mut shutdown_rx = shutdown_tx.subscribe();
@@ -69,9 +149,17 @@ impl WebUiServer {
                         Ok((stream, addr)) => {
                             let eng = engine.clone();
                             let limiter = self.rate_limiter.clone();
+                            let sessions = self.sessions.clone();
+                            let cors = cors_origin.clone();
+                            let password = auth_password.clone();
+                            let need_auth = auth_required;
                             let mut shutdown = shutdown_tx.subscribe();
                             tokio::spawn(async move {
-                                if let Err(e) = handle_http(stream, eng, &limiter, &mut shutdown).await {
+                                if let Err(e) = handle_http(
+                                    stream, eng, &limiter, &sessions,
+                                    &cors, &password, need_auth,
+                                    &mut shutdown
+                                ).await {
                                     warn!(peer = %addr, error = %e, "HTTP handler error");
                                 }
                             });
@@ -100,10 +188,15 @@ impl WebUiServer {
 }
 
 /// Handle a single HTTP connection (request/response cycle)
+#[allow(clippy::too_many_arguments)]
 async fn handle_http(
     mut stream: TcpStream,
     engine: Arc<AgentEngine>,
     rate_limiter: &RateLimiter,
+    sessions: &SessionManager,
+    cors_origin: &str,
+    auth_password: &str,
+    auth_required: bool,
     shutdown: &mut broadcast::Receiver<()>,
 ) -> Result<(), AgentError> {
     // Rate-limit by peer IP
@@ -118,6 +211,7 @@ async fn handle_http(
             429,
             "application/json",
             b"{\"error\":\"too many requests\"}",
+            cors_origin,
         )
         .await?;
         return Ok(());
@@ -177,7 +271,14 @@ async fn handle_http(
         }
 
         if buf.len() > 65536 {
-            send_response(&mut stream, 413, "text/plain", b"Request too large").await?;
+            send_response(
+                &mut stream,
+                413,
+                "text/plain",
+                b"Request too large",
+                cors_origin,
+            )
+            .await?;
             return Ok(());
         }
     }
@@ -189,47 +290,144 @@ async fn handle_http(
     let parts: Vec<&str> = first_line.split_whitespace().collect();
 
     if parts.len() < 2 {
-        send_response(&mut stream, 400, "text/plain", b"Bad Request").await?;
+        send_response(&mut stream, 400, "text/plain", b"Bad Request", cors_origin).await?;
         return Ok(());
     }
 
     let method = parts[0];
     let path = parts[1];
 
-    // Route the request
+    // Public endpoints (no auth needed)
     match (method, path) {
         ("GET", "/") | ("GET", "/index.html") => {
-            send_response(
+            return send_response(
                 &mut stream,
                 200,
                 "text/html; charset=utf-8",
                 CHAT_HTML.as_bytes(),
+                cors_origin,
             )
-            .await
+            .await;
         }
-        ("GET", "/health") | ("GET", "/api/health") => handle_health(&mut stream, &engine).await,
-        ("GET", "/api/status") => handle_status(&mut stream, &engine).await,
-        ("GET", "/api/quick-actions") => handle_quick_actions(&mut stream, &engine).await,
-        ("GET", "/api/agents") => handle_agents_info(&mut stream, &engine).await,
+        ("GET", "/health") | ("GET", "/api/health") => {
+            return handle_health(&mut stream, &engine, cors_origin).await;
+        }
+        ("POST", "/api/login") => {
+            let body = extract_body(&request);
+            return handle_login(
+                &mut stream,
+                sessions,
+                &peer_ip,
+                auth_password,
+                auth_required,
+                &body,
+                cors_origin,
+            )
+            .await;
+        }
+        ("OPTIONS", _) => {
+            return send_cors_preflight(&mut stream, cors_origin).await;
+        }
+        _ => {}
+    }
+
+    // Protected endpoints — require auth if configured
+    if auth_required {
+        let token = extract_bearer_token(&request);
+        match token {
+            Some(t) if sessions.validate(t, &peer_ip).await => {}
+            _ => {
+                let err = serde_json::json!({"error": "unauthorized", "login_required": true});
+                let json = serde_json::to_vec(&err).unwrap_or_default();
+                return send_response(&mut stream, 401, "application/json", &json, cors_origin)
+                    .await;
+            }
+        }
+    }
+
+    // Route protected endpoints
+    match (method, path) {
+        ("GET", "/api/status") => handle_status(&mut stream, &engine, cors_origin).await,
+        ("GET", "/api/quick-actions") => {
+            handle_quick_actions(&mut stream, &engine, cors_origin).await
+        }
+        ("GET", "/api/agents") => handle_agents_info(&mut stream, &engine, cors_origin).await,
         ("POST", "/api/chat") => {
             let body = extract_body(&request);
-            handle_chat(&mut stream, &engine, &body).await
+            handle_chat(&mut stream, &engine, &body, cors_origin).await
         }
-        ("OPTIONS", _) => send_cors_preflight(&mut stream).await,
         _ => {
             send_response(
                 &mut stream,
                 404,
                 "application/json",
                 b"{\"error\":\"not found\"}",
+                cors_origin,
             )
             .await
         }
     }
 }
 
+/// POST /api/login — Authenticate and get session token
+async fn handle_login(
+    stream: &mut TcpStream,
+    sessions: &SessionManager,
+    peer_ip: &str,
+    auth_password: &str,
+    auth_required: bool,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    // If no auth required, always succeed
+    if !auth_required {
+        let token = sessions.create_session(peer_ip).await;
+        let resp = serde_json::json!({
+            "token": token,
+            "expires_in": SESSION_TTL.as_secs(),
+            "auth_required": false,
+        });
+        let json = serde_json::to_vec(&resp).unwrap_or_default();
+        return send_response(stream, 200, "application/json", &json, cors_origin).await;
+    }
+
+    #[derive(serde::Deserialize)]
+    struct LoginReq {
+        password: String,
+    }
+
+    let req: LoginReq = match serde_json::from_str(body) {
+        Ok(r) => r,
+        Err(e) => {
+            let err = serde_json::json!({"error": format!("invalid JSON: {}", e)});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    if req.password == auth_password {
+        let token = sessions.create_session(peer_ip).await;
+        info!(peer = %peer_ip, "WebUI login successful");
+        let resp = serde_json::json!({
+            "token": token,
+            "expires_in": SESSION_TTL.as_secs(),
+        });
+        let json = serde_json::to_vec(&resp).unwrap_or_default();
+        send_response(stream, 200, "application/json", &json, cors_origin).await
+    } else {
+        warn!(peer = %peer_ip, "WebUI login failed — bad password");
+        let err = serde_json::json!({"error": "invalid password"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        send_response(stream, 401, "application/json", &json, cors_origin).await
+    }
+}
+
 /// GET /health, /api/health — Lightweight health check for Docker/load balancers
-async fn handle_health(stream: &mut TcpStream, engine: &AgentEngine) -> Result<(), AgentError> {
+async fn handle_health(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
     let body = serde_json::json!({
         "status": "ok",
         "version": "1.0.0",
@@ -242,11 +440,15 @@ async fn handle_health(stream: &mut TcpStream, engine: &AgentEngine) -> Result<(
         }
     });
     let json = serde_json::to_vec(&body).unwrap_or_default();
-    send_response(stream, 200, "application/json", &json).await
+    send_response(stream, 200, "application/json", &json, cors_origin).await
 }
 
 /// GET /api/status
-async fn handle_status(stream: &mut TcpStream, engine: &AgentEngine) -> Result<(), AgentError> {
+async fn handle_status(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
     let ai = engine.ai_status();
     let sys = engine.get_system_info();
     let caps = engine.get_capabilities();
@@ -265,23 +467,25 @@ async fn handle_status(stream: &mut TcpStream, engine: &AgentEngine) -> Result<(
     });
 
     let json = serde_json::to_vec(&body).unwrap_or_default();
-    send_response(stream, 200, "application/json", &json).await
+    send_response(stream, 200, "application/json", &json, cors_origin).await
 }
 
 /// GET /api/quick-actions
 async fn handle_quick_actions(
     stream: &mut TcpStream,
     engine: &AgentEngine,
+    cors_origin: &str,
 ) -> Result<(), AgentError> {
     let actions: Vec<QuickAction> = engine.get_quick_actions("owner");
     let json = serde_json::to_vec(&actions).unwrap_or_default();
-    send_response(stream, 200, "application/json", &json).await
+    send_response(stream, 200, "application/json", &json, cors_origin).await
 }
 
 /// GET /api/agents — Multi-agent instance info
 async fn handle_agents_info(
     stream: &mut TcpStream,
     engine: &AgentEngine,
+    cors_origin: &str,
 ) -> Result<(), AgentError> {
     let config = engine.config();
     let max = config.webui.effective_max_agents();
@@ -309,7 +513,7 @@ async fn handle_agents_info(
         }
     });
     let json = serde_json::to_vec(&body).unwrap_or_default();
-    send_response(stream, 200, "application/json", &json).await
+    send_response(stream, 200, "application/json", &json, cors_origin).await
 }
 
 /// POST /api/chat
@@ -317,6 +521,7 @@ async fn handle_chat(
     stream: &mut TcpStream,
     engine: &AgentEngine,
     body: &str,
+    cors_origin: &str,
 ) -> Result<(), AgentError> {
     // Parse request JSON
     #[derive(serde::Deserialize)]
@@ -329,14 +534,14 @@ async fn handle_chat(
         Err(e) => {
             let err = serde_json::json!({"error": format!("invalid JSON: {}", e)});
             let json = serde_json::to_vec(&err).unwrap_or_default();
-            return send_response(stream, 400, "application/json", &json).await;
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
         }
     };
 
     if req.message.trim().is_empty() {
         let err = serde_json::json!({"error": "empty message"});
         let json = serde_json::to_vec(&err).unwrap_or_default();
-        return send_response(stream, 400, "application/json", &json).await;
+        return send_response(stream, 400, "application/json", &json, cors_origin).await;
     }
 
     // Process chat through AI engine AND execute the intent
@@ -354,12 +559,12 @@ async fn handle_chat(
                 });
             }
             let json = serde_json::to_vec(&resp).unwrap_or_default();
-            send_response(stream, 200, "application/json", &json).await
+            send_response(stream, 200, "application/json", &json, cors_origin).await
         }
         Err(e) => {
             let err = serde_json::json!({"error": e.to_string()});
             let json = serde_json::to_vec(&err).unwrap_or_default();
-            send_response(stream, 500, "application/json", &json).await
+            send_response(stream, 500, "application/json", &json, cors_origin).await
         }
     }
 }
@@ -376,6 +581,18 @@ fn extract_body(request: &str) -> String {
     }
 }
 
+/// Extract Bearer token from Authorization header
+fn extract_bearer_token(request: &str) -> Option<&str> {
+    for line in request.lines() {
+        let lower = line.to_lowercase();
+        if lower.starts_with("authorization: bearer ") {
+            // Return the token part from the ORIGINAL line (preserving case)
+            return Some(line["authorization: bearer ".len()..].trim());
+        }
+    }
+    None
+}
+
 /// Parse Content-Length header from raw HTTP request
 fn parse_content_length(request: &str) -> usize {
     for line in request.lines() {
@@ -389,16 +606,18 @@ fn parse_content_length(request: &str) -> usize {
     0
 }
 
-/// Send an HTTP response
+/// Send an HTTP response with dynamic CORS origin
 async fn send_response(
     stream: &mut TcpStream,
     status: u16,
     content_type: &str,
     body: &[u8],
+    cors_origin: &str,
 ) -> Result<(), AgentError> {
     let status_text = match status {
         200 => "OK",
         400 => "Bad Request",
+        401 => "Unauthorized",
         404 => "Not Found",
         413 => "Payload Too Large",
         429 => "Too Many Requests",
@@ -410,15 +629,16 @@ async fn send_response(
         "HTTP/1.1 {} {}\r\n\
          Content-Type: {}\r\n\
          Content-Length: {}\r\n\
-         Access-Control-Allow-Origin: http://127.0.0.1:9444\r\n\
+         Access-Control-Allow-Origin: {}\r\n\
          Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
-         Access-Control-Allow-Headers: Content-Type\r\n\
+         Access-Control-Allow-Headers: Content-Type, Authorization\r\n\
          Connection: close\r\n\
          \r\n",
         status,
         status_text,
         content_type,
-        body.len()
+        body.len(),
+        cors_origin
     );
 
     stream
@@ -438,8 +658,8 @@ async fn send_response(
 }
 
 /// Handle CORS preflight OPTIONS request
-async fn send_cors_preflight(stream: &mut TcpStream) -> Result<(), AgentError> {
-    send_response(stream, 200, "text/plain", b"").await
+async fn send_cors_preflight(stream: &mut TcpStream, cors_origin: &str) -> Result<(), AgentError> {
+    send_response(stream, 200, "text/plain", b"", cors_origin).await
 }
 
 #[cfg(test)]
@@ -475,6 +695,8 @@ mod tests {
     fn test_webui_config() {
         let config = WebUiConfig {
             bind_addr: "127.0.0.1:9444".to_string(),
+            auth_password: String::new(),
+            cors_origin: String::new(),
         };
         assert_eq!(config.bind_addr, "127.0.0.1:9444");
     }
@@ -488,11 +710,33 @@ mod tests {
         assert_eq!(parse_content_length(req2), 0);
     }
 
+    #[test]
+    fn test_extract_bearer_token() {
+        let req = "GET /api/status HTTP/1.1\r\nAuthorization: Bearer abc-123-def\r\nHost: localhost\r\n\r\n";
+        assert_eq!(extract_bearer_token(req), Some("abc-123-def"));
+
+        let req2 = "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        assert_eq!(extract_bearer_token(req2), None);
+    }
+
+    #[tokio::test]
+    async fn test_session_manager_create_and_validate() {
+        let mgr = SessionManager::new();
+        let token = mgr.create_session("127.0.0.1").await;
+        assert!(!token.is_empty());
+        assert!(mgr.validate(&token, "127.0.0.1").await);
+        assert!(!mgr.validate(&token, "192.168.1.1").await); // wrong IP
+        assert!(!mgr.validate("bad-token", "127.0.0.1").await);
+        assert_eq!(mgr.count().await, 1);
+    }
+
     #[tokio::test]
     async fn test_webui_server_creation() {
         let engine = Arc::new(AgentEngine::new(crate::config::AgentConfig::default()));
         let config = WebUiConfig {
             bind_addr: "127.0.0.1:0".to_string(),
+            auth_password: String::new(),
+            cors_origin: String::new(),
         };
         let server = WebUiServer::new(config, engine);
         assert!(server.shutdown_tx.is_none());

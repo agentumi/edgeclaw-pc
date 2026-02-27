@@ -1,6 +1,7 @@
 use crate::ecnp::{EcnpCodec, EcnpMessage};
 use crate::error::AgentError;
 use crate::protocol::MessageType;
+use crate::security::ConnectionTracker;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -24,6 +25,7 @@ pub struct IncomingMessage {
 pub struct TcpServer {
     config: TcpServerConfig,
     shutdown_tx: Option<broadcast::Sender<()>>,
+    conn_tracker: Arc<ConnectionTracker>,
 }
 
 impl TcpServer {
@@ -31,6 +33,7 @@ impl TcpServer {
         Self {
             config,
             shutdown_tx: None,
+            conn_tracker: Arc::new(ConnectionTracker::new()),
         }
     }
 
@@ -63,6 +66,14 @@ impl TcpServer {
                 result = listener.accept() => {
                     match result {
                         Ok((stream, addr)) => {
+                            // Check if this IP is locked out
+                            let ip = addr.ip().to_string();
+                            if self.conn_tracker.is_locked_out(&ip) {
+                                warn!(addr = %addr, "rejecting locked-out peer");
+                                drop(stream);
+                                continue;
+                            }
+
                             let current = conn_count.load(std::sync::atomic::Ordering::SeqCst);
                             if current >= max_conn {
                                 warn!(addr = %addr, "max connections reached, rejecting");

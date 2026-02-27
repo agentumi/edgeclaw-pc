@@ -808,13 +808,13 @@ impl NoneProvider {
                     needs_confirmation: true,
                 }),
                 "size" => Some(ParsedIntent {
-                    capability: "shell_exec".to_string(),
-                    command: "echo 'DB size query - configure connection in agent.toml [database] section'".to_string(),
+                    capability: "status_query".to_string(),
+                    command: "echo 'Database monitoring not yet configured — install a database agent plugin to enable'".to_string(),
                     args: vec![], needs_confirmation: false,
                 }),
                 "connections" => Some(ParsedIntent {
-                    capability: "shell_exec".to_string(),
-                    command: "echo 'Active DB connections - configure connection in agent.toml [database] section'".to_string(),
+                    capability: "status_query".to_string(),
+                    command: "echo 'Database monitoring not yet configured — install a database agent plugin to enable'".to_string(),
                     args: vec![], needs_confirmation: false,
                 }),
                 _ => Some(ParsedIntent {
@@ -835,15 +835,15 @@ impl NoneProvider {
                 needs_confirmation: false,
             }),
             "analytics" | "분석" => Some(ParsedIntent {
-                capability: "shell_exec".to_string(),
-                command: "powershell -Command \"echo '=== Analytics Summary ==='; echo 'Date: '+(Get-Date -Format 'yyyy-MM-dd'); echo 'Configure analytics endpoint in agent.toml [analytics] section'\"".to_string(),
+                capability: "status_query".to_string(),
+                command: "echo 'Analytics module not yet configured — use system monitoring or install an analytics plugin'".to_string(),
                 args: vec![],
                 needs_confirmation: false,
             }),
             "campaign" | "캠페인" => match arg1 {
                 "list" | "" => Some(ParsedIntent {
                     capability: "status_query".to_string(),
-                    command: "echo 'Active campaigns: configure in agent.toml [marketing] section'".to_string(),
+                    command: "echo 'Campaign management not yet configured — install a marketing plugin to enable'".to_string(),
                     args: vec![], needs_confirmation: false,
                 }),
                 "status" => Some(ParsedIntent {
@@ -854,9 +854,9 @@ impl NoneProvider {
                 _ => None,
             },
             "seo" | "검색최적화" => Some(ParsedIntent {
-                capability: "shell_exec".to_string(),
+                capability: "status_query".to_string(),
                 command: format!(
-                    "echo 'SEO Analysis for: {}' && echo 'Configure SEO tools in agent.toml [marketing.seo] section'",
+                    "echo 'SEO analysis for: {} — install an SEO plugin to enable'",
                     if arg1.is_empty() { "all" } else { arg1 }
                 ),
                 args: vec![],
@@ -1209,146 +1209,109 @@ impl AiManager {
     }
 }
 
-// ─── HTTP Helpers (sync, minimal) ──────────────────────────
+// ─── HTTP Helpers (ureq — supports HTTP + HTTPS) ──────────────────────────
 
-/// Simple GET with timeout (no external HTTP crate needed)
+/// Simple GET with timeout (supports both HTTP and HTTPS)
 fn ureq_get_with_timeout(url: &str, timeout: Duration) -> Result<String, AgentError> {
-    use std::io::Read;
-    use std::net::TcpStream;
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(timeout)
+        .timeout_read(timeout)
+        .timeout_write(timeout)
+        .build();
 
-    let parsed = parse_url(url)?;
-    let addr = format!("{}:{}", parsed.host, parsed.port);
+    let response = agent
+        .get(url)
+        .call()
+        .map_err(|e| AgentError::ConnectionError(format!("HTTP GET failed: {}", e)))?;
 
-    let stream = TcpStream::connect_timeout(
-        &addr
-            .parse()
-            .map_err(|e| AgentError::ConnectionError(format!("invalid address: {}", e)))?,
-        timeout,
-    )
-    .map_err(|e| AgentError::ConnectionError(format!("connect failed: {}", e)))?;
-
-    stream
-        .set_read_timeout(Some(timeout))
-        .map_err(|e| AgentError::ConnectionError(e.to_string()))?;
-    stream
-        .set_write_timeout(Some(timeout))
-        .map_err(|e| AgentError::ConnectionError(e.to_string()))?;
-
-    let request = format!(
-        "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-        parsed.path, parsed.host
-    );
-
-    use std::io::Write;
-    let mut stream = stream;
-    stream
-        .write_all(request.as_bytes())
-        .map_err(|e| AgentError::ConnectionError(e.to_string()))?;
-
-    let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .map_err(|e| AgentError::ConnectionError(e.to_string()))?;
-
-    extract_body(&response)
+    response
+        .into_string()
+        .map_err(|e| AgentError::ConnectionError(format!("read body failed: {}", e)))
 }
 
-/// POST JSON with timeout
+/// POST JSON with timeout (supports both HTTP and HTTPS)
 fn ureq_post_json_with_timeout(
     url: &str,
     body: &serde_json::Value,
     timeout: Duration,
 ) -> Result<String, AgentError> {
-    post_json_with_headers(url, body, &[], timeout)
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(timeout)
+        .timeout_read(timeout)
+        .timeout_write(timeout)
+        .build();
+
+    let response = agent
+        .post(url)
+        .set("Content-Type", "application/json")
+        .send_json(body.clone())
+        .map_err(|e| AgentError::ConnectionError(format!("HTTP POST failed: {}", e)))?;
+
+    response
+        .into_string()
+        .map_err(|e| AgentError::ConnectionError(format!("read body failed: {}", e)))
 }
 
-/// POST JSON with Bearer auth
+/// POST JSON with Bearer auth (supports HTTPS for OpenAI etc.)
 fn ureq_post_json_with_auth(
     url: &str,
     body: &serde_json::Value,
     api_key: &str,
     timeout: Duration,
 ) -> Result<String, AgentError> {
-    let headers = vec![format!("Authorization: Bearer {}", api_key)];
-    post_json_with_headers(url, body, &headers, timeout)
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(timeout)
+        .timeout_read(timeout)
+        .timeout_write(timeout)
+        .build();
+
+    let response = agent
+        .post(url)
+        .set("Content-Type", "application/json")
+        .set("Authorization", &format!("Bearer {}", api_key))
+        .send_json(body.clone())
+        .map_err(|e| AgentError::ConnectionError(format!("HTTP POST failed: {}", e)))?;
+
+    response
+        .into_string()
+        .map_err(|e| AgentError::ConnectionError(format!("read body failed: {}", e)))
 }
 
-/// POST JSON with Anthropic auth
+/// POST JSON with Anthropic auth (supports HTTPS for Claude API)
 fn ureq_post_json_with_anthropic_auth(
     url: &str,
     body: &serde_json::Value,
     api_key: &str,
     timeout: Duration,
 ) -> Result<String, AgentError> {
-    let headers = vec![
-        format!("x-api-key: {}", api_key),
-        "anthropic-version: 2023-06-01".to_string(),
-    ];
-    post_json_with_headers(url, body, &headers, timeout)
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(timeout)
+        .timeout_read(timeout)
+        .timeout_write(timeout)
+        .build();
+
+    let response = agent
+        .post(url)
+        .set("Content-Type", "application/json")
+        .set("x-api-key", api_key)
+        .set("anthropic-version", "2023-06-01")
+        .send_json(body.clone())
+        .map_err(|e| AgentError::ConnectionError(format!("HTTP POST failed: {}", e)))?;
+
+    response
+        .into_string()
+        .map_err(|e| AgentError::ConnectionError(format!("read body failed: {}", e)))
 }
 
-/// POST JSON with custom headers
-fn post_json_with_headers(
-    url: &str,
-    body: &serde_json::Value,
-    extra_headers: &[String],
-    timeout: Duration,
-) -> Result<String, AgentError> {
-    use std::io::{Read, Write};
-    use std::net::TcpStream;
-
-    let parsed = parse_url(url)?;
-    let addr = format!("{}:{}", parsed.host, parsed.port);
-    let body_str =
-        serde_json::to_string(body).map_err(|e| AgentError::SerializationError(e.to_string()))?;
-
-    let stream = TcpStream::connect_timeout(
-        &addr
-            .parse()
-            .map_err(|e| AgentError::ConnectionError(format!("invalid address: {}", e)))?,
-        timeout,
-    )
-    .map_err(|e| AgentError::ConnectionError(format!("connect failed: {}", e)))?;
-
-    stream
-        .set_read_timeout(Some(timeout))
-        .map_err(|e| AgentError::ConnectionError(e.to_string()))?;
-    stream
-        .set_write_timeout(Some(timeout))
-        .map_err(|e| AgentError::ConnectionError(e.to_string()))?;
-
-    let mut headers = format!(
-        "POST {} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
-        parsed.path,
-        parsed.host,
-        body_str.len()
-    );
-    for h in extra_headers {
-        headers.push_str(h);
-        headers.push_str("\r\n");
-    }
-    headers.push_str("Connection: close\r\n\r\n");
-    headers.push_str(&body_str);
-
-    let mut stream = stream;
-    stream
-        .write_all(headers.as_bytes())
-        .map_err(|e| AgentError::ConnectionError(e.to_string()))?;
-
-    let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .map_err(|e| AgentError::ConnectionError(e.to_string()))?;
-
-    extract_body(&response)
-}
-
+/// Parse URL into components (used only in tests)
+#[cfg(test)]
 struct ParsedUrl {
     host: String,
     port: u16,
     path: String,
 }
 
+#[cfg(test)]
 fn parse_url(url: &str) -> Result<ParsedUrl, AgentError> {
     let url = url
         .strip_prefix("http://")
@@ -1376,14 +1339,6 @@ fn parse_url(url: &str) -> Result<ParsedUrl, AgentError> {
         port,
         path: path.to_string(),
     })
-}
-
-fn extract_body(response: &str) -> Result<String, AgentError> {
-    if let Some(idx) = response.find("\r\n\r\n") {
-        Ok(response[idx + 4..].to_string())
-    } else {
-        Ok(response.to_string())
-    }
 }
 
 /// Parse a cloud AI JSON response

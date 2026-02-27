@@ -116,6 +116,12 @@ pub struct WebUiSection {
     /// Work profile: "system", "software_dev", "marketing", "all"
     #[serde(default = "default_work_profile")]
     pub work_profile: String,
+    /// Authentication password for the web UI (empty = no auth)
+    #[serde(default)]
+    pub auth_password: String,
+    /// CORS allowed origin (default: auto from bind+port)
+    #[serde(default)]
+    pub cors_origin: String,
 }
 
 impl Default for WebUiSection {
@@ -128,6 +134,8 @@ impl Default for WebUiSection {
             max_agents: default_max_agents(),
             license_tier: default_license_tier(),
             work_profile: default_work_profile(),
+            auth_password: String::new(),
+            cors_origin: String::new(),
         }
     }
 }

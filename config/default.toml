@@ -34,7 +34,7 @@ max_files = 30
 
 [ai]
 # Primary provider: "none", "ollama", "openai", "claude"
-primary = "none"
+primary = "ollama"
 
 [ai.local]
 endpoint = "http://localhost:11434"

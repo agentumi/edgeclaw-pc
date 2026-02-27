@@ -12,6 +12,7 @@ pub mod security;
 pub mod server;
 pub mod session;
 pub mod system;
+pub mod webui;
 
 use std::sync::Mutex;
 

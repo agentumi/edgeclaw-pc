@@ -18,6 +18,8 @@ pub struct AgentConfig {
     pub logging: LoggingSection,
     #[serde(default)]
     pub ai: AiConfig,
+    #[serde(default)]
+    pub webui: WebUiSection,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,6 +90,41 @@ pub struct LoggingSection {
     pub rotation: String,
     #[serde(default = "default_max_log_files")]
     pub max_files: u32,
+}
+
+/// Web UI configuration section
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebUiSection {
+    /// Enable the web chat UI
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Port for the web UI HTTP server
+    #[serde(default = "default_webui_port")]
+    pub port: u16,
+    /// Bind address (default: 127.0.0.1 — local only)
+    #[serde(default = "default_webui_bind")]
+    pub bind: String,
+    /// Auto-open browser on start
+    #[serde(default = "default_true")]
+    pub auto_open: bool,
+}
+
+impl Default for WebUiSection {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            port: default_webui_port(),
+            bind: default_webui_bind(),
+            auto_open: true,
+        }
+    }
+}
+
+fn default_webui_port() -> u16 {
+    9444
+}
+fn default_webui_bind() -> String {
+    "127.0.0.1".to_string()
 }
 
 // Default value functions
@@ -309,6 +346,7 @@ impl Default for AgentConfig {
             resource: ResourceSection::default(),
             logging: LoggingSection::default(),
             ai: AiConfig::default(),
+            webui: WebUiSection::default(),
         }
     }
 }

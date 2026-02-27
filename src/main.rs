@@ -1,7 +1,9 @@
 use clap::{Parser, Subcommand};
 use edgeclaw_agent::config::AgentConfig;
+use edgeclaw_agent::webui::{WebUiConfig, WebUiServer};
 use edgeclaw_agent::AgentEngine;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tracing::{error, info};
 
 #[derive(Parser)]
@@ -43,6 +45,15 @@ enum Commands {
     },
     /// Verify audit chain integrity
     AuditVerify,
+    /// Launch web chat UI (opens browser)
+    WebUi {
+        /// Port for the web UI server
+        #[arg(short, long)]
+        port: Option<u16>,
+        /// Don't auto-open browser
+        #[arg(long)]
+        no_open: bool,
+    },
 }
 
 fn default_config_path() -> String {
@@ -215,7 +226,7 @@ async fn main() -> anyhow::Result<()> {
                 "EdgeClaw Agent starting"
             );
 
-            let engine = AgentEngine::new(config);
+            let engine = Arc::new(AgentEngine::new(config.clone()));
 
             // Generate identity on first run
             let identity = engine.generate_identity()?;
@@ -225,6 +236,9 @@ async fn main() -> anyhow::Result<()> {
                 platform = %identity.platform,
                 "Device identity generated"
             );
+
+            // Register web-client as owner peer for chat
+            engine.add_peer("web-client", "WebUI", "browser", "127.0.0.1", "owner")?;
 
             // Print agent startup banner
             println!("╔══════════════════════════════════════════╗");
@@ -237,7 +251,35 @@ async fn main() -> anyhow::Result<()> {
                 "║  Port: {}                             ║",
                 engine.config().agent.listen_port
             );
+            if config.webui.enabled {
+                println!(
+                    "║  Chat: http://{}:{}            ║",
+                    config.webui.bind, config.webui.port
+                );
+            }
             println!("╚══════════════════════════════════════════╝");
+
+            // Start Web UI server (if enabled)
+            if config.webui.enabled {
+                let webui_bind = format!("{}:{}", config.webui.bind, config.webui.port);
+                let webui_engine = engine.clone();
+                let auto_open = config.webui.auto_open;
+                let webui_url = format!("http://{}", webui_bind);
+                tokio::spawn(async move {
+                    let mut webui = WebUiServer::new(
+                        WebUiConfig {
+                            bind_addr: webui_bind,
+                        },
+                        webui_engine,
+                    );
+                    if auto_open {
+                        let _ = open_browser(&webui_url);
+                    }
+                    if let Err(e) = webui.start().await {
+                        error!(error = %e, "Web UI server error");
+                    }
+                });
+            }
 
             // Start TCP server
             let bind_addr = format!("0.0.0.0:{}", engine.config().agent.listen_port);
@@ -270,5 +312,53 @@ async fn main() -> anyhow::Result<()> {
             info!("EdgeClaw Agent stopped");
             Ok(())
         }
+        Commands::WebUi { port, no_open } => {
+            let engine = Arc::new(AgentEngine::new(config.clone()));
+            engine.generate_identity()?;
+            engine.add_peer("web-client", "WebUI", "browser", "127.0.0.1", "owner")?;
+
+            let webui_port = port.unwrap_or(config.webui.port);
+            let webui_bind = format!("{}:{}", config.webui.bind, webui_port);
+            let webui_url = format!("http://{}", webui_bind);
+
+            println!("EdgeClaw Web Chat UI");
+            println!("  URL: {}", webui_url);
+            println!("  AI:  {}", engine.ai_status()["provider"]);
+            println!("Press Ctrl+C to stop.\n");
+
+            if !no_open {
+                let _ = open_browser(&webui_url);
+            }
+
+            let mut webui = WebUiServer::new(
+                WebUiConfig {
+                    bind_addr: webui_bind,
+                },
+                engine,
+            );
+            if let Err(e) = webui.start().await {
+                error!(error = %e, "Web UI server error");
+            }
+            Ok(())
+        }
     }
+}
+
+/// Open a URL in the default system browser
+fn open_browser(url: &str) -> Result<(), std::io::Error> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .spawn()?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(url).spawn()?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open").arg(url).spawn()?;
+    }
+    Ok(())
 }

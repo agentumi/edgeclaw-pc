@@ -27,14 +27,18 @@
 pub mod ai;
 pub mod audit;
 pub mod config;
+pub mod discovery;
 pub mod ecnp;
 pub mod error;
 pub mod events;
 pub mod executor;
 pub mod identity;
+pub mod license;
+pub mod orchestrator;
 pub mod peer;
 pub mod policy;
 pub mod protocol;
+pub mod registry;
 pub mod security;
 pub mod server;
 pub mod session;
@@ -126,6 +130,33 @@ impl AgentEngine {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         mgr.get_identity().cloned()
+    }
+
+    /// Get X25519 secret key bytes (for handshake)
+    pub fn get_secret_key(&self) -> Result<[u8; 32], AgentError> {
+        let mgr = self
+            .identity_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        mgr.get_secret_key()
+    }
+
+    /// Get X25519 public key bytes (for handshake)
+    pub fn get_public_key(&self) -> Result<[u8; 32], AgentError> {
+        let mgr = self
+            .identity_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        mgr.get_public_key()
+    }
+
+    /// Sign data with Ed25519 (for handshake authentication)
+    pub fn sign_data(&self, data: &[u8]) -> Result<Vec<u8>, AgentError> {
+        let mgr = self
+            .identity_manager
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        mgr.sign(data)
     }
 
     // ─── Peers ─────────────────────────────────────────────

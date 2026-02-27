@@ -356,6 +356,18 @@ async fn handle_http(
             let body = extract_body(&request);
             handle_chat(&mut stream, &engine, &body, cors_origin).await
         }
+        _ if method == "POST" && path.starts_with("/api/agents/") && path.ends_with("/execute") => {
+            let agent_id = path
+                .strip_prefix("/api/agents/")
+                .and_then(|s| s.strip_suffix("/execute"))
+                .unwrap_or("");
+            let body = extract_body(&request);
+            handle_agent_execute(&mut stream, agent_id, &body, cors_origin).await
+        }
+        _ if method == "DELETE" && path.starts_with("/api/agents/") => {
+            let agent_id = path.strip_prefix("/api/agents/").unwrap_or("");
+            handle_agent_delete(&mut stream, agent_id, cors_origin).await
+        }
         _ => {
             send_response(
                 &mut stream,
@@ -481,7 +493,7 @@ async fn handle_quick_actions(
     send_response(stream, 200, "application/json", &json, cors_origin).await
 }
 
-/// GET /api/agents — Multi-agent instance info
+/// GET /api/agents — Multi-agent instance info + remote agent registry
 async fn handle_agents_info(
     stream: &mut TcpStream,
     engine: &AgentEngine,
@@ -499,6 +511,26 @@ async fn handle_agents_info(
             "peer_id": if i == 0 { "web-client".to_string() } else { format!("web-client-{}", i) },
         }));
     }
+
+    // Include agents from the registry
+    let registry = crate::registry::AgentRegistry::new();
+    let registered: Vec<serde_json::Value> = registry
+        .list_all()
+        .iter()
+        .map(|a| {
+            serde_json::json!({
+                "id": a.id,
+                "name": a.name,
+                "profile": a.profile,
+                "address": a.address,
+                "port": a.port,
+                "status": a.status.to_string(),
+                "version": a.version,
+                "capabilities": a.capabilities,
+            })
+        })
+        .collect();
+
     let body = serde_json::json!({
         "license_tier": config.webui.license_tier,
         "max_agents": max,
@@ -506,6 +538,8 @@ async fn handle_agents_info(
         "work_profile": config.webui.work_profile,
         "base_port": config.webui.port,
         "instances": instances,
+        "registered_agents": registered,
+        "registered_count": registered.len(),
         "pricing": {
             "free": { "agents": 1, "price": "$0/mo" },
             "pro": { "agents": 5, "price": "$29/mo" },
@@ -514,6 +548,55 @@ async fn handle_agents_info(
     });
     let json = serde_json::to_vec(&body).unwrap_or_default();
     send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// POST /api/agents/{id}/execute — Forward command to a remote agent (stub)
+async fn handle_agent_execute(
+    stream: &mut TcpStream,
+    agent_id: &str,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let registry = crate::registry::AgentRegistry::new();
+    let agent = registry.get(agent_id);
+
+    match agent {
+        Some(a) => {
+            let resp = serde_json::json!({
+                "agent_id": a.id,
+                "agent_name": a.name,
+                "status": "queued",
+                "message": format!("command forwarded to {} ({}:{})", a.name, a.address, a.port),
+                "body": body,
+            });
+            let json = serde_json::to_vec(&resp).unwrap_or_default();
+            send_response(stream, 202, "application/json", &json, cors_origin).await
+        }
+        None => {
+            let err = serde_json::json!({"error": format!("agent '{}' not found", agent_id)});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            send_response(stream, 404, "application/json", &json, cors_origin).await
+        }
+    }
+}
+
+/// DELETE /api/agents/{id} — Remove agent from registry
+async fn handle_agent_delete(
+    stream: &mut TcpStream,
+    agent_id: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let registry = crate::registry::AgentRegistry::new();
+    if registry.remove(agent_id) {
+        let _ = registry.save();
+        let resp = serde_json::json!({"removed": agent_id});
+        let json = serde_json::to_vec(&resp).unwrap_or_default();
+        send_response(stream, 200, "application/json", &json, cors_origin).await
+    } else {
+        let err = serde_json::json!({"error": format!("agent '{}' not found", agent_id)});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        send_response(stream, 404, "application/json", &json, cors_origin).await
+    }
 }
 
 /// POST /api/chat

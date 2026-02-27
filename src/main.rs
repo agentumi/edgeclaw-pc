@@ -63,6 +63,32 @@ enum Commands {
         #[arg(long)]
         no_open: bool,
     },
+    /// Manage multi-agent network
+    Agents {
+        #[command(subcommand)]
+        action: AgentsAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum AgentsAction {
+    /// List registered agents
+    List,
+    /// Show status of a specific agent
+    Status {
+        /// Agent ID
+        agent_id: String,
+    },
+    /// Connect to a remote agent
+    Connect {
+        /// Remote agent address (host:port)
+        address: String,
+    },
+    /// Disconnect from a remote agent
+    Disconnect {
+        /// Agent ID to disconnect
+        agent_id: String,
+    },
 }
 
 fn default_config_path() -> String {
@@ -548,6 +574,136 @@ async fn main() -> anyhow::Result<()> {
                 error!(error = %e, "Web UI server error");
             }
             Ok(())
+        }
+        Commands::Agents { action } => {
+            let engine = AgentEngine::new(config.clone());
+            engine.generate_identity()?;
+
+            match action {
+                AgentsAction::List => {
+                    let registry = edgeclaw_agent::registry::AgentRegistry::new();
+                    let agents = registry.list_all();
+                    if agents.is_empty() {
+                        println!("No agents registered.");
+                        println!(
+                            "  Tip: Use `edgeclaw-agent agents connect <host:port>` to add one."
+                        );
+                    } else {
+                        println!("Registered Agents ({}):", agents.len());
+                        for a in &agents {
+                            let status_icon = match a.status {
+                                edgeclaw_agent::registry::AgentStatus::Online => "🟢",
+                                edgeclaw_agent::registry::AgentStatus::Busy => "🟡",
+                                edgeclaw_agent::registry::AgentStatus::Offline => "🔴",
+                                edgeclaw_agent::registry::AgentStatus::Error => "❌",
+                            };
+                            println!(
+                                "  {} {} — {} ({}:{})",
+                                status_icon, a.name, a.status, a.address, a.port
+                            );
+                        }
+                    }
+                    Ok(())
+                }
+                AgentsAction::Status { agent_id } => {
+                    let registry = edgeclaw_agent::registry::AgentRegistry::new();
+                    match registry.get(&agent_id) {
+                        Some(a) => {
+                            println!("Agent: {}", a.name);
+                            println!("  ID:       {}", a.id);
+                            println!("  Profile:  {}", a.profile);
+                            println!("  Address:  {}:{}", a.address, a.port);
+                            println!("  Status:   {}", a.status);
+                            println!("  Version:  {}", a.version);
+                            println!("  Caps:     {}", a.capabilities.join(", "));
+                        }
+                        None => {
+                            println!("Agent '{}' not found.", agent_id);
+                        }
+                    }
+                    Ok(())
+                }
+                AgentsAction::Connect { address } => {
+                    println!("Connecting to {}...", address);
+                    // Parse address
+                    let parts: Vec<&str> = address.rsplitn(2, ':').collect();
+                    let (port_str, host) = if parts.len() == 2 {
+                        (parts[0], parts[1])
+                    } else {
+                        ("8443", address.as_str())
+                    };
+                    let port: u16 = port_str.parse().unwrap_or(8443);
+
+                    // Attempt TCP connection + ECDH handshake
+                    let addr = format!("{host}:{port}");
+                    match tokio::net::TcpStream::connect(&addr).await {
+                        Ok(mut stream) => {
+                            let secret = engine.get_secret_key()?;
+                            let public = engine.get_public_key()?;
+                            let identity = engine.get_identity()?;
+                            let sig = engine.sign_data(&public)?;
+
+                            let payload = edgeclaw_agent::peer::build_handshake_payload(
+                                &public,
+                                &sig,
+                                &identity.device_id,
+                                &identity.device_name,
+                            );
+
+                            let mut session_mgr = edgeclaw_agent::session::SessionManager::new();
+                            match edgeclaw_agent::peer::perform_handshake(
+                                &mut stream,
+                                &mut session_mgr,
+                                &secret,
+                                &payload,
+                            )
+                            .await
+                            {
+                                Ok((session_id, remote)) => {
+                                    println!("✅ Connected to {}", remote.agent_name);
+                                    println!("  Device:  {}", remote.device_id);
+                                    println!("  Session: {}", &session_id[..8]);
+
+                                    // Register in local registry
+                                    let registry = edgeclaw_agent::registry::AgentRegistry::new();
+                                    let info = edgeclaw_agent::registry::AgentInfo {
+                                        id: remote.device_id.clone(),
+                                        name: remote.agent_name.clone(),
+                                        profile: "unknown".into(),
+                                        address: host.to_string(),
+                                        port,
+                                        status: edgeclaw_agent::registry::AgentStatus::Online,
+                                        capabilities: vec![],
+                                        version: "unknown".into(),
+                                        last_heartbeat: chrono::Utc::now(),
+                                        registered_at: chrono::Utc::now(),
+                                    };
+                                    let _ = registry.register(info);
+                                    let _ = registry.save();
+                                    println!("  Registered in local agent registry.");
+                                }
+                                Err(e) => {
+                                    println!("❌ Handshake failed: {}", e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("❌ Cannot connect to {}: {}", addr, e);
+                        }
+                    }
+                    Ok(())
+                }
+                AgentsAction::Disconnect { agent_id } => {
+                    let registry = edgeclaw_agent::registry::AgentRegistry::new();
+                    if registry.remove(&agent_id) {
+                        let _ = registry.save();
+                        println!("Disconnected agent '{}'.", agent_id);
+                    } else {
+                        println!("Agent '{}' not found.", agent_id);
+                    }
+                    Ok(())
+                }
+            }
         }
     }
 }

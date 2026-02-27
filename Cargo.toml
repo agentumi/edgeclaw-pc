@@ -42,6 +42,9 @@ ureq = { version = "2", features = ["tls", "json"] }
 tokio-tungstenite = "0.24"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 
+# mDNS Service Discovery
+mdns-sd = "0.18"
+
 # System info
 sysinfo = "0.32"
 hostname = "0.4"

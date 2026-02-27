@@ -77,6 +77,11 @@ dirs = "5"
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }
 tempfile = "3"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "core_bench"
+harness = false
 
 [profile.release]
 opt-level = 3

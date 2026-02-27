@@ -1,0 +1,34 @@
+[package]
+name = "edgeclaw-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+edgeclaw-agent = { path = ".." }
+aes-gcm = "0.10"
+rand = "0.8"
+
+[[bin]]
+name = "fuzz_ecnp_parse"
+path = "fuzz_targets/fuzz_ecnp_parse.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_message_deserialize"
+path = "fuzz_targets/fuzz_message_deserialize.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_aes_gcm"
+path = "fuzz_targets/fuzz_aes_gcm.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_policy"
+path = "fuzz_targets/fuzz_policy.rs"
+doc = false

@@ -25,7 +25,7 @@ COPY config/default.toml /etc/edgeclaw/agent.toml
 
 USER edgeclaw
 
-EXPOSE 9443
+EXPOSE 9443 9444 9445 9446
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["/usr/local/bin/edgeclaw-agent", "health"]

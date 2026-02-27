@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "edgeclaw.fullname" . }}-config
+  labels:
+    {{- include "edgeclaw.labels" . | nindent 4 }}
+data:
+  agent.toml: |
+    [agent]
+    device_name = {{ .Values.agent.deviceName | quote }}
+    listen_port = {{ .Values.agent.listenPort }}
+    max_connections = {{ .Values.agent.maxConnections }}
+
+    [transport]
+    tcp_enabled = {{ .Values.transport.tcpEnabled }}
+    quic_enabled = {{ .Values.transport.quicEnabled }}
+
+    [security]
+    policy_mode = {{ .Values.security.policyMode | quote }}
+    default_role = {{ .Values.security.defaultRole | quote }}
+    session_timeout_secs = {{ .Values.security.sessionTimeoutSecs }}
+
+    [execution]
+    sandbox_enabled = {{ .Values.execution.sandboxEnabled }}
+    max_concurrent = {{ .Values.execution.maxConcurrent }}
+    default_timeout_secs = {{ .Values.execution.defaultTimeoutSecs }}
+
+    [webui]
+    enabled = {{ .Values.webui.enabled }}
+    port = {{ .Values.webui.port }}
+    bind = {{ .Values.webui.bind | quote }}
+    auth_password = {{ .Values.webui.authPassword | quote }}
+
+    [websocket]
+    enabled = {{ .Values.websocket.enabled }}
+    port = {{ .Values.websocket.port }}
+    bind = {{ .Values.websocket.bind | quote }}
+
+    [blockchain]
+    enabled = {{ .Values.blockchain.enabled }}
+    chain = {{ .Values.blockchain.chain | quote }}

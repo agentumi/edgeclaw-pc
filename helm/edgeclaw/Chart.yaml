@@ -1,0 +1,21 @@
+apiVersion: v2
+name: edgeclaw
+description: EdgeClaw Desktop Agent — Zero-trust edge AI executor
+type: application
+version: 1.0.0
+appVersion: "3.0.0"
+
+keywords:
+  - edge-computing
+  - zero-trust
+  - ai-agent
+  - p2p
+  - ecnp
+
+home: https://github.com/agentumi/edgeclaw-pc
+sources:
+  - https://github.com/agentumi/edgeclaw-pc
+
+maintainers:
+  - name: EdgeClaw Team
+    url: https://github.com/agentumi

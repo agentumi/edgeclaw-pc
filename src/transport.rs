@@ -319,6 +319,195 @@ impl AutoTransport {
     }
 }
 
+// ─── Async Transport Trait ────────────────────────────────────
+
+/// Async transport trait for pluggable protocol backends.
+///
+/// Implementations must provide connection lifecycle methods.
+/// Used by server.rs and peer.rs for protocol-agnostic networking.
+#[allow(async_fn_in_trait)]
+pub trait Transport {
+    /// Connect to a remote peer.
+    async fn connect(&self, addr: SocketAddr) -> Result<uuid::Uuid, AgentError>;
+
+    /// Accept an incoming connection (returns connection ID).
+    async fn accept(&self) -> Result<uuid::Uuid, AgentError>;
+
+    /// Send data on a connection.
+    async fn send(&self, conn_id: uuid::Uuid, data: &[u8]) -> Result<usize, AgentError>;
+
+    /// Receive data from a connection.
+    async fn recv(&self, conn_id: uuid::Uuid, buf: &mut [u8]) -> Result<usize, AgentError>;
+
+    /// Close a connection.
+    async fn close(&self, conn_id: uuid::Uuid) -> Result<(), AgentError>;
+
+    /// Get connection stats.
+    fn stats(&self, conn_id: uuid::Uuid) -> Option<ConnectionStats>;
+
+    /// Get protocol identifier.
+    fn protocol(&self) -> TransportProtocol;
+}
+
+// ─── Connection Migration ─────────────────────────────────────
+
+/// Connection migration state for seamless protocol handoff (e.g., QUIC ↔ TCP).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConnectionMigration {
+    /// Original connection ID.
+    pub original_id: uuid::Uuid,
+    /// New connection ID after migration.
+    pub migrated_id: Option<uuid::Uuid>,
+    /// Source protocol.
+    pub from_protocol: TransportProtocol,
+    /// Target protocol.
+    pub to_protocol: TransportProtocol,
+    /// Migration state.
+    pub state: MigrationState,
+    /// Timestamp when migration was initiated.
+    pub initiated_at: chrono::DateTime<chrono::Utc>,
+    /// Bytes buffered during migration.
+    pub buffered_bytes: u64,
+}
+
+/// Migration lifecycle state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MigrationState {
+    /// Migration not started.
+    Pending,
+    /// Buffering data, new connection being established.
+    InProgress,
+    /// New connection ready, draining buffer.
+    Draining,
+    /// Migration complete.
+    Completed,
+    /// Migration failed, using original connection.
+    Failed,
+}
+
+impl ConnectionMigration {
+    /// Create a new pending migration.
+    pub fn new(
+        original_id: uuid::Uuid,
+        from_protocol: TransportProtocol,
+        to_protocol: TransportProtocol,
+    ) -> Self {
+        Self {
+            original_id,
+            migrated_id: None,
+            from_protocol,
+            to_protocol,
+            state: MigrationState::Pending,
+            initiated_at: chrono::Utc::now(),
+            buffered_bytes: 0,
+        }
+    }
+
+    /// Mark migration as in-progress.
+    pub fn start(&mut self) {
+        self.state = MigrationState::InProgress;
+    }
+
+    /// Transition to draining with the new connection ID.
+    pub fn drain(&mut self, new_id: uuid::Uuid) {
+        self.migrated_id = Some(new_id);
+        self.state = MigrationState::Draining;
+    }
+
+    /// Mark migration as completed.
+    pub fn complete(&mut self) {
+        self.state = MigrationState::Completed;
+    }
+
+    /// Mark migration as failed.
+    pub fn fail(&mut self) {
+        self.state = MigrationState::Failed;
+    }
+
+    /// Whether migration is still pending or in-progress.
+    pub fn is_active(&self) -> bool {
+        matches!(
+            self.state,
+            MigrationState::Pending | MigrationState::InProgress | MigrationState::Draining
+        )
+    }
+
+    /// Duration since migration was initiated.
+    pub fn elapsed(&self) -> chrono::Duration {
+        chrono::Utc::now() - self.initiated_at
+    }
+}
+
+// ─── Certificate Rotation ────────────────────────────────────
+
+/// TLS certificate rotation manager.
+///
+/// Tracks certificate expiry and triggers rotation before expiration.
+#[derive(Debug)]
+pub struct CertificateRotation {
+    /// Current certificate path.
+    pub cert_path: Option<String>,
+    /// Current key path.
+    pub key_path: Option<String>,
+    /// Certificate not-after (expiry) timestamp.
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Days before expiry to trigger rotation.
+    pub rotate_before_days: u32,
+    /// Number of rotations performed.
+    pub rotation_count: u64,
+    /// Last rotation timestamp.
+    pub last_rotation: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl Default for CertificateRotation {
+    fn default() -> Self {
+        Self {
+            cert_path: None,
+            key_path: None,
+            expires_at: None,
+            rotate_before_days: 30,
+            rotation_count: 0,
+            last_rotation: None,
+        }
+    }
+}
+
+impl CertificateRotation {
+    /// Create a new certificate rotation tracker.
+    pub fn new(cert_path: Option<String>, key_path: Option<String>) -> Self {
+        Self {
+            cert_path,
+            key_path,
+            ..Default::default()
+        }
+    }
+
+    /// Check if certificate needs rotation.
+    pub fn needs_rotation(&self) -> bool {
+        match self.expires_at {
+            Some(expiry) => {
+                let threshold =
+                    chrono::Utc::now() + chrono::Duration::days(self.rotate_before_days as i64);
+                expiry <= threshold
+            }
+            None => false, // No cert loaded → nothing to rotate
+        }
+    }
+
+    /// Record a rotation event.
+    pub fn record_rotation(&mut self, new_expiry: chrono::DateTime<chrono::Utc>) {
+        self.rotation_count += 1;
+        self.last_rotation = Some(chrono::Utc::now());
+        self.expires_at = Some(new_expiry);
+    }
+
+    /// Days until certificate expiry (None if no cert).
+    pub fn days_until_expiry(&self) -> Option<i64> {
+        self.expires_at
+            .map(|exp| (exp - chrono::Utc::now()).num_days())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,5 +610,75 @@ mod tests {
         let json = serde_json::to_string(&TransportProtocol::Quic).unwrap();
         let parsed: TransportProtocol = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, TransportProtocol::Quic);
+    }
+
+    #[test]
+    fn test_connection_migration_lifecycle() {
+        let id = uuid::Uuid::new_v4();
+        let mut mig = ConnectionMigration::new(id, TransportProtocol::Tcp, TransportProtocol::Quic);
+        assert_eq!(mig.state, MigrationState::Pending);
+        assert!(mig.is_active());
+
+        mig.start();
+        assert_eq!(mig.state, MigrationState::InProgress);
+        assert!(mig.is_active());
+
+        let new_id = uuid::Uuid::new_v4();
+        mig.drain(new_id);
+        assert_eq!(mig.state, MigrationState::Draining);
+        assert_eq!(mig.migrated_id, Some(new_id));
+
+        mig.complete();
+        assert_eq!(mig.state, MigrationState::Completed);
+        assert!(!mig.is_active());
+    }
+
+    #[test]
+    fn test_connection_migration_fail() {
+        let id = uuid::Uuid::new_v4();
+        let mut mig = ConnectionMigration::new(id, TransportProtocol::Quic, TransportProtocol::Tcp);
+        mig.start();
+        mig.fail();
+        assert_eq!(mig.state, MigrationState::Failed);
+        assert!(!mig.is_active());
+    }
+
+    #[test]
+    fn test_migration_state_serialize() {
+        let json = serde_json::to_string(&MigrationState::InProgress).unwrap();
+        let parsed: MigrationState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, MigrationState::InProgress);
+    }
+
+    #[test]
+    fn test_certificate_rotation_default() {
+        let cr = CertificateRotation::default();
+        assert!(!cr.needs_rotation());
+        assert_eq!(cr.rotation_count, 0);
+        assert_eq!(cr.rotate_before_days, 30);
+        assert!(cr.days_until_expiry().is_none());
+    }
+
+    #[test]
+    fn test_certificate_rotation_needs_rotation() {
+        let mut cr =
+            CertificateRotation::new(Some("/tmp/cert.pem".into()), Some("/tmp/key.pem".into()));
+        // Set expiry to 10 days from now (within 30-day threshold)
+        cr.expires_at = Some(chrono::Utc::now() + chrono::Duration::days(10));
+        assert!(cr.needs_rotation());
+
+        // Set expiry to 60 days from now (outside threshold)
+        cr.expires_at = Some(chrono::Utc::now() + chrono::Duration::days(60));
+        assert!(!cr.needs_rotation());
+    }
+
+    #[test]
+    fn test_certificate_rotation_record() {
+        let mut cr = CertificateRotation::default();
+        let new_expiry = chrono::Utc::now() + chrono::Duration::days(365);
+        cr.record_rotation(new_expiry);
+        assert_eq!(cr.rotation_count, 1);
+        assert!(cr.last_rotation.is_some());
+        assert_eq!(cr.days_until_expiry().unwrap(), 364); // ~365 minus rounding
     }
 }

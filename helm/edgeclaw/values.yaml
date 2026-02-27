@@ -1,0 +1,116 @@
+# EdgeClaw Helm Chart — default values
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/agentumi/edgeclaw-agent
+  pullPolicy: IfNotPresent
+  tag: "3.0.0"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9444"
+  prometheus.io/path: "/metrics"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  ecnpPort: 8443
+  webuiPort: 9444
+  wsPort: 9445
+  metricsPort: 9444
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: edgeclaw.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 100m
+    memory: 64Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# EdgeClaw agent configuration (maps to TOML config)
+agent:
+  deviceName: "edgeclaw-k8s"
+  listenPort: 8443
+  maxConnections: 50
+
+transport:
+  tcpEnabled: true
+  quicEnabled: false
+
+security:
+  policyMode: "strict"
+  defaultRole: "viewer"
+  sessionTimeoutSecs: 3600
+
+execution:
+  sandboxEnabled: true
+  maxConcurrent: 5
+  defaultTimeoutSecs: 60
+
+webui:
+  enabled: true
+  port: 9444
+  bind: "0.0.0.0"
+  authPassword: ""
+
+websocket:
+  enabled: true
+  port: 9445
+  bind: "0.0.0.0"
+
+blockchain:
+  enabled: false
+  chain: "none"
+
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+
+monitoring:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}

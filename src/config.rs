@@ -28,6 +28,8 @@ pub struct AgentConfig {
     pub webui: WebUiSection,
     #[serde(default)]
     pub websocket: WebSocketSection,
+    #[serde(default)]
+    pub blockchain: BlockchainSection,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -202,6 +204,62 @@ impl Default for WebSocketSection {
             bind: default_webui_bind(),
             max_clients: default_ws_max_clients(),
             heartbeat_secs: default_ws_heartbeat(),
+        }
+    }
+}
+
+// ─── Blockchain Configuration ──────────────────────────────
+
+/// Blockchain / on-chain configuration section.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockchainSection {
+    /// Enable blockchain integration.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Chain: "sui", "solana", "ethereum", or "none".
+    #[serde(default = "default_blockchain_chain")]
+    pub chain: String,
+    /// RPC endpoint URL.
+    #[serde(default = "default_blockchain_rpc")]
+    pub rpc_url: String,
+    /// Contract / package address (hex).
+    #[serde(default)]
+    pub contract_address: String,
+    /// Wallet key path (for signing transactions).
+    #[serde(default)]
+    pub wallet_key_path: String,
+    /// Gas budget limit per transaction.
+    #[serde(default = "default_gas_budget")]
+    pub gas_budget: u64,
+    /// Enable on-chain audit anchoring.
+    #[serde(default)]
+    pub audit_anchoring: bool,
+    /// Token distribution program ID (optional).
+    #[serde(default)]
+    pub token_program: String,
+}
+
+fn default_blockchain_chain() -> String {
+    "none".to_string()
+}
+fn default_blockchain_rpc() -> String {
+    "https://fullnode.mainnet.sui.io:443".to_string()
+}
+fn default_gas_budget() -> u64 {
+    10_000_000
+}
+
+impl Default for BlockchainSection {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            chain: default_blockchain_chain(),
+            rpc_url: default_blockchain_rpc(),
+            contract_address: String::new(),
+            wallet_key_path: String::new(),
+            gas_budget: default_gas_budget(),
+            audit_anchoring: false,
+            token_program: String::new(),
         }
     }
 }
@@ -449,6 +507,7 @@ impl Default for AgentConfig {
             ai: AiConfig::default(),
             webui: WebUiSection::default(),
             websocket: WebSocketSection::default(),
+            blockchain: BlockchainSection::default(),
         }
     }
 }
@@ -570,5 +629,27 @@ mod tests {
         let path = PathBuf::from("/nonexistent/path/agent.toml");
         let config = AgentConfig::load(&path).unwrap();
         assert_eq!(config.agent.listen_port, 8443);
+    }
+
+    #[test]
+    fn test_blockchain_config_default() {
+        let config = AgentConfig::default();
+        assert!(!config.blockchain.enabled);
+        assert_eq!(config.blockchain.chain, "none");
+        assert_eq!(config.blockchain.gas_budget, 10_000_000);
+        assert!(!config.blockchain.audit_anchoring);
+    }
+
+    #[test]
+    fn test_blockchain_config_roundtrip() {
+        let mut config = AgentConfig::default();
+        config.blockchain.enabled = true;
+        config.blockchain.chain = "sui".to_string();
+        config.blockchain.contract_address = "0xabc123".to_string();
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+        let parsed: AgentConfig = toml::from_str(&toml_str).unwrap();
+        assert!(parsed.blockchain.enabled);
+        assert_eq!(parsed.blockchain.chain, "sui");
+        assert_eq!(parsed.blockchain.contract_address, "0xabc123");
     }
 }

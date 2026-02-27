@@ -11,6 +11,18 @@ use crate::error::AgentError;
 /// Organization identifier — SHA-256 hash of Ed25519 public key.
 pub type OrgId = [u8; 32];
 
+/// Attestation-gated access level for confidential mesh.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConfidentialLevel {
+    /// No attestation required.
+    #[default]
+    None,
+    /// Software attestation (TEE simulator).
+    Software,
+    /// Hardware attestation (SGX, TrustZone, SEV).
+    Hardware,
+}
+
 /// Data sharing level between federated organizations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DataSharingLevel {
@@ -43,6 +55,9 @@ pub struct FederationPolicy {
     pub created_at: DateTime<Utc>,
     /// Whether policy is revoked.
     pub revoked: bool,
+    /// Confidential computing attestation level required.
+    #[serde(default)]
+    pub confidential_level: ConfidentialLevel,
 }
 
 /// Manages federation policies.
@@ -82,6 +97,7 @@ impl FederationManager {
             signature: None,
             created_at: Utc::now(),
             revoked: false,
+            confidential_level: ConfidentialLevel::None,
         };
         let mut policies = self.policies.lock().unwrap();
         policies.push(policy.clone());
@@ -148,6 +164,70 @@ impl FederationManager {
             let _ = self.save_inner(&policies);
         }
         removed
+    }
+
+    // ─── Confidential Mesh Extensions ──────────────────────
+
+    /// Create a federation policy that requires attestation for access.
+    pub fn create_confidential_policy(
+        &self,
+        org_id: &str,
+        peer_org_id: &str,
+        shared_capabilities: Vec<String>,
+        data_sharing: DataSharingLevel,
+        expires_at: DateTime<Utc>,
+        confidential_level: ConfidentialLevel,
+    ) -> FederationPolicy {
+        let policy = FederationPolicy {
+            org_id: org_id.to_string(),
+            peer_org_id: peer_org_id.to_string(),
+            shared_capabilities,
+            data_sharing,
+            expires_at,
+            mutual_auth: true, // always required for confidential
+            signature: None,
+            created_at: Utc::now(),
+            revoked: false,
+            confidential_level,
+        };
+        let mut policies = self.policies.lock().unwrap();
+        policies.push(policy.clone());
+        let _ = self.save_inner(&policies);
+        policy
+    }
+
+    /// Evaluate confidential access — checks attestation level in addition to capability.
+    pub fn evaluate_confidential_access(
+        &self,
+        peer_org_id: &str,
+        capability: &str,
+        peer_attestation_level: ConfidentialLevel,
+    ) -> Result<bool, AgentError> {
+        let policies = self.policies.lock().unwrap();
+        for policy in policies.iter() {
+            if policy.peer_org_id == peer_org_id
+                && self.verify_policy(policy)
+                && policy.shared_capabilities.iter().any(|c| c == capability)
+            {
+                // Check attestation level is sufficient
+                let required = policy.confidential_level as u8;
+                let provided = peer_attestation_level as u8;
+                if provided >= required {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    /// List policies requiring hardware attestation.
+    pub fn list_confidential_policies(&self) -> Vec<FederationPolicy> {
+        let policies = self.policies.lock().unwrap();
+        policies
+            .iter()
+            .filter(|p| self.verify_policy(p) && p.confidential_level != ConfidentialLevel::None)
+            .cloned()
+            .collect()
     }
 
     fn save_inner(&self, policies: &[FederationPolicy]) -> Result<(), AgentError> {
@@ -323,5 +403,76 @@ mod tests {
         // Re-load from disk
         let mgr2 = FederationManager::new(dir);
         assert_eq!(mgr2.list_active().len(), 1);
+    }
+
+    #[test]
+    fn test_confidential_policy_creation() {
+        let mgr = temp_manager();
+        let policy = mgr.create_confidential_policy(
+            "org-a",
+            "org-b",
+            vec!["shell_exec".into()],
+            DataSharingLevel::Full,
+            Utc::now() + chrono::Duration::hours(24),
+            ConfidentialLevel::Hardware,
+        );
+        assert_eq!(policy.confidential_level, ConfidentialLevel::Hardware);
+        assert!(policy.mutual_auth);
+    }
+
+    #[test]
+    fn test_confidential_access_sufficient_level() {
+        let mgr = temp_manager();
+        mgr.create_confidential_policy(
+            "org-a",
+            "org-b",
+            vec!["shell_exec".into()],
+            DataSharingLevel::Full,
+            Utc::now() + chrono::Duration::hours(24),
+            ConfidentialLevel::Software,
+        );
+        // Hardware >= Software → allowed
+        assert!(mgr
+            .evaluate_confidential_access("org-b", "shell_exec", ConfidentialLevel::Hardware)
+            .unwrap());
+        // Software >= Software → allowed
+        assert!(mgr
+            .evaluate_confidential_access("org-b", "shell_exec", ConfidentialLevel::Software)
+            .unwrap());
+        // None < Software → denied
+        assert!(!mgr
+            .evaluate_confidential_access("org-b", "shell_exec", ConfidentialLevel::None)
+            .unwrap());
+    }
+
+    #[test]
+    fn test_list_confidential_policies() {
+        let mgr = temp_manager();
+        mgr.create_policy(
+            "org-a",
+            "org-b",
+            vec!["status_query".into()],
+            DataSharingLevel::None,
+            Utc::now() + chrono::Duration::hours(24),
+            false,
+        );
+        mgr.create_confidential_policy(
+            "org-a",
+            "org-c",
+            vec!["shell_exec".into()],
+            DataSharingLevel::Full,
+            Utc::now() + chrono::Duration::hours(24),
+            ConfidentialLevel::Hardware,
+        );
+        let conf = mgr.list_confidential_policies();
+        assert_eq!(conf.len(), 1);
+        assert_eq!(conf[0].peer_org_id, "org-c");
+    }
+
+    #[test]
+    fn test_confidential_level_serialize() {
+        let json = serde_json::to_string(&ConfidentialLevel::Hardware).unwrap();
+        let parsed: ConfidentialLevel = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, ConfidentialLevel::Hardware);
     }
 }

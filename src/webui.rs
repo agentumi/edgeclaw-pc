@@ -6,6 +6,7 @@
 
 use crate::ai::QuickAction;
 use crate::error::AgentError;
+use crate::metrics::MetricsRegistry;
 use crate::security::{RateLimitConfig, RateLimiter};
 use crate::AgentEngine;
 use std::collections::HashMap;
@@ -18,6 +19,9 @@ use tracing::{error, info, warn};
 
 /// Embedded HTML chat page (compiled into the binary)
 const CHAT_HTML: &str = include_str!("../static/chat.html");
+
+/// Embedded HTML dashboard page (compiled into the binary)
+const DASHBOARD_HTML: &str = include_str!("../static/dashboard.html");
 
 /// Session token validity duration (1 hour)
 const SESSION_TTL: Duration = Duration::from_secs(3600);
@@ -95,6 +99,7 @@ pub struct WebUiServer {
     shutdown_tx: Option<broadcast::Sender<()>>,
     rate_limiter: Arc<RateLimiter>,
     sessions: Arc<SessionManager>,
+    metrics: Arc<MetricsRegistry>,
 }
 
 impl WebUiServer {
@@ -106,6 +111,7 @@ impl WebUiServer {
             shutdown_tx: None,
             rate_limiter: Arc::new(RateLimiter::new(RateLimitConfig::default())),
             sessions: Arc::new(SessionManager::new()),
+            metrics: Arc::new(MetricsRegistry::with_defaults()),
         }
     }
 
@@ -153,11 +159,13 @@ impl WebUiServer {
                             let cors = cors_origin.clone();
                             let password = auth_password.clone();
                             let need_auth = auth_required;
+                            let metrics = self.metrics.clone();
                             let mut shutdown = shutdown_tx.subscribe();
                             tokio::spawn(async move {
                                 if let Err(e) = handle_http(
                                     stream, eng, &limiter, &sessions,
                                     &cors, &password, need_auth,
+                                    &metrics,
                                     &mut shutdown
                                 ).await {
                                     warn!(peer = %addr, error = %e, "HTTP handler error");
@@ -197,6 +205,7 @@ async fn handle_http(
     cors_origin: &str,
     auth_password: &str,
     auth_required: bool,
+    metrics: &MetricsRegistry,
     shutdown: &mut broadcast::Receiver<()>,
 ) -> Result<(), AgentError> {
     // Rate-limit by peer IP
@@ -309,6 +318,19 @@ async fn handle_http(
             )
             .await;
         }
+        ("GET", "/dashboard") | ("GET", "/dashboard.html") => {
+            return send_response(
+                &mut stream,
+                200,
+                "text/html; charset=utf-8",
+                DASHBOARD_HTML.as_bytes(),
+                cors_origin,
+            )
+            .await;
+        }
+        ("GET", "/metrics") => {
+            return handle_metrics_prometheus(&mut stream, metrics, &engine, cors_origin).await;
+        }
         ("GET", "/health") | ("GET", "/api/health") => {
             return handle_health(&mut stream, &engine, cors_origin).await;
         }
@@ -352,6 +374,19 @@ async fn handle_http(
             handle_quick_actions(&mut stream, &engine, cors_origin).await
         }
         ("GET", "/api/agents") => handle_agents_info(&mut stream, &engine, cors_origin).await,
+        ("GET", "/api/metrics/history") => {
+            handle_metrics_history(&mut stream, metrics, &engine, cors_origin).await
+        }
+        ("GET", "/api/audit/entries") => {
+            handle_audit_entries(&mut stream, &engine, &request, cors_origin).await
+        }
+        ("GET", "/api/audit/verify") => {
+            handle_audit_verify(&mut stream, &engine, cors_origin).await
+        }
+        ("PUT", "/api/config") => {
+            let body = extract_body(&request);
+            handle_config_update(&mut stream, &engine, &body, cors_origin).await
+        }
         ("POST", "/api/chat") => {
             let body = extract_body(&request);
             handle_chat(&mut stream, &engine, &body, cors_origin).await
@@ -652,6 +687,167 @@ async fn handle_chat(
     }
 }
 
+/// GET /metrics — Prometheus text exposition format.
+/// Updates system gauges from AgentEngine before rendering.
+async fn handle_metrics_prometheus(
+    stream: &mut TcpStream,
+    metrics: &MetricsRegistry,
+    engine: &AgentEngine,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    // Refresh system gauges
+    let sys = engine.get_system_info();
+    metrics.set_gauge("edgeclaw_cpu_usage_percent", sys.cpu_usage as f64);
+    metrics.set_gauge(
+        "edgeclaw_memory_usage_bytes",
+        (sys.used_memory_mb * 1024 * 1024) as f64,
+    );
+    metrics.set_gauge("edgeclaw_active_peers", engine.connected_count() as f64);
+
+    let text = metrics.render_prometheus();
+    send_response(
+        stream,
+        200,
+        "text/plain; version=0.0.4; charset=utf-8",
+        text.as_bytes(),
+        cors_origin,
+    )
+    .await
+}
+
+/// GET /api/metrics/history — Recent 1h snapshot of key metrics.
+async fn handle_metrics_history(
+    stream: &mut TcpStream,
+    metrics: &MetricsRegistry,
+    engine: &AgentEngine,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let sys = engine.get_system_info();
+    metrics.set_gauge("edgeclaw_cpu_usage_percent", sys.cpu_usage as f64);
+    metrics.set_gauge(
+        "edgeclaw_memory_usage_bytes",
+        (sys.used_memory_mb * 1024 * 1024) as f64,
+    );
+
+    let body = serde_json::json!({
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "uptime_secs": engine.uptime_secs(),
+        "cpu_usage_percent": sys.cpu_usage,
+        "memory_usage_percent": sys.memory_usage_percent,
+        "memory_usage_bytes": sys.used_memory_mb * 1024 * 1024,
+        "total_memory_mb": sys.total_memory_mb,
+        "active_peers": engine.connected_count(),
+        "commands_total": metrics.get("edgeclaw_commands_total")
+            .map(|v| match v { crate::metrics::MetricValue::Counter(c) => c, _ => 0.0 })
+            .unwrap_or(0.0),
+        "messages_total": metrics.get("edgeclaw_messages_total")
+            .map(|v| match v { crate::metrics::MetricValue::Counter(c) => c, _ => 0.0 })
+            .unwrap_or(0.0),
+        "errors_total": metrics.get("edgeclaw_errors_total")
+            .map(|v| match v { crate::metrics::MetricValue::Counter(c) => c, _ => 0.0 })
+            .unwrap_or(0.0),
+        "audit_entry_count": engine.audit_count(),
+    });
+    let json = serde_json::to_vec(&body).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// GET /api/audit/entries — Paginated audit log entries.
+/// Query params: ?limit=N (default 50, max 500)
+async fn handle_audit_entries(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    raw_request: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    // Parse query parameters from request path
+    let limit = parse_query_param(raw_request, "limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(50)
+        .min(500);
+
+    let entries = engine.get_audit_log(limit);
+    let body = serde_json::json!({
+        "count": entries.len(),
+        "total": engine.audit_count(),
+        "entries": entries,
+    });
+    let json = serde_json::to_vec(&body).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// GET /api/audit/verify — Verify hash-chain integrity of audit log.
+async fn handle_audit_verify(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let (valid, detail) = match engine.verify_audit_chain() {
+        Ok(true) => (true, "Hash chain is intact".to_string()),
+        Ok(false) => (false, "Verification returned false".to_string()),
+        Err(e) => (false, e),
+    };
+    let body = serde_json::json!({
+        "valid": valid,
+        "detail": detail,
+        "entry_count": engine.audit_count(),
+    });
+    let json = serde_json::to_vec(&body).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// PUT /api/config — Update agent config (TOML body).
+async fn handle_config_update(
+    stream: &mut TcpStream,
+    _engine: &AgentEngine,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    // Validate TOML syntax
+    match toml::from_str::<crate::config::AgentConfig>(body) {
+        Ok(new_config) => {
+            let config_path = crate::config::AgentConfig::default_path();
+            match new_config.save(&config_path) {
+                Ok(()) => {
+                    let resp = serde_json::json!({
+                        "status": "saved",
+                        "path": config_path.to_string_lossy(),
+                        "message": "Config saved. Restart agent to apply changes."
+                    });
+                    let json = serde_json::to_vec(&resp).unwrap_or_default();
+                    send_response(stream, 200, "application/json", &json, cors_origin).await
+                }
+                Err(e) => {
+                    let err = serde_json::json!({"error": format!("save failed: {}", e)});
+                    let json = serde_json::to_vec(&err).unwrap_or_default();
+                    send_response(stream, 500, "application/json", &json, cors_origin).await
+                }
+            }
+        }
+        Err(e) => {
+            let err = serde_json::json!({"error": format!("invalid TOML: {}", e)});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            send_response(stream, 400, "application/json", &json, cors_origin).await
+        }
+    }
+}
+
+/// Parse a query parameter from the raw HTTP request path.
+fn parse_query_param<'a>(request: &'a str, key: &str) -> Option<&'a str> {
+    let first_line = request.lines().next()?;
+    let path = first_line.split_whitespace().nth(1)?;
+    let query = path.split('?').nth(1)?;
+    for pair in query.split('&') {
+        let mut kv = pair.splitn(2, '=');
+        if let (Some(k), Some(v)) = (kv.next(), kv.next()) {
+            if k == key {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
 /// Extract the HTTP body from a raw request string
 fn extract_body(request: &str) -> String {
     // HTTP body comes after the double CRLF
@@ -713,7 +909,7 @@ async fn send_response(
          Content-Type: {}\r\n\
          Content-Length: {}\r\n\
          Access-Control-Allow-Origin: {}\r\n\
-         Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
+         Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\n\
          Access-Control-Allow-Headers: Content-Type, Authorization\r\n\
          Connection: close\r\n\
          \r\n",
@@ -824,5 +1020,36 @@ mod tests {
         let server = WebUiServer::new(config, engine);
         assert!(server.shutdown_tx.is_none());
         assert_eq!(server.rate_limiter.tracked_clients(), 0);
+    }
+
+    #[test]
+    fn test_dashboard_html_embedded() {
+        assert!(!DASHBOARD_HTML.is_empty());
+        assert!(DASHBOARD_HTML.contains("EdgeClaw"));
+        assert!(DASHBOARD_HTML.contains("Dashboard"));
+    }
+
+    #[test]
+    fn test_parse_query_param() {
+        let req =
+            "GET /api/audit/entries?limit=20&filter=admin HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        assert_eq!(parse_query_param(req, "limit"), Some("20"));
+        assert_eq!(parse_query_param(req, "filter"), Some("admin"));
+        assert_eq!(parse_query_param(req, "page"), None);
+    }
+
+    #[test]
+    fn test_parse_query_param_no_query() {
+        let req = "GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        assert_eq!(parse_query_param(req, "limit"), None);
+    }
+
+    #[test]
+    fn test_metrics_registry_with_defaults() {
+        let reg = MetricsRegistry::with_defaults();
+        assert!(reg.get("edgeclaw_active_peers").is_some());
+        assert!(reg.get("edgeclaw_commands_total").is_some());
+        let text = reg.render_prometheus();
+        assert!(text.contains("edgeclaw_cpu_usage_percent"));
     }
 }

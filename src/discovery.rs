@@ -13,6 +13,9 @@ use tracing::info;
 /// Service type for mDNS registration
 const SERVICE_TYPE: &str = "_edgeclaw._tcp.local.";
 
+/// Federated service type for cross-org mDNS discovery
+const FEDERATION_SERVICE_TYPE: &str = "_edgeclaw-fed._tcp.local.";
+
 /// Default port range for TCP fallback scan
 const DEFAULT_PORT_START: u16 = 9443;
 const DEFAULT_PORT_END: u16 = 9453;
@@ -207,6 +210,105 @@ impl DiscoveryService {
         found
     }
 
+    /// Register this agent in the federation mDNS namespace for cross-org discovery.
+    pub fn register_federation(&self, org_id: &str) -> Result<(), AgentError> {
+        info!(
+            name = %self.agent_name,
+            org_id = %org_id,
+            "registering agent in federation namespace"
+        );
+
+        let mdns = mdns_sd::ServiceDaemon::new()
+            .map_err(|e| AgentError::ConnectionError(format!("mDNS daemon error: {e}")))?;
+
+        let mut properties = HashMap::new();
+        properties.insert("profile".to_string(), self.profile.clone());
+        properties.insert("version".to_string(), self.version.clone());
+        properties.insert("org_id".to_string(), org_id.to_string());
+
+        let service_info = mdns_sd::ServiceInfo::new(
+            FEDERATION_SERVICE_TYPE,
+            &self.agent_name,
+            &format!("{}.local.", self.agent_name),
+            "",
+            self.listen_port,
+            properties,
+        )
+        .map_err(|e| AgentError::ConnectionError(format!("mDNS service info error: {e}")))?;
+
+        mdns.register(service_info)
+            .map_err(|e| AgentError::ConnectionError(format!("mDNS register error: {e}")))?;
+
+        info!("federation mDNS registration complete");
+        Ok(())
+    }
+
+    /// Discover federated agents from other organizations via mDNS.
+    pub fn discover_federations(&self) -> Result<Vec<DiscoveredAgent>, AgentError> {
+        let mdns = mdns_sd::ServiceDaemon::new()
+            .map_err(|e| AgentError::ConnectionError(format!("mDNS daemon error: {e}")))?;
+
+        let receiver = mdns.browse(FEDERATION_SERVICE_TYPE).map_err(|e| {
+            AgentError::ConnectionError(format!("mDNS browse federation error: {e}"))
+        })?;
+
+        let mut found = Vec::new();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+
+        while std::time::Instant::now() < deadline {
+            match receiver.recv_timeout(std::time::Duration::from_millis(500)) {
+                Ok(mdns_sd::ServiceEvent::ServiceResolved(info)) => {
+                    let name = info.get_fullname().to_string();
+                    let port = info.get_port();
+                    let addresses = info.get_addresses();
+                    let address = addresses
+                        .iter()
+                        .next()
+                        .map(|a| a.to_string())
+                        .unwrap_or_default();
+                    let properties = info.get_properties();
+                    let profile = properties
+                        .get_property_val_str("profile")
+                        .unwrap_or("unknown")
+                        .to_string();
+                    let version = properties
+                        .get_property_val_str("version")
+                        .unwrap_or("0.0.0")
+                        .to_string();
+
+                    let agent = DiscoveredAgent {
+                        name,
+                        address,
+                        port,
+                        profile,
+                        version,
+                        last_seen: chrono::Utc::now(),
+                    };
+                    found.push(agent);
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    let msg = format!("{e}");
+                    if msg.contains("timed out") || msg.contains("Timeout") {
+                        continue;
+                    }
+                    break;
+                }
+            }
+        }
+
+        let _ = mdns.stop_browse(FEDERATION_SERVICE_TYPE);
+
+        // Cache with a "fed:" prefix
+        if let Ok(mut agents) = self.agents.lock() {
+            for agent in &found {
+                agents.insert(format!("fed:{}", agent.name), agent.clone());
+            }
+        }
+
+        Ok(found)
+    }
+
     /// Get cached discovered agents
     pub fn cached_agents(&self) -> Vec<DiscoveredAgent> {
         self.agents
@@ -303,6 +405,12 @@ mod tests {
     #[test]
     fn test_service_type_constant() {
         assert_eq!(SERVICE_TYPE, "_edgeclaw._tcp.local.");
+    }
+
+    #[test]
+    fn test_federation_service_type() {
+        assert_eq!(FEDERATION_SERVICE_TYPE, "_edgeclaw-fed._tcp.local.");
+        assert_ne!(SERVICE_TYPE, FEDERATION_SERVICE_TYPE);
     }
 
     #[test]

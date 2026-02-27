@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EdgeClaw Dashboard</title>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --border: #30363d;
+  --text: #c9d1d9; --text-muted: #8b949e; --accent: #58a6ff;
+  --green: #3fb950; --yellow: #d29922; --red: #f85149;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.topbar h1 { font-size: 18px; font-weight: 600; }
+.topbar h1 span { color: var(--accent); }
+.topbar .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
+.topbar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+nav { display: flex; gap: 2px; padding: 0 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
+nav button { background: none; border: none; color: var(--text-muted); padding: 10px 16px; cursor: pointer; font-size: 14px; border-bottom: 2px solid transparent; transition: all 0.2s; }
+nav button:hover { color: var(--text); }
+nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+.grid { display: grid; gap: 16px; }
+.grid-4 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.grid-2 { grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+.card h3 { font-size: 13px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; margin-bottom: 8px; }
+.metric-value { font-size: 32px; font-weight: 700; }
+.metric-unit { font-size: 14px; color: var(--text-muted); margin-left: 4px; }
+.bar-bg { background: var(--border); border-radius: 4px; height: 8px; margin-top: 8px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+.bar-fill.green { background: var(--green); }
+.bar-fill.yellow { background: var(--yellow); }
+.bar-fill.red { background: var(--red); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+th { color: var(--text-muted); font-weight: 500; font-size: 12px; text-transform: uppercase; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+.badge-green { background: rgba(63,185,80,0.15); color: var(--green); }
+.badge-yellow { background: rgba(210,153,34,0.15); color: var(--yellow); }
+.badge-red { background: rgba(248,81,73,0.15); color: var(--red); }
+.badge-blue { background: rgba(88,166,255,0.15); color: var(--accent); }
+.section { display: none; }
+.section.active { display: block; }
+textarea.config-editor { width: 100%; min-height: 300px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-family: 'Fira Code', 'Cascadia Code', monospace; font-size: 13px; resize: vertical; }
+button.btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; }
+button.btn-primary { background: var(--accent); color: #fff; }
+button.btn-primary:hover { opacity: 0.85; }
+button.btn-danger { background: var(--red); color: #fff; }
+.chain-result { padding: 12px; border-radius: 6px; font-size: 14px; margin-top: 12px; }
+.chain-ok { background: rgba(63,185,80,0.1); border: 1px solid var(--green); color: var(--green); }
+.chain-fail { background: rgba(248,81,73,0.1); border: 1px solid var(--red); color: var(--red); }
+.empty { text-align: center; padding: 40px; color: var(--text-muted); }
+.refresh-info { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; }
+@media (max-width: 768px) {
+  .grid-4 { grid-template-columns: 1fr 1fr; }
+  .grid-2 { grid-template-columns: 1fr; }
+  nav { overflow-x: auto; }
+}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1><span>Edge</span>Claw Dashboard</h1>
+  <div class="status"><div class="dot" id="status-dot"></div><span id="status-text">Connecting…</span></div>
+</div>
+<nav id="tabs">
+  <button class="active" data-tab="overview">Overview</button>
+  <button data-tab="agents">Agents</button>
+  <button data-tab="monitoring">Monitoring</button>
+  <button data-tab="audit">Audit</button>
+  <button data-tab="settings">Settings</button>
+</nav>
+<main>
+<!-- Overview -->
+<section id="sec-overview" class="section active">
+  <div class="refresh-info">Auto-refresh every 5s · <span id="last-update">—</span></div>
+  <div class="grid grid-4" id="gauge-cards"></div>
+  <div class="grid grid-2" style="margin-top:16px">
+    <div class="card">
+      <h3>System</h3>
+      <table>
+        <tr><td>Hostname</td><td id="sys-hostname">—</td></tr>
+        <tr><td>OS</td><td id="sys-os">—</td></tr>
+        <tr><td>CPUs</td><td id="sys-cpus">—</td></tr>
+        <tr><td>Uptime</td><td id="sys-uptime">—</td></tr>
+        <tr><td>AI Provider</td><td id="sys-ai">—</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>Capabilities</h3>
+      <div id="caps-list" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+    </div>
+  </div>
+</section>
+<!-- Agents -->
+<section id="sec-agents" class="section">
+  <div class="card">
+    <h3>Registered Agents</h3>
+    <table><thead><tr><th>Name</th><th>Address</th><th>Port</th><th>Profile</th><th>Status</th><th>Version</th></tr></thead>
+    <tbody id="agents-tbody"></tbody></table>
+    <div id="agents-empty" class="empty" style="display:none">No registered agents</div>
+  </div>
+  <div class="card" style="margin-top:16px">
+    <h3>Agent Instances (License)</h3>
+    <div id="instances-info"></div>
+  </div>
+</section>
+<!-- Monitoring -->
+<section id="sec-monitoring" class="section">
+  <div class="refresh-info">Live metrics · <span id="mon-update">—</span></div>
+  <div class="grid grid-4" id="mon-counters"></div>
+  <div class="card" style="margin-top:16px">
+    <h3>Prometheus Endpoint</h3>
+    <p style="font-size:14px;color:var(--text-muted)">Scrape metrics at <code style="color:var(--accent)">/metrics</code> (Prometheus text format)</p>
+    <pre id="prom-preview" style="background:var(--bg);padding:12px;border-radius:6px;margin-top:8px;font-size:12px;max-height:300px;overflow:auto;color:var(--text-muted)"></pre>
+  </div>
+</section>
+<!-- Audit -->
+<section id="sec-audit" class="section">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <h3 style="font-size:16px">Audit Trail</h3>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" onclick="verifyChain()">Verify Chain</button>
+      <button class="btn btn-primary" onclick="loadAudit()">Refresh</button>
+    </div>
+  </div>
+  <div id="chain-status"></div>
+  <div class="card" style="margin-top:12px">
+    <table><thead><tr><th>#</th><th>Time</th><th>Role</th><th>Capability</th><th>Action</th><th>Result</th></tr></thead>
+    <tbody id="audit-tbody"></tbody></table>
+    <div id="audit-empty" class="empty" style="display:none">No audit entries</div>
+  </div>
+</section>
+<!-- Settings -->
+<section id="sec-settings" class="section">
+  <div class="card">
+    <h3>Agent Configuration (TOML)</h3>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Edit config below and save. Agent restart required to apply.</p>
+    <textarea class="config-editor" id="config-editor"></textarea>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn btn-primary" onclick="saveConfig()">Save Config</button>
+      <button class="btn" style="background:var(--border);color:var(--text)" onclick="loadConfig()">Reset</button>
+    </div>
+    <div id="config-status" style="margin-top:8px;font-size:13px"></div>
+  </div>
+  <div class="card" style="margin-top:16px">
+    <h3>Version &amp; License</h3>
+    <table>
+      <tr><td>Version</td><td id="set-version">—</td></tr>
+      <tr><td>License</td><td id="set-license">—</td></tr>
+      <tr><td>Max Agents</td><td id="set-max-agents">—</td></tr>
+    </table>
+  </div>
+</section>
+</main>
+<script>
+const API = window.location.origin;
+let token = null;
+
+function headers() { const h = {'Content-Type':'application/json'}; if(token) h['Authorization']='Bearer '+token; return h; }
+async function api(path, opts={}) {
+  const r = await fetch(API+path, {headers: headers(), ...opts});
+  if(r.status===401) { token=null; await login(); return api(path,opts); }
+  return r;
+}
+async function login() {
+  const r = await fetch(API+'/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:''})});
+  const d = await r.json(); token = d.token;
+}
+
+// Tabs
+document.querySelectorAll('#tabs button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#tabs button').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.section').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    document.getElementById('sec-'+b.dataset.tab).classList.add('active');
+    if(b.dataset.tab==='audit') loadAudit();
+    if(b.dataset.tab==='monitoring') loadMonitoring();
+    if(b.dataset.tab==='settings') loadConfig();
+  });
+});
+
+function barColor(pct) { return pct < 60 ? 'green' : pct < 85 ? 'yellow' : 'red'; }
+function fmtUptime(s) { const h=Math.floor(s/3600),m=Math.floor((s%3600)/60); return h>0?h+'h '+m+'m':m+'m '+Math.floor(s%60)+'s'; }
+
+function gaugeCard(title, value, unit, pct) {
+  return `<div class="card"><h3>${title}</h3><div class="metric-value">${value}<span class="metric-unit">${unit}</span></div>${pct!==null?`<div class="bar-bg"><div class="bar-fill ${barColor(pct)}" style="width:${Math.min(pct,100)}%"></div></div>`:''}</div>`;
+}
+
+async function loadOverview() {
+  try {
+    const [statusR, metricsR] = await Promise.all([api('/api/status'), api('/api/metrics/history')]);
+    const s = await statusR.json(), m = await metricsR.json();
+    document.getElementById('status-dot').style.background='var(--green)';
+    document.getElementById('status-text').textContent='Connected · Port '+s.port;
+    document.getElementById('last-update').textContent=new Date().toLocaleTimeString();
+    const cpu = typeof s.cpu_usage==='number'?s.cpu_usage.toFixed(1):0;
+    const mem = typeof s.memory_percent==='number'?s.memory_percent.toFixed(1):0;
+    document.getElementById('gauge-cards').innerHTML =
+      gaugeCard('CPU Usage', cpu, '%', parseFloat(cpu)) +
+      gaugeCard('Memory', mem, '%', parseFloat(mem)) +
+      gaugeCard('Active Peers', m.active_peers||0, '', null) +
+      gaugeCard('Uptime', fmtUptime(s.uptime_secs||0), '', null);
+    document.getElementById('sys-hostname').textContent=s.hostname||'—';
+    document.getElementById('sys-os').textContent='—';
+    document.getElementById('sys-cpus').textContent=s.capabilities||'—';
+    document.getElementById('sys-uptime').textContent=fmtUptime(s.uptime_secs||0);
+    document.getElementById('sys-ai').textContent=s.provider||'none';
+    // Load caps
+    const capList = document.getElementById('caps-list');
+    if(s.capabilities) capList.innerHTML = Array.from({length:s.capabilities}, (_,i)=>i).map(i=>'').join('');
+  } catch(e) {
+    document.getElementById('status-dot').style.background='var(--red)';
+    document.getElementById('status-text').textContent='Disconnected';
+  }
+}
+
+async function loadAgents() {
+  try {
+    const r = await api('/api/agents');
+    const d = await r.json();
+    const tbody = document.getElementById('agents-tbody');
+    const agents = d.registered_agents||[];
+    if(agents.length===0) { tbody.innerHTML=''; document.getElementById('agents-empty').style.display='block'; }
+    else {
+      document.getElementById('agents-empty').style.display='none';
+      tbody.innerHTML = agents.map(a =>
+        `<tr><td>${a.name}</td><td>${a.address}</td><td>${a.port}</td><td>${a.profile}</td><td><span class="badge badge-${a.status==='active'?'green':'yellow'}">${a.status}</span></td><td>${a.version}</td></tr>`
+      ).join('');
+    }
+    document.getElementById('instances-info').innerHTML =
+      `<p>License: <span class="badge badge-blue">${d.license_tier}</span> · Max agents: ${d.max_agents} · Registered: ${d.registered_count}</p>`;
+    document.getElementById('set-version').textContent='1.0.0';
+    document.getElementById('set-license').textContent=d.license_tier;
+    document.getElementById('set-max-agents').textContent=d.max_agents_for_tier;
+  } catch(e) { console.error('agents',e); }
+}
+
+async function loadMonitoring() {
+  try {
+    const [metricsR, promR] = await Promise.all([api('/api/metrics/history'), fetch(API+'/metrics')]);
+    const m = await metricsR.json();
+    document.getElementById('mon-update').textContent=new Date().toLocaleTimeString();
+    document.getElementById('mon-counters').innerHTML =
+      gaugeCard('Commands', Math.floor(m.commands_total||0), 'total', null) +
+      gaugeCard('Messages', Math.floor(m.messages_total||0), 'total', null) +
+      gaugeCard('Errors', Math.floor(m.errors_total||0), 'total', null) +
+      gaugeCard('Audit Entries', m.audit_entry_count||0, '', null);
+    const promText = await promR.text();
+    document.getElementById('prom-preview').textContent = promText.substring(0,2000);
+  } catch(e) { console.error('monitoring',e); }
+}
+
+async function loadAudit() {
+  try {
+    const r = await api('/api/audit/entries?limit=100');
+    const d = await r.json();
+    const tbody = document.getElementById('audit-tbody');
+    const entries = d.entries||[];
+    if(entries.length===0) { tbody.innerHTML=''; document.getElementById('audit-empty').style.display='block'; }
+    else {
+      document.getElementById('audit-empty').style.display='none';
+      tbody.innerHTML = entries.reverse().map(e => {
+        const rc = e.result==='success'?'green':e.result==='denied'?'yellow':'red';
+        const ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '—';
+        return `<tr><td>${e.sequence}</td><td>${ts}</td><td><span class="badge badge-blue">${e.actor_role}</span></td><td>${e.capability}</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${e.action}</td><td><span class="badge badge-${rc}">${e.result}</span></td></tr>`;
+      }).join('');
+    }
+  } catch(e) { console.error('audit',e); }
+}
+
+async function verifyChain() {
+  try {
+    const r = await api('/api/audit/verify');
+    const d = await r.json();
+    const el = document.getElementById('chain-status');
+    el.innerHTML = `<div class="chain-result ${d.valid?'chain-ok':'chain-fail'}">${d.valid?'✓ ':'✗ '}${d.detail} (${d.entry_count} entries)</div>`;
+  } catch(e) { console.error('verify',e); }
+}
+
+async function loadConfig() {
+  try {
+    const r = await api('/api/status');
+    const s = await r.json();
+    // Build a default TOML config
+    document.getElementById('config-editor').value =
+`[agent]
+device_name = "${s.hostname||'edgeclaw-agent'}"
+listen_port = ${s.port||8443}
+max_connections = 50
+
+[transport]
+tcp_enabled = true
+quic_enabled = false
+ble_enabled = false
+
+[security]
+policy_mode = "strict"
+default_role = "viewer"
+session_timeout_secs = 3600
+key_rotation_secs = 3600
+
+[execution]
+sandbox_enabled = true
+max_concurrent = 5
+default_timeout_secs = 60
+
+[resource]
+cpu_limit_percent = 80
+memory_limit_percent = 85
+
+[logging]
+level = "info"
+format = "json"
+rotation = "daily"
+
+[ai]
+primary = "${s.provider||'none'}"
+
+[webui]
+enabled = true
+port = 9444
+bind = "127.0.0.1"
+
+[websocket]
+enabled = true
+port = 9445`;
+    document.getElementById('config-status').textContent = '';
+  } catch(e) { console.error('config',e); }
+}
+
+async function saveConfig() {
+  try {
+    const body = document.getElementById('config-editor').value;
+    const r = await api('/api/config', {method:'PUT', body});
+    const d = await r.json();
+    if(d.error) document.getElementById('config-status').innerHTML = `<span style="color:var(--red)">Error: ${d.error}</span>`;
+    else document.getElementById('config-status').innerHTML = `<span style="color:var(--green)">✓ ${d.message}</span>`;
+  } catch(e) { document.getElementById('config-status').innerHTML = `<span style="color:var(--red)">Failed: ${e.message}</span>`; }
+}
+
+// Init
+(async () => {
+  await login();
+  await Promise.all([loadOverview(), loadAgents()]);
+  setInterval(loadOverview, 5000);
+})();
+</script>
+</body>
+</html>

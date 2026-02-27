@@ -1,5 +1,6 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
+use edgeclaw_agent::policy::PolicyEngine;
 
 fuzz_target!(|data: &[u8]| {
     // Convert bytes to string for role/capability
@@ -11,5 +12,6 @@ fuzz_target!(|data: &[u8]| {
     let capability = String::from_utf8_lossy(&data[mid..]);
 
     // Policy evaluation must never panic on arbitrary inputs
-    let _ = edgeclaw_agent::policy::evaluate(&role, &capability);
+    let engine = PolicyEngine::new();
+    let _ = engine.evaluate(&capability, &role);
 });

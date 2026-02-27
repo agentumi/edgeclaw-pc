@@ -1,0 +1,94 @@
+name: Nightly Fuzz Testing
+
+on:
+  schedule:
+    # Run nightly at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      runs_per_target:
+        description: 'Iterations per fuzz target'
+        required: false
+        default: '1000000'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUNS: ${{ github.event.inputs.runs_per_target || '1000000' }}
+
+jobs:
+  fuzz:
+    name: Fuzz ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - fuzz_ecnp_parse
+          - fuzz_message_deserialize
+          - fuzz_aes_gcm
+          - fuzz_policy
+          - fuzz_wasm_protocol
+          - fuzz_federation_policy
+          - fuzz_quic_frame
+          - fuzz_tee_attestation
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Cache fuzz corpus
+        uses: actions/cache@v4
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.sha }}
+          restore-keys: |
+            fuzz-corpus-${{ matrix.target }}-
+
+      - name: Run fuzz target
+        run: |
+          cargo +nightly fuzz run ${{ matrix.target }} -- -runs=${{ env.RUNS }}
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}/
+
+  fuzz-report:
+    name: Generate Fuzz Report
+    needs: fuzz
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate report
+        run: |
+          mkdir -p fuzz/reports
+          REPORT="fuzz/reports/fuzz_report_$(date +%Y%m%d).md"
+          echo "# EdgeClaw Nightly Fuzz Report" > "$REPORT"
+          echo "" >> "$REPORT"
+          echo "- **Date**: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$REPORT"
+          echo "- **Commit**: ${{ github.sha }}" >> "$REPORT"
+          echo "- **Iterations**: ${{ env.RUNS }}" >> "$REPORT"
+          echo "" >> "$REPORT"
+          echo "| Target | Status |" >> "$REPORT"
+          echo "|--------|--------|" >> "$REPORT"
+          TARGETS=(fuzz_ecnp_parse fuzz_message_deserialize fuzz_aes_gcm fuzz_policy fuzz_wasm_protocol fuzz_federation_policy fuzz_quic_frame fuzz_tee_attestation)
+          for t in "${TARGETS[@]}"; do
+            echo "| $t | ${{ needs.fuzz.result == 'success' && 'PASS' || 'CHECK' }} |" >> "$REPORT"
+          done
+          cat "$REPORT"
+
+      - name: Upload fuzz report
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-report
+          path: fuzz/reports/

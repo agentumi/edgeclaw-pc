@@ -1,0 +1,21 @@
+{
+  "name": "ecnp-wasm",
+  "type": "module",
+  "description": "ECNP v1.1 protocol codec for WebAssembly",
+  "version": "3.0.0",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agentumi/edgeclaw-pc"
+  },
+  "files": [
+    "ecnp_wasm_bg.wasm",
+    "ecnp_wasm.js",
+    "ecnp_wasm.d.ts"
+  ],
+  "main": "ecnp_wasm.js",
+  "types": "ecnp_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

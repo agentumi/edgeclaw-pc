@@ -6,7 +6,7 @@ use tracing::{error, info};
 
 #[derive(Parser)]
 #[command(name = "edgeclaw-agent")]
-#[command(version = "2.0.0")]
+#[command(version = "1.0.0")]
 #[command(about = "EdgeClaw PC Agent — Zero-Trust Edge AI Executor")]
 struct Cli {
     /// Path to config file
@@ -31,6 +31,18 @@ enum Commands {
     Info,
     /// Initialize default configuration
     Init,
+    /// Interactive chat with AI
+    Chat,
+    /// Show AI provider status
+    AiStatus,
+    /// Show audit log
+    AuditLog {
+        /// Number of recent entries to show
+        #[arg(short, long, default_value_t = 20)]
+        count: usize,
+    },
+    /// Verify audit chain integrity
+    AuditVerify,
 }
 
 fn default_config_path() -> String {
@@ -109,16 +121,96 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Commands::Status => {
-            println!("EdgeClaw Agent v2.0.0");
+            println!("EdgeClaw Agent v1.0.0");
             println!("Status: running");
             println!("Config: {}", config_path.display());
             println!("Port:   {}", config.agent.listen_port);
             println!("Mode:   {}", config.security.policy_mode);
+            println!("AI:     {}", config.ai.primary);
+            Ok(())
+        }
+        Commands::Chat => {
+            let engine = AgentEngine::new(config);
+            engine.generate_identity()?;
+            // Register self as owner peer for chat
+            engine.add_peer("console", "Console", "cli", "localhost", "owner")?;
+
+            println!("EdgeClaw AI Chat (type 'exit' to quit)");
+            println!("AI Provider: {}", engine.ai_status()["provider"]);
+            println!("---");
+
+            let stdin = std::io::stdin();
+            loop {
+                print!("You: ");
+                use std::io::Write;
+                std::io::stdout().flush()?;
+                let mut input = String::new();
+                stdin.read_line(&mut input)?;
+                let input = input.trim();
+                if input.is_empty() {
+                    continue;
+                }
+                if input == "exit" || input == "quit" {
+                    break;
+                }
+
+                match engine.chat("console", input) {
+                    Ok(resp) => {
+                        println!("Agent: {}", resp.message);
+                        if let Some(intent) = &resp.intent {
+                            println!("  → [{}] {}", intent.capability, intent.command);
+                        }
+                    }
+                    Err(e) => println!("Error: {}", e),
+                }
+            }
+            Ok(())
+        }
+        Commands::AiStatus => {
+            let engine = AgentEngine::new(config);
+            let status = engine.ai_status();
+            println!("AI Provider Status:");
+            println!("  Provider:  {}", status["provider"]);
+            println!("  Available: {}", status["available"]);
+            println!("  Local:     {}", status["local"]);
+            println!("  Consent:   {}", status["requires_consent"]);
+            Ok(())
+        }
+        Commands::AuditLog { count } => {
+            let engine = AgentEngine::new(config);
+            println!("Audit Log (last {} entries):", count);
+            let entries = engine.get_audit_log(count);
+            if entries.is_empty() {
+                println!("  (no entries)");
+            }
+            for entry in entries {
+                println!(
+                    "  #{} [{}] {} {} -> {} ({})",
+                    entry.sequence,
+                    entry.timestamp,
+                    entry.actor_role,
+                    entry.capability,
+                    entry.result,
+                    entry.hash.chars().take(16).collect::<String>()
+                );
+            }
+            Ok(())
+        }
+        Commands::AuditVerify => {
+            let engine = AgentEngine::new(config);
+            match engine.verify_audit_chain() {
+                Ok(true) => println!(
+                    "✅ Audit chain integrity verified ({} entries)",
+                    engine.audit_count()
+                ),
+                Ok(false) => println!("❌ Audit chain verification failed"),
+                Err(e) => println!("❌ Chain broken: {}", e),
+            }
             Ok(())
         }
         Commands::Start => {
             info!(
-                version = "2.0.0",
+                version = "1.0.0",
                 port = config.agent.listen_port,
                 "EdgeClaw Agent starting"
             );
@@ -136,7 +228,7 @@ async fn main() -> anyhow::Result<()> {
 
             // Print agent startup banner
             println!("╔══════════════════════════════════════════╗");
-            println!("║     EdgeClaw PC Agent v2.0.0             ║");
+            println!("║     EdgeClaw PC Agent v1.0.0             ║");
             println!("║     Zero-Trust Edge AI Executor          ║");
             println!("╠══════════════════════════════════════════╣");
             println!("║  ID:   {}  ║", &identity.device_id[..36]);

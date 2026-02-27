@@ -10,10 +10,10 @@
 
 <p align="center">
   <a href="https://github.com/agentumi/edgeclaw_desktop/actions/workflows/ci.yml"><img src="https://github.com/agentumi/edgeclaw_desktop/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/badge/version-0.1.0-blue" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.0.0-blue" alt="Version" />
   <img src="https://img.shields.io/badge/license-MIT%20%7C%20Apache--2.0-green" alt="License" />
   <img src="https://img.shields.io/badge/rust-1.75%2B-orange?logo=rust" alt="Rust" />
-  <img src="https://img.shields.io/badge/tests-62%20passed-success" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-96%20passed-success" alt="Tests" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platform" />
 </p>
 
@@ -48,6 +48,10 @@
 | 🤝 **Peers** | Peer Manager | Connection tracking, role assignment, max-peer limits |
 | ⚙️ **Config** | TOML | Platform-aware configuration with hot-reload |
 | 🖥️ **Cross-Platform** | Win / Mac / Linux | Native builds on all major desktop platforms |
+| 🤖 **AI Chat** | Pluggable AI | Ollama (local), OpenAI, Claude providers with fallback |
+| 📋 **Audit** | Hash-Chained Log | SHA-256 chained audit trail with tamper detection |
+| 🛡️ **Security** | Rate Limiting | Per-client rate limiting, injection detection, lockout |
+| 🐳 **Docker** | Containerized | Multi-stage build with health checks |
 
 ## 🏗️ Architecture
 

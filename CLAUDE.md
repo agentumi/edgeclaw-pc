@@ -7,7 +7,7 @@
 | Aspect | Details |
 |--------|---------|
 | Language | Rust |
-| Tests | 62 unit tests |
+| Tests | 96 unit tests |
 | Minimum | Rust 1.75 |
 | Protocol | ECNP v1.1 binary framing |
 | Security | Ed25519 + X25519 + AES-256-GCM |
@@ -38,7 +38,7 @@ edgeclaw_desktop/
 ## CLI Commands
 
 ```bash
-# Run tests (62)
+# Run tests (96)
 cargo test
 
 # Build

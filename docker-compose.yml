@@ -1,0 +1,34 @@
+version: "3.8"
+
+services:
+  edgeclaw-agent:
+    build: .
+    container_name: edgeclaw-agent
+    restart: unless-stopped
+    ports:
+      - "9443:9443"
+    volumes:
+      - edgeclaw-data:/var/lib/edgeclaw
+      - ./config:/etc/edgeclaw:ro
+    environment:
+      - RUST_LOG=info
+      - EDGECLAW_PORT=9443
+    healthcheck:
+      test: ["/usr/local/bin/edgeclaw-agent", "status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.5"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  edgeclaw-data:

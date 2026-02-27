@@ -7,7 +7,7 @@
 | Item | Details |
 |------|---------|
 | **Rust MSRV** | 1.75+ |
-| **Tests** | 62 unit tests |
+| **Tests** | 96 unit tests |
 | **Protocol** | ECNP v1.1 binary |
 | **Security** | Zero-trust: Ed25519 + X25519 + AES-256-GCM |
 | **Async** | tokio runtime |
@@ -16,7 +16,7 @@
 
 ```bash
 cargo build --release
-cargo test                      # 62 tests
+cargo test                      # 96 tests
 cargo clippy --all-targets -- -D warnings
 cargo fmt
 ```
@@ -73,7 +73,7 @@ config/
 
 - [ ] One logical change per PR
 - [ ] Tests added for new functionality
-- [ ] `cargo test` passes (62 tests)
+- [ ] `cargo test` passes (96 tests)
 - [ ] `cargo clippy --all-targets -- -D warnings` (zero warnings)
 - [ ] `cargo fmt` run
 - [ ] CHANGELOG.md updated

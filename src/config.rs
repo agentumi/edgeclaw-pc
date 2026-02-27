@@ -16,6 +16,8 @@ pub struct AgentConfig {
     pub resource: ResourceSection,
     #[serde(default)]
     pub logging: LoggingSection,
+    #[serde(default)]
+    pub ai: AiConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,6 +151,154 @@ fn default_max_log_files() -> u32 {
     30
 }
 
+// ─── AI Configuration ──────────────────────────────────────
+
+/// AI provider configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiConfig {
+    /// Primary provider: "local", "ollama", "openai", "claude", "none"
+    #[serde(default = "default_ai_primary")]
+    pub primary: String,
+    /// Local AI settings
+    #[serde(default)]
+    pub local: AiLocalConfig,
+    /// Cloud AI settings
+    #[serde(default)]
+    pub cloud: AiCloudConfig,
+    /// AI policy settings
+    #[serde(default)]
+    pub policy: AiPolicyConfig,
+}
+
+/// Local AI provider settings (Ollama)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiLocalConfig {
+    /// Ollama endpoint
+    #[serde(default = "default_ollama_endpoint")]
+    pub endpoint: String,
+    /// Model name
+    #[serde(default = "default_ollama_model")]
+    pub model: String,
+    /// Timeout in milliseconds
+    #[serde(default = "default_ai_timeout")]
+    pub timeout_ms: u64,
+}
+
+/// Cloud AI provider settings (OpenAI / Claude)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiCloudConfig {
+    /// Provider: "openai" or "claude"
+    #[serde(default = "default_cloud_provider")]
+    pub provider: String,
+    /// Model name
+    #[serde(default = "default_cloud_model")]
+    pub model: String,
+    /// API endpoint
+    #[serde(default = "default_cloud_endpoint")]
+    pub endpoint: String,
+    /// Timeout in milliseconds
+    #[serde(default = "default_cloud_timeout")]
+    pub timeout_ms: u64,
+}
+
+/// AI policy settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiPolicyConfig {
+    /// Confidence threshold for cloud escalation (0.0 - 1.0)
+    #[serde(default = "default_escalation_threshold")]
+    pub escalation_threshold: f64,
+    /// Keywords that must never be sent to cloud AI
+    #[serde(default = "default_never_cloud")]
+    pub never_cloud: Vec<String>,
+    /// Require explicit user consent before cloud escalation
+    #[serde(default = "default_true")]
+    pub require_consent: bool,
+    /// Log all AI interactions to audit trail
+    #[serde(default = "default_true")]
+    pub audit_ai_calls: bool,
+}
+
+fn default_ai_primary() -> String {
+    "none".to_string()
+}
+fn default_ollama_endpoint() -> String {
+    "http://localhost:11434".to_string()
+}
+fn default_ollama_model() -> String {
+    "llama3.2:3b".to_string()
+}
+fn default_ai_timeout() -> u64 {
+    5000
+}
+fn default_cloud_provider() -> String {
+    "openai".to_string()
+}
+fn default_cloud_model() -> String {
+    "gpt-4o-mini".to_string()
+}
+fn default_cloud_endpoint() -> String {
+    "https://api.openai.com".to_string()
+}
+fn default_cloud_timeout() -> u64 {
+    30000
+}
+fn default_escalation_threshold() -> f64 {
+    0.6
+}
+fn default_never_cloud() -> Vec<String> {
+    vec![
+        "password".to_string(),
+        "secret".to_string(),
+        "private_key".to_string(),
+        "token".to_string(),
+        "credential".to_string(),
+        "api_key".to_string(),
+    ]
+}
+
+impl Default for AiConfig {
+    fn default() -> Self {
+        Self {
+            primary: default_ai_primary(),
+            local: AiLocalConfig::default(),
+            cloud: AiCloudConfig::default(),
+            policy: AiPolicyConfig::default(),
+        }
+    }
+}
+
+impl Default for AiLocalConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: default_ollama_endpoint(),
+            model: default_ollama_model(),
+            timeout_ms: default_ai_timeout(),
+        }
+    }
+}
+
+impl Default for AiCloudConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_cloud_provider(),
+            model: default_cloud_model(),
+            endpoint: default_cloud_endpoint(),
+            timeout_ms: default_cloud_timeout(),
+        }
+    }
+}
+
+impl Default for AiPolicyConfig {
+    fn default() -> Self {
+        Self {
+            escalation_threshold: default_escalation_threshold(),
+            never_cloud: default_never_cloud(),
+            require_consent: true,
+            audit_ai_calls: true,
+        }
+    }
+}
+
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
@@ -158,6 +308,7 @@ impl Default for AgentConfig {
             execution: ExecutionSection::default(),
             resource: ResourceSection::default(),
             logging: LoggingSection::default(),
+            ai: AiConfig::default(),
         }
     }
 }

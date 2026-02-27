@@ -1,3 +1,5 @@
+pub mod ai;
+pub mod audit;
 pub mod config;
 pub mod ecnp;
 pub mod error;
@@ -6,12 +8,15 @@ pub mod identity;
 pub mod peer;
 pub mod policy;
 pub mod protocol;
+pub mod security;
 pub mod server;
 pub mod session;
 pub mod system;
 
 use std::sync::Mutex;
 
+use crate::ai::{AiManager, AiRequest, AiResponse, ChatMessage, ChatRole};
+use crate::audit::AuditManager;
 use crate::config::AgentConfig;
 use crate::ecnp::{EcnpCodec, EcnpMessage};
 use crate::error::AgentError;
@@ -31,6 +36,9 @@ pub struct AgentEngine {
     peer_manager: Mutex<PeerManager>,
     policy_engine: PolicyEngine,
     executor: Executor,
+    ai_manager: AiManager,
+    audit_manager: AuditManager,
+    chat_history: Mutex<Vec<ChatMessage>>,
     start_time: chrono::DateTime<chrono::Utc>,
 }
 
@@ -43,6 +51,7 @@ impl AgentEngine {
             config.execution.max_timeout_secs,
             config.execution.allowed_paths.clone(),
         );
+        let ai_manager = AiManager::from_config(&config.ai);
 
         Self {
             config,
@@ -51,6 +60,9 @@ impl AgentEngine {
             peer_manager: Mutex::new(PeerManager::new(50)),
             policy_engine: PolicyEngine::new(),
             executor,
+            ai_manager,
+            audit_manager: AuditManager::new(),
+            chat_history: Mutex::new(Vec::new()),
             start_time: chrono::Utc::now(),
         }
     }
@@ -190,11 +202,54 @@ impl AgentEngine {
         // Policy check
         let decision = self.policy_engine.evaluate(&request.action, &role)?;
         if !decision.allowed {
+            // Audit the denial
+            let device_id = self
+                .get_identity()
+                .map(|id| id.device_id)
+                .unwrap_or_else(|_| "unknown".to_string());
+            self.audit_manager.log(
+                &device_id,
+                &role,
+                &request.action,
+                &request.command,
+                "denied",
+                Some(&decision.reason),
+            );
             return Err(AgentError::PolicyDenied(decision.reason));
         }
 
         // Execute
-        self.executor.execute(request).await
+        let result = self.executor.execute(request.clone()).await;
+
+        // Audit the execution
+        let device_id = self
+            .get_identity()
+            .map(|id| id.device_id)
+            .unwrap_or_else(|_| "unknown".to_string());
+        match &result {
+            Ok(resp) => {
+                self.audit_manager.log(
+                    &device_id,
+                    &role,
+                    &request.action,
+                    &request.command,
+                    if resp.success { "success" } else { "failed" },
+                    None,
+                );
+            }
+            Err(e) => {
+                self.audit_manager.log(
+                    &device_id,
+                    &role,
+                    &request.action,
+                    &request.command,
+                    "error",
+                    Some(&e.to_string()),
+                );
+            }
+        }
+
+        result
     }
 
     // ─── System ────────────────────────────────────────────
@@ -266,6 +321,162 @@ impl AgentEngine {
     /// Get config reference
     pub fn config(&self) -> &AgentConfig {
         &self.config
+    }
+
+    // ─── AI Chat ───────────────────────────────────────────
+
+    /// Process a chat message through the AI provider
+    pub fn chat(&self, peer_id: &str, user_input: &str) -> Result<AiResponse, AgentError> {
+        let role = {
+            let mgr = self.peer_manager.lock().unwrap_or_else(|e| e.into_inner());
+            mgr.get_peer_role(peer_id)
+                .unwrap_or_else(|| "viewer".to_string())
+        };
+
+        let history = {
+            let h = self.chat_history.lock().unwrap_or_else(|e| e.into_inner());
+            h.clone()
+        };
+
+        let sys_info = self.get_system_info();
+        let system_context = Some(format!(
+            "CPU: {:.1}%, Memory: {:.1}%, Uptime: {}s",
+            sys_info.cpu_usage,
+            sys_info.memory_usage_percent,
+            self.uptime_secs()
+        ));
+
+        let request = AiRequest {
+            user_input: user_input.to_string(),
+            available_capabilities: self.get_capabilities(),
+            peer_role: role.clone(),
+            system_context,
+            history,
+        };
+
+        let response = self.ai_manager.process(&request)?;
+
+        // Add to conversation history
+        {
+            let mut h = self.chat_history.lock().unwrap_or_else(|e| e.into_inner());
+            h.push(ChatMessage {
+                role: ChatRole::User,
+                content: user_input.to_string(),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            });
+            h.push(ChatMessage {
+                role: ChatRole::Assistant,
+                content: response.message.clone(),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            });
+
+            // Keep last 20 messages
+            if h.len() > 20 {
+                let drain_to = h.len() - 20;
+                h.drain(..drain_to);
+            }
+        }
+
+        // Audit the AI interaction
+        let device_id = self
+            .get_identity()
+            .map(|id| id.device_id)
+            .unwrap_or_else(|_| "unknown".to_string());
+        self.audit_manager.log(
+            &device_id,
+            &role,
+            "ai_chat",
+            user_input,
+            &response.provider,
+            Some(&format!("confidence: {:.2}", response.confidence)),
+        );
+
+        Ok(response)
+    }
+
+    /// Execute a chat-driven command (after AI parses intent)
+    pub async fn chat_execute(
+        &self,
+        peer_id: &str,
+        user_input: &str,
+    ) -> Result<(AiResponse, Option<ExecResponse>), AgentError> {
+        let ai_response = self.chat(peer_id, user_input)?;
+
+        if let Some(ref intent) = ai_response.intent {
+            // Build execution request from intent
+            let request = ExecRequest {
+                execution_id: uuid::Uuid::new_v4().to_string(),
+                action: intent.capability.clone(),
+                command: intent.command.clone(),
+                args: intent.args.clone(),
+                timeout_secs: 30,
+                working_dir: None,
+            };
+
+            match self.execute_command(peer_id, request).await {
+                Ok(exec_result) => Ok((ai_response, Some(exec_result))),
+                Err(e) => {
+                    // Return AI response + error info
+                    Ok((
+                        AiResponse {
+                            message: format!(
+                                "{}\n\n❌ Execution failed: {}",
+                                ai_response.message, e
+                            ),
+                            ..ai_response
+                        },
+                        None,
+                    ))
+                }
+            }
+        } else {
+            Ok((ai_response, None))
+        }
+    }
+
+    /// Get quick actions available for the given role
+    pub fn get_quick_actions(&self, role: &str) -> Vec<ai::QuickAction> {
+        ai::default_quick_actions()
+            .into_iter()
+            .filter(|a| {
+                self.policy_engine
+                    .evaluate(&a.capability, role)
+                    .map(|d| d.allowed)
+                    .unwrap_or(false)
+            })
+            .collect()
+    }
+
+    /// Get AI provider status
+    pub fn ai_status(&self) -> serde_json::Value {
+        serde_json::json!({
+            "provider": self.ai_manager.provider_name(),
+            "available": self.ai_manager.is_available(),
+            "local": self.ai_manager.is_local(),
+            "requires_consent": self.ai_manager.requires_consent(),
+        })
+    }
+
+    // ─── Audit ─────────────────────────────────────────────
+
+    /// Get audit log entries
+    pub fn get_audit_log(&self, count: usize) -> Vec<audit::AuditEntry> {
+        self.audit_manager.last_entries(count)
+    }
+
+    /// Verify audit chain integrity
+    pub fn verify_audit_chain(&self) -> Result<bool, String> {
+        self.audit_manager.verify()
+    }
+
+    /// Export full audit log as JSON
+    pub fn export_audit_log(&self) -> Result<String, serde_json::Error> {
+        self.audit_manager.export()
+    }
+
+    /// Get audit entry count
+    pub fn audit_count(&self) -> usize {
+        self.audit_manager.count()
     }
 }
 

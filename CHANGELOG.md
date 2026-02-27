@@ -7,13 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- OTA (Over-The-Air) update support
+### Planned
 - Prometheus metrics exporter
 - WebSocket support for real-time events
+- OTA (Over-The-Air) update support
+
+---
+
+## [1.0.0] - 2026-02-27
+
+### Added
+- AI plugin architecture (Ollama, OpenAI, Claude providers)
+- Interactive chat CLI with AI-powered command parsing
+- Korean language support for chat commands
+- Hash-chained audit logging with tamper detection
+- Security module: rate limiting, input sanitization, connection tracking
+- Shell injection detection and prevention
+- Configurable AI policy (escalation, sensitive keyword filtering, consent)
+- Quick action system for button-based UI
+- Docker support with multi-stage build
+- docker-compose.yml with health checks and resource limits
+- MSRV 1.75 testing in CI
+- Security audit step in CI pipeline
+- 96 unit tests (up from 62)
 
 ### Changed
-- Improved performance for large command executions
+- Version normalized to 1.0.0
+- CLI updated with chat, ai-status, audit-log, audit-verify subcommands
+- Status command now shows AI provider info
+- Configuration expanded with AI settings section
+- All command executions now audit-logged
 
 ---
 

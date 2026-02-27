@@ -1,3 +1,8 @@
+//! TCP server for ECNP connections.
+//!
+//! Accepts and manages TCP connections with handshake timeout,
+//! connection tracking, and ECNP frame dispatch to message handlers.
+
 use crate::ecnp::{EcnpCodec, EcnpMessage};
 use crate::error::AgentError;
 use crate::protocol::MessageType;
@@ -12,6 +17,8 @@ use tracing::{error, info, warn};
 pub struct TcpServerConfig {
     pub bind_addr: String,
     pub max_connections: usize,
+    /// Handshake timeout in seconds (default: 5)
+    pub handshake_timeout_secs: u64,
 }
 
 /// Message received from a client
@@ -85,10 +92,11 @@ impl TcpServer {
                             let tx = message_tx.clone();
                             let count = conn_count.clone();
                             let mut shutdown = shutdown_tx.subscribe();
+                            let hs_timeout = self.config.handshake_timeout_secs;
 
                             tokio::spawn(async move {
                                 info!(peer = %addr, "client connected");
-                                if let Err(e) = handle_connection(stream, addr.to_string(), tx, &mut shutdown).await {
+                                if let Err(e) = handle_connection(stream, addr.to_string(), tx, &mut shutdown, hs_timeout).await {
                                     error!(peer = %addr, error = %e, "connection error");
                                 }
                                 count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
@@ -118,15 +126,54 @@ impl TcpServer {
     }
 }
 
-/// Handle a single TCP connection
+/// Handle a single TCP connection with handshake timeout
 async fn handle_connection(
     mut stream: TcpStream,
     peer_addr: String,
     message_tx: tokio::sync::mpsc::Sender<IncomingMessage>,
     shutdown: &mut broadcast::Receiver<()>,
+    handshake_timeout_secs: u64,
 ) -> Result<(), AgentError> {
     let mut buf = vec![0u8; 65536]; // 64KB read buffer
 
+    // Wait for initial handshake frame with timeout
+    let first_read = tokio::time::timeout(
+        std::time::Duration::from_secs(handshake_timeout_secs),
+        stream.read(&mut buf),
+    )
+    .await;
+
+    match first_read {
+        Err(_) => {
+            warn!(peer = %peer_addr, "handshake timeout ({}s)", handshake_timeout_secs);
+            return Err(AgentError::ConnectionError("handshake timeout".into()));
+        }
+        Ok(Err(e)) => {
+            return Err(AgentError::ConnectionError(e.to_string()));
+        }
+        Ok(Ok(0)) => {
+            return Ok(()); // closed before handshake
+        }
+        Ok(Ok(n)) => match EcnpCodec::decode(&buf[..n]) {
+            Ok(msg) => {
+                let _ = message_tx
+                    .send(IncomingMessage {
+                        peer_addr: peer_addr.clone(),
+                        message: msg,
+                    })
+                    .await;
+            }
+            Err(e) => {
+                warn!(peer = %peer_addr, error = %e, "invalid handshake frame");
+                let err_frame =
+                    EcnpCodec::encode(MessageType::Error, b"invalid frame").unwrap_or_default();
+                let _ = stream.write_all(&err_frame).await;
+                return Err(AgentError::ConnectionError("invalid handshake".into()));
+            }
+        },
+    }
+
+    // Continue reading subsequent frames
     loop {
         tokio::select! {
             result = stream.read(&mut buf) => {
@@ -188,9 +235,11 @@ mod tests {
         let config = TcpServerConfig {
             bind_addr: "0.0.0.0:8443".to_string(),
             max_connections: 50,
+            handshake_timeout_secs: 5,
         };
         assert_eq!(config.bind_addr, "0.0.0.0:8443");
         assert_eq!(config.max_connections, 50);
+        assert_eq!(config.handshake_timeout_secs, 5);
     }
 
     #[tokio::test]
@@ -198,6 +247,7 @@ mod tests {
         let config = TcpServerConfig {
             bind_addr: "127.0.0.1:0".to_string(),
             max_connections: 10,
+            handshake_timeout_secs: 5,
         };
         let server = TcpServer::new(config);
         assert!(server.shutdown_tx.is_none());

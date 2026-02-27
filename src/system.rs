@@ -1,3 +1,8 @@
+//! System monitoring — CPU, memory, disk, process enumeration.
+//!
+//! Collects real-time system metrics and detects available platform
+//! capabilities (Docker, Git, Python, Node.js, etc.).
+
 use sysinfo::System;
 
 /// System information snapshot

@@ -61,3 +61,10 @@ auto_open = true
 max_agents = 1
 license_tier = "free"
 work_profile = "all"
+
+[websocket]
+enabled = true
+port = 9445
+bind = "127.0.0.1"
+max_clients = 50
+heartbeat_secs = 30

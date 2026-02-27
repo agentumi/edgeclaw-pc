@@ -1,3 +1,9 @@
+//! Encrypted session management — ECDH key exchange + AES-256-GCM.
+//!
+//! Manages peer sessions derived from X25519 ECDH key agreement with
+//! HKDF-SHA256 key derivation. Supports IP binding, key rotation,
+//! and automatic expiry cleanup.
+
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
@@ -25,6 +31,7 @@ struct Session {
     session_key: [u8; 32],
     nonce_counter: u64,
     peer_id: String,
+    bound_ip: Option<String>,
     created_at: chrono::DateTime<chrono::Utc>,
     expires_at: chrono::DateTime<chrono::Utc>,
     messages_sent: u64,
@@ -58,6 +65,17 @@ impl SessionManager {
         local_secret: &[u8; 32],
         remote_public: &[u8; 32],
     ) -> Result<SessionInfo, AgentError> {
+        self.create_session_with_ip(peer_id, local_secret, remote_public, None)
+    }
+
+    /// Create a session via X25519 ECDH key exchange, binding to an IP address
+    pub fn create_session_with_ip(
+        &mut self,
+        peer_id: &str,
+        local_secret: &[u8; 32],
+        remote_public: &[u8; 32],
+        bind_ip: Option<&str>,
+    ) -> Result<SessionInfo, AgentError> {
         let secret = StaticSecret::from(*local_secret);
         let public = PublicKey::from(*remote_public);
         let shared_secret = secret.diffie_hellman(&public);
@@ -88,6 +106,7 @@ impl SessionManager {
                 session_key,
                 nonce_counter: 0,
                 peer_id: peer_id.to_string(),
+                bound_ip: bind_ip.map(|ip| ip.to_string()),
                 created_at: now,
                 expires_at: expires,
                 messages_sent: 0,
@@ -193,6 +212,83 @@ impl SessionManager {
         self.sessions.retain(|_, s| now < s.expires_at);
         before - self.sessions.len()
     }
+
+    /// Verify that a session's bound IP matches the given IP.
+    ///
+    /// Returns `Ok(true)` if the IP matches or no IP is bound.
+    /// Returns `Err` if the IP does not match.
+    pub fn verify_session_ip(&self, session_id: &str, client_ip: &str) -> Result<bool, AgentError> {
+        let session = self
+            .sessions
+            .get(session_id)
+            .ok_or(AgentError::NotFound("session not found".into()))?;
+
+        if let Some(ref bound) = session.bound_ip {
+            if bound != client_ip {
+                return Err(AgentError::AuthenticationError(format!(
+                    "session bound to {}, request from {}",
+                    bound, client_ip
+                )));
+            }
+        }
+        Ok(true)
+    }
+
+    /// Check if a session needs key rotation (within 10% of expiry)
+    pub fn needs_rotation(&self, session_id: &str) -> bool {
+        if let Some(session) = self.sessions.get(session_id) {
+            let now = chrono::Utc::now();
+            if now >= session.expires_at {
+                return true;
+            }
+            let total_duration = session.expires_at - session.created_at;
+            let remaining = session.expires_at - now;
+            // Rotate when less than 10% of session time remains
+            remaining < total_duration / 10
+        } else {
+            false
+        }
+    }
+
+    /// Rotate a session key by performing a new ECDH exchange.
+    ///
+    /// Creates a new session with the same peer and IP binding,
+    /// then closes the old session. Returns the new session info.
+    pub fn rotate_session(
+        &mut self,
+        old_session_id: &str,
+        local_secret: &[u8; 32],
+        remote_public: &[u8; 32],
+    ) -> Result<SessionInfo, AgentError> {
+        let (peer_id, bound_ip) = {
+            let old = self
+                .sessions
+                .get(old_session_id)
+                .ok_or(AgentError::NotFound("session not found".into()))?;
+            (old.peer_id.clone(), old.bound_ip.clone())
+        };
+
+        let new_info = self.create_session_with_ip(
+            &peer_id,
+            local_secret,
+            remote_public,
+            bound_ip.as_deref(),
+        )?;
+
+        // Close old session after new one is established
+        self.close_session(old_session_id);
+
+        Ok(new_info)
+    }
+
+    /// Get all sessions that need rotation
+    pub fn sessions_needing_rotation(&self) -> Vec<String> {
+        self.sessions
+            .keys()
+            .filter(|id| self.needs_rotation(id))
+            .cloned()
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -255,5 +351,82 @@ mod tests {
         let (mgr, session_id) = create_test_session();
         let active = mgr.active_sessions();
         assert!(active.contains(&session_id));
+    }
+
+    #[test]
+    fn test_session_ip_binding() {
+        let mut mgr = SessionManager::new();
+        let secret_a = x25519_dalek::StaticSecret::random_from_rng(rand::rngs::OsRng);
+        let secret_b = x25519_dalek::StaticSecret::random_from_rng(rand::rngs::OsRng);
+        let public_b = x25519_dalek::PublicKey::from(&secret_b);
+
+        let info = mgr
+            .create_session_with_ip(
+                "peer-1",
+                &secret_a.to_bytes(),
+                public_b.as_bytes(),
+                Some("192.168.1.10"),
+            )
+            .unwrap();
+
+        // Same IP → ok
+        assert!(mgr
+            .verify_session_ip(&info.session_id, "192.168.1.10")
+            .is_ok());
+
+        // Different IP → error
+        assert!(mgr.verify_session_ip(&info.session_id, "10.0.0.1").is_err());
+    }
+
+    #[test]
+    fn test_session_no_ip_binding() {
+        let (mgr, session_id) = create_test_session();
+        // No IP bound → any IP is ok
+        assert!(mgr.verify_session_ip(&session_id, "1.2.3.4").is_ok());
+    }
+
+    #[test]
+    fn test_needs_rotation_fresh_session() {
+        let (mgr, session_id) = create_test_session();
+        // Fresh session should not need rotation
+        assert!(!mgr.needs_rotation(&session_id));
+    }
+
+    #[test]
+    fn test_rotate_session() {
+        let mut mgr = SessionManager::new();
+        let secret_a = x25519_dalek::StaticSecret::random_from_rng(rand::rngs::OsRng);
+        let secret_b = x25519_dalek::StaticSecret::random_from_rng(rand::rngs::OsRng);
+        let public_b = x25519_dalek::PublicKey::from(&secret_b);
+
+        let old_info = mgr
+            .create_session("peer-1", &secret_a.to_bytes(), public_b.as_bytes())
+            .unwrap();
+
+        // Generate new keys for rotation
+        let secret_c = x25519_dalek::StaticSecret::random_from_rng(rand::rngs::OsRng);
+        let secret_d = x25519_dalek::StaticSecret::random_from_rng(rand::rngs::OsRng);
+        let public_d = x25519_dalek::PublicKey::from(&secret_d);
+
+        let new_info = mgr
+            .rotate_session(
+                &old_info.session_id,
+                &secret_c.to_bytes(),
+                public_d.as_bytes(),
+            )
+            .unwrap();
+
+        // Old session is gone
+        assert!(mgr.get_session(&old_info.session_id).is_none());
+        // New session exists
+        assert!(mgr.get_session(&new_info.session_id).is_some());
+        assert_eq!(new_info.peer_id, "peer-1");
+    }
+
+    #[test]
+    fn test_sessions_needing_rotation_empty() {
+        let (mgr, _) = create_test_session();
+        let needing = mgr.sessions_needing_rotation();
+        assert!(needing.is_empty());
     }
 }

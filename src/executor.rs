@@ -1,3 +1,8 @@
+//! Async command executor with sandboxing and resource limits.
+//!
+//! Provides safe, timeout-bounded command execution with injection
+//! detection, allowed-path restrictions, and concurrent job limiting.
+
 use crate::error::AgentError;
 use crate::security::InputSanitizer;
 use std::time::Instant;

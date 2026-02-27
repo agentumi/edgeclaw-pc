@@ -1,3 +1,9 @@
+//! ECNP v1.1 binary framing codec.
+//!
+//! Implements the EdgeClaw Network Protocol binary wire format with
+//! version byte, message type, 4-byte big-endian length, and payload.
+//! Maximum frame size is 1 MB.
+
 use crate::error::AgentError;
 use crate::protocol::MessageType;
 

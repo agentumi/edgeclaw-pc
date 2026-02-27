@@ -1,3 +1,8 @@
+//! RBAC policy engine — role-based access control.
+//!
+//! Enforces a 5-tier role hierarchy (Owner, Admin, Operator, Viewer, Guest)
+//! across 17 capabilities with sandbox requirements for dangerous operations.
+
 use crate::error::AgentError;
 
 /// Risk levels for capabilities

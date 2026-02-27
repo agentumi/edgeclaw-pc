@@ -1,3 +1,8 @@
+//! ECNP message types and protocol structures.
+//!
+//! Defines `MessageType` variants (ECM, EAP, Heartbeat, Error, Ack)
+//! and message payload structures for EdgeClaw Network Protocol v1.1.
+
 use crate::error::AgentError;
 
 /// ECNP v1.1 message types

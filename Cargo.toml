@@ -38,6 +38,10 @@ rcgen = "0.13"
 # HTTP client (HTTPS support for cloud AI)
 ureq = { version = "2", features = ["tls", "json"] }
 
+# WebSocket
+tokio-tungstenite = "0.24"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+
 # System info
 sysinfo = "0.32"
 hostname = "0.4"

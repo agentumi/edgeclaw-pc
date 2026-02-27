@@ -1,3 +1,8 @@
+//! Peer connection management and device tracking.
+//!
+//! Maintains a registry of connected peers with role assignment,
+//! last-seen timestamps, and configurable connection limits.
+
 use crate::error::AgentError;
 
 /// Peer connection information

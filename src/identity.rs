@@ -1,3 +1,8 @@
+//! Device identity management — Ed25519 signing and X25519 key exchange.
+//!
+//! Generates and manages device identity using Ed25519 for authentication
+//! signatures and X25519 for Diffie-Hellman key agreement.
+
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};

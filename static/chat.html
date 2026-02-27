@@ -371,6 +371,7 @@ body {
       <span class="dot"></span>
       <span id="statusText">Online</span>
     </div>
+    <div id="wsIndicator" title="WebSocket: Connecting" style="width:8px;height:8px;border-radius:50%;background:var(--warning);"></div>
   </div>
 </div>
 
@@ -647,6 +648,133 @@ chatInput.focus();
 
 // Refresh status every 30s
 setInterval(loadStatus, 30000);
+
+// ── WebSocket Real-Time Events ──
+let ws = null;
+let wsReconnectTimer = null;
+const WS_PORT = parseInt(window.location.port || '9444') + 1; // Default: 9445
+const WS_URL = `ws://${window.location.hostname}:${WS_PORT}`;
+
+function connectWebSocket() {
+  if (ws && ws.readyState === WebSocket.OPEN) return;
+  try {
+    ws = new WebSocket(WS_URL);
+
+    ws.onopen = () => {
+      console.log('[WS] Connected to', WS_URL);
+      const wsIndicator = document.getElementById('wsIndicator');
+      if (wsIndicator) {
+        wsIndicator.style.background = 'var(--success)';
+        wsIndicator.title = 'WebSocket: Connected';
+      }
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        handleWsEvent(data);
+      } catch (e) {
+        console.warn('[WS] Parse error:', e);
+      }
+    };
+
+    ws.onclose = () => {
+      console.log('[WS] Disconnected');
+      const wsIndicator = document.getElementById('wsIndicator');
+      if (wsIndicator) {
+        wsIndicator.style.background = 'var(--warning)';
+        wsIndicator.title = 'WebSocket: Disconnected';
+      }
+      // Auto-reconnect after 5s
+      if (!wsReconnectTimer) {
+        wsReconnectTimer = setTimeout(() => {
+          wsReconnectTimer = null;
+          connectWebSocket();
+        }, 5000);
+      }
+    };
+
+    ws.onerror = () => {
+      console.warn('[WS] Connection error');
+    };
+  } catch (e) {
+    console.warn('[WS] Failed to connect:', e);
+  }
+}
+
+function handleWsEvent(data) {
+  const type = data.type;
+  const payload = data.data;
+
+  switch (type) {
+    case 'MetricUpdate':
+      // Update header with live metrics
+      if (payload) {
+        const cpu = (payload.cpu_percent || 0).toFixed(1);
+        const mem = (payload.memory_percent || 0).toFixed(1);
+        headerSub.textContent = headerSub.textContent.replace(
+          /CPU:[\d.]+%.*$/,
+          `CPU:${cpu}% MEM:${mem}%`
+        );
+      }
+      break;
+
+    case 'CommandStarted':
+      if (payload) {
+        addSystemEvent(`⚡ Executing: ${payload.command || '...'}`);
+      }
+      break;
+
+    case 'CommandCompleted':
+      if (payload) {
+        const icon = payload.success ? '✅' : '❌';
+        const ms = payload.duration_ms || 0;
+        addSystemEvent(`${icon} Command completed (${ms}ms, exit: ${payload.exit_code ?? '?'})`);
+      }
+      break;
+
+    case 'PeerConnected':
+      if (payload) {
+        addSystemEvent(`🔗 Peer connected: ${payload.device_name || payload.peer_id}`);
+      }
+      break;
+
+    case 'PeerDisconnected':
+      if (payload) {
+        addSystemEvent(`🔌 Peer disconnected: ${payload.peer_id} (${payload.reason || ''})`);
+      }
+      break;
+
+    case 'Alert':
+      if (payload) {
+        const sev = payload.severity === 'Critical' ? '🔴' : payload.severity === 'Warning' ? '🟡' : 'ℹ️';
+        addSystemEvent(`${sev} ${payload.message}`);
+      }
+      break;
+
+    case 'StatusChange':
+      if (payload) {
+        addSystemEvent(`📡 Status: ${payload.previous} → ${payload.current}`);
+        loadStatus(); // Refresh status
+      }
+      break;
+
+    default:
+      break;
+  }
+}
+
+function addSystemEvent(text) {
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  div.style.cssText = 'text-align:center;font-size:12px;color:var(--text-muted);padding:4px 0;opacity:0.8;';
+  div.textContent = text;
+  chatArea.appendChild(div);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+// Start WebSocket connection
+connectWebSocket();
 </script>
 </body>
 </html>

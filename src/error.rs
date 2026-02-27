@@ -1,3 +1,8 @@
+//! Unified error types for the EdgeClaw Agent.
+//!
+//! Provides [`AgentError`] with variants covering crypto, connection,
+//! policy, session, execution, serialization, and configuration errors.
+
 use thiserror::Error;
 
 /// Unified error type for EdgeClaw Agent
@@ -38,6 +43,9 @@ pub enum AgentError {
 
     #[error("not found: {0}")]
     NotFound(String),
+
+    #[error("authentication error: {0}")]
+    AuthenticationError(String),
 
     #[error("internal error: {0}")]
     InternalError(String),

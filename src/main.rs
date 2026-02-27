@@ -1,6 +1,12 @@
+//! EdgeClaw Desktop Agent — CLI entry point.
+//!
+//! Provides `init`, `start`, `status`, `identity`, `capabilities`,
+//! `info`, and `chat` subcommands via clap.
+
 use clap::{Parser, Subcommand};
 use edgeclaw_agent::config::AgentConfig;
 use edgeclaw_agent::protocol::MessageType;
+use edgeclaw_agent::websocket::{WebSocketConfig, WebSocketServer};
 use edgeclaw_agent::webui::{WebUiConfig, WebUiServer};
 use edgeclaw_agent::AgentEngine;
 use std::path::PathBuf;
@@ -384,15 +390,62 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
 
+            // Start WebSocket server for real-time events
+            if config.websocket.enabled {
+                let ws_bind = format!("{}:{}", config.websocket.bind, config.websocket.port);
+                let ws_event_bus = engine.event_bus().clone();
+                let ws_max_clients = config.websocket.max_clients;
+
+                println!(
+                    "║  WS:   ws://{}:{}                ║",
+                    config.websocket.bind, config.websocket.port
+                );
+
+                tokio::spawn(async move {
+                    let mut ws_server = WebSocketServer::new(
+                        WebSocketConfig {
+                            bind_addr: ws_bind,
+                            auth_token: String::new(),
+                            max_clients: ws_max_clients,
+                        },
+                        ws_event_bus,
+                    );
+                    if let Err(e) = ws_server.start().await {
+                        error!(error = %e, "WebSocket server error");
+                    }
+                });
+            }
+
             // Start TCP server
             let bind_addr = format!("0.0.0.0:{}", engine.config().agent.listen_port);
             let (msg_tx, mut msg_rx) =
                 tokio::sync::mpsc::channel::<edgeclaw_agent::server::IncomingMessage>(256);
 
+            // Start periodic metrics publisher → EventBus
+            {
+                let metrics_engine = engine.clone();
+                tokio::spawn(async move {
+                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+                    loop {
+                        interval.tick().await;
+                        let sys = metrics_engine.get_system_info();
+                        metrics_engine.event_bus().publish(
+                            edgeclaw_agent::events::AgentEvent::MetricUpdate {
+                                cpu_percent: sys.cpu_usage as f64,
+                                memory_percent: sys.memory_usage_percent as f64,
+                                active_connections: metrics_engine.connected_count() as u32,
+                                active_executions: 0,
+                            },
+                        );
+                    }
+                });
+            }
+
             let mut tcp_server =
                 edgeclaw_agent::server::TcpServer::new(edgeclaw_agent::server::TcpServerConfig {
                     bind_addr,
                     max_connections: engine.config().agent.max_connections,
+                    handshake_timeout_secs: 5,
                 });
 
             // Message handler task — dispatch by message type

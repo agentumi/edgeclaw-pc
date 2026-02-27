@@ -1,11 +1,11 @@
 //! Security module — Rate limiting, input sanitization, and connection security.
 //!
 //! Implements STRIDE mitigations:
-//! - **Spoofing**: Identity verification enforced at session layer
-//! - **Tampering**: AES-256-GCM integrity + audit hash chain
+//! - **Spoofing**: Identity verification + TOFU key pinning
+//! - **Tampering**: AES-256-GCM integrity + audit hash chain + config hash verification
 //! - **Repudiation**: Hash-chained audit log (audit.rs)
-//! - **Information Disclosure**: Sensitive keyword filtering (ai.rs)
-//! - **Denial of Service**: Rate limiting + connection limits (this module)
+//! - **Information Disclosure**: Sensitive keyword filtering (ai.rs) + error masking
+//! - **Denial of Service**: Rate limiting + connection limits + handshake timeouts
 //! - **Elevation of Privilege**: RBAC policy enforcement (policy.rs)
 
 use std::collections::HashMap;
@@ -297,6 +297,262 @@ impl Default for ConnectionTracker {
     }
 }
 
+/// TOFU (Trust On First Use) key pinning store.
+///
+/// Remembers the first public key seen for each peer ID. If the same peer
+/// presents a different key later, it is rejected — preventing MITM attacks.
+pub struct TofuKeyStore {
+    /// peer_id → hex-encoded public key seen on first connection
+    pinned_keys: Mutex<HashMap<String, String>>,
+}
+
+impl TofuKeyStore {
+    /// Create an empty TOFU store
+    pub fn new() -> Self {
+        Self {
+            pinned_keys: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Pin or verify a peer's public key.
+    ///
+    /// Returns `Ok(true)` if the key is newly pinned, `Ok(false)` if it matches
+    /// a previously pinned key, or `Err` with a reason if there is a mismatch.
+    pub fn verify_or_pin(&self, peer_id: &str, public_key_hex: &str) -> Result<bool, String> {
+        let mut keys = self.pinned_keys.lock().unwrap();
+        if let Some(pinned) = keys.get(peer_id) {
+            if pinned == public_key_hex {
+                Ok(false) // Already pinned, matches
+            } else {
+                Err(format!(
+                    "TOFU key mismatch for peer {}: expected {}, got {}",
+                    peer_id,
+                    &pinned[..16.min(pinned.len())],
+                    &public_key_hex[..16.min(public_key_hex.len())]
+                ))
+            }
+        } else {
+            keys.insert(peer_id.to_string(), public_key_hex.to_string());
+            Ok(true) // Newly pinned
+        }
+    }
+
+    /// Forget a peer's pinned key (e.g. when re-keying)
+    pub fn remove_pin(&self, peer_id: &str) -> bool {
+        let mut keys = self.pinned_keys.lock().unwrap();
+        keys.remove(peer_id).is_some()
+    }
+
+    /// Number of pinned keys
+    pub fn count(&self) -> usize {
+        self.pinned_keys.lock().unwrap().len()
+    }
+}
+
+impl Default for TofuKeyStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Configuration integrity verifier.
+///
+/// Computes and stores a SHA-256 hash of the config file at load-time,
+/// then can re-verify to detect external tampering.
+pub struct ConfigIntegrity {
+    /// SHA-256 hex hash of the config at load time
+    original_hash: Mutex<Option<String>>,
+    /// Path to the config file
+    config_path: Mutex<Option<std::path::PathBuf>>,
+}
+
+impl ConfigIntegrity {
+    /// Create a new integrity checker
+    pub fn new() -> Self {
+        Self {
+            original_hash: Mutex::new(None),
+            config_path: Mutex::new(None),
+        }
+    }
+
+    /// Record the hash of a config file at load-time
+    pub fn record(&self, path: &std::path::Path) -> Result<String, std::io::Error> {
+        let content = std::fs::read(path)?;
+        let hash = Self::sha256_hex(&content);
+        *self.original_hash.lock().unwrap() = Some(hash.clone());
+        *self.config_path.lock().unwrap() = Some(path.to_path_buf());
+        Ok(hash)
+    }
+
+    /// Verify the config file has not been modified since load
+    pub fn verify(&self) -> Result<bool, String> {
+        let path_guard = self.config_path.lock().unwrap();
+        let path = path_guard
+            .as_ref()
+            .ok_or_else(|| "no config path recorded".to_string())?;
+        let hash_guard = self.original_hash.lock().unwrap();
+        let original = hash_guard
+            .as_ref()
+            .ok_or_else(|| "no original hash recorded".to_string())?;
+
+        let current_content = std::fs::read(path).map_err(|e| e.to_string())?;
+        let current_hash = Self::sha256_hex(&current_content);
+
+        Ok(&current_hash == original)
+    }
+
+    /// Get the stored hash
+    pub fn hash(&self) -> Option<String> {
+        self.original_hash.lock().unwrap().clone()
+    }
+
+    fn sha256_hex(data: &[u8]) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        hex::encode(hasher.finalize())
+    }
+}
+
+impl Default for ConfigIntegrity {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Error masking — strip internal implementation details from errors
+/// before sending them to external clients.
+pub struct ErrorMasker;
+
+impl ErrorMasker {
+    /// Mask an error message for external consumption.
+    ///
+    /// Removes file paths, line numbers, and internal module names.
+    pub fn mask(error: &str) -> String {
+        let mut masked = error.to_string();
+
+        // Remove Windows paths (e.g., C:\Users\..., D:\project\...)
+        masked = Self::replace_windows_paths(&masked);
+
+        // Remove Unix paths (e.g., /home/user/...)
+        masked = Self::replace_unix_paths(&masked);
+
+        // Remove line:column references (e.g., "at line 42", "line 42:10")
+        masked = Self::replace_line_refs(&masked);
+
+        // Remove Rust module paths (e.g., "edgeclaw_agent::session::...")
+        masked = Self::replace_module_paths(&masked);
+
+        masked
+    }
+
+    fn replace_windows_paths(input: &str) -> String {
+        let mut result = String::new();
+        let chars: Vec<char> = input.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            if i + 2 < chars.len()
+                && chars[i].is_ascii_alphabetic()
+                && chars[i + 1] == ':'
+                && chars[i + 2] == '\\'
+            {
+                result.push_str("[path]");
+                i += 3;
+                while i < chars.len() && !chars[i].is_whitespace() && chars[i] != ':' {
+                    i += 1;
+                }
+            } else {
+                result.push(chars[i]);
+                i += 1;
+            }
+        }
+        result
+    }
+
+    fn replace_unix_paths(input: &str) -> String {
+        let mut s = input.to_string();
+        for prefix in &["/home/", "/usr/", "/tmp/", "/var/", "/etc/"] {
+            while let Some(start) = s.find(prefix) {
+                let end = s[start..]
+                    .find(|c: char| c.is_whitespace() || c == ':')
+                    .map(|e| start + e)
+                    .unwrap_or(s.len());
+                s.replace_range(start..end, "[path]");
+            }
+        }
+        s
+    }
+
+    fn replace_line_refs(input: &str) -> String {
+        let lower = input.to_lowercase();
+        if !lower.contains("line ") {
+            return input.to_string();
+        }
+        let mut result = String::new();
+        let mut rest = input;
+        while !rest.is_empty() {
+            let lower_rest = rest.to_lowercase();
+            if let Some(pos) = lower_rest.find("line ") {
+                let actual_start = if pos >= 3 && lower_rest[pos - 3..pos] == *"at " {
+                    pos - 3
+                } else {
+                    pos
+                };
+                result.push_str(&rest[..actual_start]);
+                let after_line = &rest[pos + 5..];
+                let skip = after_line
+                    .find(|c: char| !c.is_ascii_digit() && c != ':')
+                    .unwrap_or(after_line.len());
+                result.push_str("[internal]");
+                rest = &after_line[skip..];
+            } else {
+                result.push_str(rest);
+                break;
+            }
+        }
+        result
+    }
+
+    fn replace_module_paths(input: &str) -> String {
+        let mut result = String::new();
+        let mut rest = input;
+        while let Some(pos) = rest.find("::") {
+            let word_start = rest[..pos]
+                .rfind(|c: char| !c.is_alphanumeric() && c != '_')
+                .map(|p| p + 1)
+                .unwrap_or(0);
+            let after = &rest[pos + 2..];
+            if let Some(next_sep) = after.find("::") {
+                let end_of_path = after[next_sep + 2..]
+                    .find(|c: char| !c.is_alphanumeric() && c != '_' && c != ':')
+                    .map(|e| pos + 2 + next_sep + 2 + e)
+                    .unwrap_or(rest.len());
+                result.push_str(&rest[..word_start]);
+                result.push_str("[module]");
+                rest = &rest[end_of_path..];
+            } else {
+                result.push_str(&rest[..pos + 2]);
+                rest = after;
+            }
+        }
+        result.push_str(rest);
+        result
+    }
+
+    /// Return a generic safe message for a given error category
+    pub fn safe_message(category: &str) -> &'static str {
+        match category {
+            "crypto" => "encryption operation failed",
+            "auth" => "authentication failed",
+            "session" => "session error",
+            "policy" => "access denied",
+            "exec" => "command execution failed",
+            "config" => "configuration error",
+            _ => "internal error",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -476,5 +732,121 @@ mod tests {
             retry_after: Duration::from_secs(30),
         };
         assert!(!blocked.is_allowed());
+    }
+
+    // ── TOFU Key Pinning Tests ──
+
+    #[test]
+    fn test_tofu_pin_new_key() {
+        let store = TofuKeyStore::new();
+        let result = store.verify_or_pin("peer-1", "aabbccdd").unwrap();
+        assert!(result); // Newly pinned
+        assert_eq!(store.count(), 1);
+    }
+
+    #[test]
+    fn test_tofu_verify_same_key() {
+        let store = TofuKeyStore::new();
+        store.verify_or_pin("peer-1", "aabbccdd").unwrap();
+        let result = store.verify_or_pin("peer-1", "aabbccdd").unwrap();
+        assert!(!result); // Already pinned, same key
+    }
+
+    #[test]
+    fn test_tofu_reject_different_key() {
+        let store = TofuKeyStore::new();
+        store.verify_or_pin("peer-1", "aabbccdd").unwrap();
+        let result = store.verify_or_pin("peer-1", "eeff0011");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("mismatch"));
+    }
+
+    #[test]
+    fn test_tofu_remove_pin() {
+        let store = TofuKeyStore::new();
+        store.verify_or_pin("peer-1", "aabbccdd").unwrap();
+        assert!(store.remove_pin("peer-1"));
+        assert!(!store.remove_pin("peer-1")); // Already removed
+        assert_eq!(store.count(), 0);
+
+        // Can pin a new key now
+        let result = store.verify_or_pin("peer-1", "eeff0011").unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn test_tofu_multiple_peers() {
+        let store = TofuKeyStore::new();
+        store.verify_or_pin("peer-1", "key1").unwrap();
+        store.verify_or_pin("peer-2", "key2").unwrap();
+        assert_eq!(store.count(), 2);
+
+        // Peer 1 with wrong key fails, peer 2 with correct key succeeds
+        assert!(store.verify_or_pin("peer-1", "key2").is_err());
+        assert!(store.verify_or_pin("peer-2", "key2").is_ok());
+    }
+
+    // ── Config Integrity Tests ──
+
+    #[test]
+    fn test_config_integrity_record_and_verify() {
+        let integrity = ConfigIntegrity::new();
+        let tmpdir = std::env::temp_dir().join("edgeclaw_test_config_integrity");
+        let _ = std::fs::create_dir_all(&tmpdir);
+        let config_path = tmpdir.join("test_config.toml");
+        std::fs::write(&config_path, b"[agent]\nname = \"test\"\n").unwrap();
+
+        let hash = integrity.record(&config_path).unwrap();
+        assert!(!hash.is_empty());
+        assert_eq!(hash.len(), 64); // SHA-256 hex = 64 chars
+
+        // Verify unchanged
+        assert!(integrity.verify().unwrap());
+
+        // Tamper with the file
+        std::fs::write(&config_path, b"[agent]\nname = \"hacked\"\n").unwrap();
+        assert!(!integrity.verify().unwrap());
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&tmpdir);
+    }
+
+    #[test]
+    fn test_config_integrity_no_recording() {
+        let integrity = ConfigIntegrity::new();
+        assert!(integrity.hash().is_none());
+        assert!(integrity.verify().is_err());
+    }
+
+    // ── Error Masking Tests ──
+
+    #[test]
+    fn test_error_masker_windows_paths() {
+        let masked = ErrorMasker::mask("failed to read C:\\Users\\admin\\secret.key");
+        assert!(!masked.contains("C:\\Users"));
+        assert!(masked.contains("[path]"));
+    }
+
+    #[test]
+    fn test_error_masker_unix_paths() {
+        let masked = ErrorMasker::mask("cannot open /home/user/.ssh/id_rsa");
+        assert!(!masked.contains("/home/user"));
+        assert!(masked.contains("[path]"));
+    }
+
+    #[test]
+    fn test_error_masker_safe_message() {
+        assert_eq!(
+            ErrorMasker::safe_message("crypto"),
+            "encryption operation failed"
+        );
+        assert_eq!(ErrorMasker::safe_message("auth"), "authentication failed");
+        assert_eq!(ErrorMasker::safe_message("unknown"), "internal error");
+    }
+
+    #[test]
+    fn test_error_masker_preserves_safe_text() {
+        let masked = ErrorMasker::mask("timeout after 30 seconds");
+        assert_eq!(masked, "timeout after 30 seconds");
     }
 }

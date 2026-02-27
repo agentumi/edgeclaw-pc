@@ -29,6 +29,7 @@ pub mod audit;
 pub mod config;
 pub mod ecnp;
 pub mod error;
+pub mod events;
 pub mod executor;
 pub mod identity;
 pub mod peer;
@@ -38,15 +39,17 @@ pub mod security;
 pub mod server;
 pub mod session;
 pub mod system;
+pub mod websocket;
 pub mod webui;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use crate::ai::{AiManager, AiRequest, AiResponse, ChatMessage, ChatRole};
 use crate::audit::AuditManager;
 use crate::config::AgentConfig;
 use crate::ecnp::{EcnpCodec, EcnpMessage};
 use crate::error::AgentError;
+use crate::events::{AgentEvent, EventBus};
 use crate::executor::{ExecRequest, ExecResponse, Executor};
 use crate::identity::{DeviceIdentity, IdentityManager};
 use crate::peer::{PeerInfo, PeerManager};
@@ -65,6 +68,7 @@ pub struct AgentEngine {
     executor: Executor,
     ai_manager: AiManager,
     audit_manager: AuditManager,
+    event_bus: Arc<EventBus>,
     chat_history: Mutex<Vec<ChatMessage>>,
     start_time: chrono::DateTime<chrono::Utc>,
 }
@@ -98,6 +102,7 @@ impl AgentEngine {
             executor,
             ai_manager,
             audit_manager,
+            event_bus: Arc::new(EventBus::new(256)),
             chat_history: Mutex::new(Vec::new()),
             start_time: chrono::Utc::now(),
         }
@@ -254,6 +259,14 @@ impl AgentEngine {
             return Err(AgentError::PolicyDenied(decision.reason));
         }
 
+        // Publish CommandStarted event
+        self.event_bus.publish(AgentEvent::CommandStarted {
+            execution_id: request.execution_id.clone(),
+            command: request.command.clone(),
+            peer_id: peer_id.to_string(),
+            timestamp: chrono::Utc::now(),
+        });
+
         // Execute
         let result = self.executor.execute(request.clone()).await;
 
@@ -272,6 +285,13 @@ impl AgentEngine {
                     if resp.success { "success" } else { "failed" },
                     None,
                 );
+                // Publish CommandCompleted event
+                self.event_bus.publish(AgentEvent::CommandCompleted {
+                    execution_id: resp.execution_id.clone(),
+                    success: resp.success,
+                    exit_code: resp.exit_code,
+                    duration_ms: resp.duration_ms,
+                });
             }
             Err(e) => {
                 self.audit_manager.log(
@@ -282,6 +302,12 @@ impl AgentEngine {
                     "error",
                     Some(&e.to_string()),
                 );
+                // Publish alert for execution error
+                self.event_bus.publish(AgentEvent::Alert {
+                    severity: events::AlertSeverity::Warning,
+                    message: format!("Command failed: {}", e),
+                    source: "executor".to_string(),
+                });
             }
         }
 
@@ -357,6 +383,11 @@ impl AgentEngine {
     /// Get config reference
     pub fn config(&self) -> &AgentConfig {
         &self.config
+    }
+
+    /// Get the event bus for subscribing to real-time events
+    pub fn event_bus(&self) -> &Arc<EventBus> {
+        &self.event_bus
     }
 
     // ─── AI Chat ───────────────────────────────────────────

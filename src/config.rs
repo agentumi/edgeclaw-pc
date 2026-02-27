@@ -1,3 +1,9 @@
+//! Configuration management — TOML-based agent settings.
+//!
+//! Handles loading, validation, and defaults for all agent configuration
+//! sections including agent identity, security, execution, AI, WebUI,
+//! and WebSocket settings.
+
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -20,6 +26,8 @@ pub struct AgentConfig {
     pub ai: AiConfig,
     #[serde(default)]
     pub webui: WebUiSection,
+    #[serde(default)]
+    pub websocket: WebSocketSection,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -154,6 +162,48 @@ fn default_license_tier() -> String {
 }
 fn default_work_profile() -> String {
     "all".to_string()
+}
+
+/// WebSocket server configuration section
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebSocketSection {
+    /// Enable WebSocket event streaming
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// WebSocket server port (default: 9445)
+    #[serde(default = "default_ws_port")]
+    pub port: u16,
+    /// Bind address
+    #[serde(default = "default_webui_bind")]
+    pub bind: String,
+    /// Maximum concurrent WebSocket clients
+    #[serde(default = "default_ws_max_clients")]
+    pub max_clients: usize,
+    /// Heartbeat interval in seconds
+    #[serde(default = "default_ws_heartbeat")]
+    pub heartbeat_secs: u64,
+}
+
+fn default_ws_port() -> u16 {
+    9445
+}
+fn default_ws_max_clients() -> usize {
+    50
+}
+fn default_ws_heartbeat() -> u64 {
+    30
+}
+
+impl Default for WebSocketSection {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            port: default_ws_port(),
+            bind: default_webui_bind(),
+            max_clients: default_ws_max_clients(),
+            heartbeat_secs: default_ws_heartbeat(),
+        }
+    }
 }
 
 impl WebUiSection {
@@ -398,6 +448,7 @@ impl Default for AgentConfig {
             logging: LoggingSection::default(),
             ai: AiConfig::default(),
             webui: WebUiSection::default(),
+            websocket: WebSocketSection::default(),
         }
     }
 }

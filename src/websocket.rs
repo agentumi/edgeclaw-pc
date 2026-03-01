@@ -437,6 +437,66 @@ mod tests {
         handle.abort();
     }
 
+    #[test]
+    fn test_websocket_config_custom() {
+        let config = WebSocketConfig {
+            bind_addr: "0.0.0.0:9999".into(),
+            auth_token: "secret123".into(),
+            max_clients: 100,
+        };
+        assert_eq!(config.bind_addr, "0.0.0.0:9999");
+        assert_eq!(config.auth_token, "secret123");
+        assert_eq!(config.max_clients, 100);
+    }
+
+    #[test]
+    fn test_ws_client_info_fields() {
+        let now = chrono::Utc::now();
+        let info = WsClientInfo {
+            peer_addr: "10.0.0.1:5555".into(),
+            connected_at: now,
+            authenticated: false,
+        };
+        assert!(!info.authenticated);
+        assert_eq!(info.peer_addr, "10.0.0.1:5555");
+        assert_eq!(info.connected_at, now);
+    }
+
+    #[tokio::test]
+    async fn test_websocket_shutdown_before_start() {
+        let event_bus = Arc::new(EventBus::new(64));
+        let config = WebSocketConfig::default();
+        let server = WebSocketServer::new(config, event_bus);
+        // Calling shutdown before start should not panic
+        server.shutdown();
+        assert_eq!(server.client_count().await, 0);
+    }
+
+    #[test]
+    fn test_handle_ws_message_empty() {
+        let bus = EventBus::new(64);
+        // Empty string should not panic
+        handle_ws_message("", &bus, "test");
+    }
+
+    #[test]
+    fn test_handle_ws_message_valid_json_no_action() {
+        let bus = EventBus::new(64);
+        // JSON without "action" should not panic (default empty string)
+        handle_ws_message(r#"{"foo": "bar"}"#, &bus, "test");
+    }
+
+    #[test]
+    fn test_max_ws_clients_constant() {
+        assert_eq!(MAX_WS_CLIENTS, 50);
+    }
+
+    #[test]
+    fn test_heartbeat_constants() {
+        assert_eq!(HEARTBEAT_INTERVAL, Duration::from_secs(30));
+        assert_eq!(PONG_TIMEOUT, Duration::from_secs(10));
+    }
+
     #[tokio::test]
     async fn test_ws_connect_and_receive_event() {
         use tokio_tungstenite::connect_async;

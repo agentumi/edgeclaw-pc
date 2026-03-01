@@ -393,4 +393,51 @@ mod tests {
         let deserialized: AgentInfo = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.id, "a1");
     }
+
+    #[test]
+    fn test_update_status_not_found() {
+        let tmp = std::env::temp_dir().join(format!(
+            "ectest_reg_notfound1_{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let registry = AgentRegistry::with_path(tmp.clone());
+        let result = registry.update_status("nonexistent", AgentStatus::Busy);
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("nonexistent"));
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn test_heartbeat_not_found() {
+        let tmp = std::env::temp_dir().join(format!(
+            "ectest_reg_notfound2_{}.json",
+            uuid::Uuid::new_v4()
+        ));
+        let registry = AgentRegistry::with_path(tmp.clone());
+        let result = registry.heartbeat("nonexistent");
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("nonexistent"));
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn test_registry_save_and_load_explicit() {
+        let tmp =
+            std::env::temp_dir().join(format!("ectest_reg_saveload_{}.json", uuid::Uuid::new_v4()));
+        let _ = std::fs::remove_file(&tmp);
+        let registry = AgentRegistry::with_path(tmp.clone());
+        registry.register(test_agent("save1")).unwrap();
+        registry.register(test_agent("save2")).unwrap();
+        registry.save().unwrap();
+
+        // Create new registry and load from same path
+        let mut registry2 = AgentRegistry::with_path(tmp.clone());
+        registry2.load().unwrap();
+        assert_eq!(registry2.list_all().len(), 2);
+        assert!(registry2.get("save1").is_some());
+        assert!(registry2.get("save2").is_some());
+        let _ = std::fs::remove_file(&tmp);
+    }
 }

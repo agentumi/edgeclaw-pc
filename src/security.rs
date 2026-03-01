@@ -946,4 +946,111 @@ mod tests {
         let masked = ErrorMasker::mask("timeout after 30 seconds");
         assert_eq!(masked, "timeout after 30 seconds");
     }
+
+    #[test]
+    fn test_error_masker_line_refs() {
+        let masked = ErrorMasker::mask("error at line 42: something");
+        assert!(!masked.contains("42"));
+        assert!(masked.contains("[internal]"));
+    }
+
+    #[test]
+    fn test_error_masker_module_paths() {
+        let masked = ErrorMasker::mask("edgeclaw_agent::session::manager failed");
+        assert!(!masked.contains("edgeclaw_agent::session::manager"));
+        assert!(masked.contains("[module]"));
+    }
+
+    #[test]
+    fn test_rate_limiter_cleanup_removes_expired() {
+        let config = RateLimitConfig {
+            max_requests: 100,
+            window: Duration::from_millis(1),
+            burst: 0,
+        };
+        let limiter = RateLimiter::new(config);
+        limiter.check("old-client");
+        // Wait for the window to expire
+        std::thread::sleep(Duration::from_millis(10));
+        limiter.cleanup();
+        assert_eq!(limiter.tracked_clients(), 0);
+    }
+
+    #[test]
+    fn test_connection_tracker_default() {
+        let tracker = ConnectionTracker::default();
+        assert!(!tracker.is_locked_out("any-peer"));
+    }
+
+    #[test]
+    fn test_tofu_default() {
+        let store = TofuKeyStore::default();
+        assert_eq!(store.count(), 0);
+    }
+
+    #[test]
+    fn test_config_integrity_default() {
+        let ci = ConfigIntegrity::default();
+        assert!(ci.hash().is_none());
+    }
+
+    #[test]
+    fn test_rate_limit_config_default() {
+        let cfg = RateLimitConfig::default();
+        assert_eq!(cfg.max_requests, 60);
+        assert_eq!(cfg.burst, 10);
+        assert_eq!(cfg.window, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn test_sanitize_command_empty() {
+        assert_eq!(InputSanitizer::sanitize_command(""), "");
+    }
+
+    #[test]
+    fn test_no_injection_normal_commands() {
+        assert!(!InputSanitizer::has_injection_risk("cargo test"));
+        assert!(!InputSanitizer::has_injection_risk("ls -la"));
+        assert!(!InputSanitizer::has_injection_risk("echo hello world"));
+    }
+
+    #[test]
+    fn test_injection_redirect() {
+        assert!(InputSanitizer::has_injection_risk("echo x > file"));
+        assert!(InputSanitizer::has_injection_risk("cat < file"));
+        assert!(InputSanitizer::has_injection_risk("echo x >> file"));
+    }
+
+    #[test]
+    fn test_injection_newline() {
+        assert!(InputSanitizer::has_injection_risk("cmd1\ncmd2"));
+        assert!(InputSanitizer::has_injection_risk("cmd1\rcmd2"));
+    }
+
+    #[test]
+    fn test_injection_path_traversal() {
+        assert!(InputSanitizer::has_injection_risk("cat ../../etc/passwd"));
+        assert!(InputSanitizer::has_injection_risk("type ..\\..\\windows"));
+    }
+
+    #[test]
+    fn test_error_masker_mixed() {
+        let masked = ErrorMasker::mask(
+            "failed at C:\\Users\\admin\\code.rs line 99: edgeclaw_agent::crypto::aes failed",
+        );
+        assert!(!masked.contains("C:\\Users"));
+        assert!(!masked.contains("99"));
+        assert!(masked.contains("[path]"));
+    }
+
+    #[test]
+    fn test_error_masker_safe_categories() {
+        assert_eq!(ErrorMasker::safe_message("session"), "session error");
+        assert_eq!(ErrorMasker::safe_message("policy"), "access denied");
+        assert_eq!(
+            ErrorMasker::safe_message("exec"),
+            "command execution failed"
+        );
+        assert_eq!(ErrorMasker::safe_message("config"), "configuration error");
+    }
 }

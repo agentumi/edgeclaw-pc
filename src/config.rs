@@ -30,6 +30,10 @@ pub struct AgentConfig {
     pub websocket: WebSocketSection,
     #[serde(default)]
     pub blockchain: BlockchainSection,
+    #[serde(default)]
+    pub multi_chain: MultiChainSection,
+    #[serde(default)]
+    pub task_templates: TaskTemplateSection,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -260,6 +264,120 @@ impl Default for BlockchainSection {
             gas_budget: default_gas_budget(),
             audit_anchoring: false,
             token_program: String::new(),
+        }
+    }
+}
+
+// ─── Multi-Chain Configuration ─────────────────────────────
+
+/// Multi-chain blockchain configuration.
+///
+/// Enables connecting to multiple blockchains simultaneously (SUI, Ethereum,
+/// Solana, NEAR, Cosmos, Aptos) with a configurable primary chain.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiChainSection {
+    /// Enable multi-chain support.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Primary chain for default operations: "sui", "ethereum", "solana", "near", "cosmos", "aptos".
+    #[serde(default = "default_primary_chain")]
+    pub primary_chain: String,
+    /// Enable cross-chain audit anchoring (anchor to all chains).
+    #[serde(default)]
+    pub cross_chain_audit: bool,
+    /// Per-chain configurations (key = chain name).
+    #[serde(default)]
+    pub chains: std::collections::HashMap<String, ChainConfig>,
+}
+
+/// Per-chain configuration entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChainConfig {
+    /// RPC endpoint URL.
+    #[serde(default)]
+    pub rpc_url: String,
+    /// Chain ID (e.g., "1" for ETH mainnet, "devnet" for SUI).
+    #[serde(default)]
+    pub chain_id: String,
+    /// Contract / package address.
+    #[serde(default)]
+    pub contract_address: String,
+    /// Wallet key path.
+    #[serde(default)]
+    pub wallet_key_path: String,
+    /// Gas budget per transaction.
+    #[serde(default = "default_gas_budget")]
+    pub gas_budget: u64,
+}
+
+impl Default for ChainConfig {
+    fn default() -> Self {
+        Self {
+            rpc_url: String::new(),
+            chain_id: String::new(),
+            contract_address: String::new(),
+            wallet_key_path: String::new(),
+            gas_budget: default_gas_budget(),
+        }
+    }
+}
+
+fn default_primary_chain() -> String {
+    "sui".to_string()
+}
+
+impl Default for MultiChainSection {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            primary_chain: default_primary_chain(),
+            cross_chain_audit: false,
+            chains: std::collections::HashMap::new(),
+        }
+    }
+}
+
+// ─── Task Template Configuration ───────────────────────────
+
+/// Task template system configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskTemplateSection {
+    /// Enable task template system.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Directory for user-defined custom templates (TOML/JSON files).
+    #[serde(default = "default_template_dir")]
+    pub custom_template_dir: String,
+    /// Allowed template categories.
+    #[serde(default = "default_template_categories")]
+    pub allowed_categories: Vec<String>,
+    /// Default parameters applied to all templates.
+    #[serde(default)]
+    pub default_params: std::collections::HashMap<String, String>,
+}
+
+fn default_template_dir() -> String {
+    "templates".to_string()
+}
+fn default_template_categories() -> Vec<String> {
+    vec![
+        "development".into(),
+        "marketing".into(),
+        "devops".into(),
+        "security".into(),
+        "system".into(),
+        "data".into(),
+        "custom".into(),
+    ]
+}
+
+impl Default for TaskTemplateSection {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            custom_template_dir: default_template_dir(),
+            allowed_categories: default_template_categories(),
+            default_params: std::collections::HashMap::new(),
         }
     }
 }
@@ -508,6 +626,8 @@ impl Default for AgentConfig {
             webui: WebUiSection::default(),
             websocket: WebSocketSection::default(),
             blockchain: BlockchainSection::default(),
+            multi_chain: MultiChainSection::default(),
+            task_templates: TaskTemplateSection::default(),
         }
     }
 }
@@ -651,5 +771,104 @@ mod tests {
         assert!(parsed.blockchain.enabled);
         assert_eq!(parsed.blockchain.chain, "sui");
         assert_eq!(parsed.blockchain.contract_address, "0xabc123");
+    }
+
+    #[test]
+    fn test_config_save_and_load() {
+        let tmp = std::env::temp_dir().join(format!("ectest_config_{}.toml", uuid::Uuid::new_v4()));
+        let mut config = AgentConfig::default();
+        config.agent.device_name = "test-save-agent".to_string();
+        config.agent.listen_port = 9999;
+        config.save(&tmp).unwrap();
+
+        let loaded = AgentConfig::load(&tmp).unwrap();
+        assert_eq!(loaded.agent.device_name, "test-save-agent");
+        assert_eq!(loaded.agent.listen_port, 9999);
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn test_default_path_not_empty() {
+        let path = AgentConfig::default_path();
+        assert!(path.to_string_lossy().contains("edgeclaw"));
+    }
+
+    #[test]
+    fn test_config_agent_defaults() {
+        let config = AgentConfig::default();
+        assert!(!config.agent.device_name.is_empty());
+    }
+
+    #[test]
+    fn test_config_logging_defaults() {
+        let config = AgentConfig::default();
+        assert!(!config.logging.level.is_empty());
+        assert!(!config.logging.format.is_empty());
+        assert!(config.logging.file.is_none());
+    }
+
+    #[test]
+    fn test_config_security_defaults() {
+        let config = AgentConfig::default();
+        assert_eq!(config.security.policy_mode, "strict");
+        assert!(config.security.session_timeout_secs > 0);
+    }
+
+    #[test]
+    fn test_config_resource_defaults() {
+        let config = AgentConfig::default();
+        assert!(config.resource.cpu_limit_percent > 0);
+        assert!(config.resource.memory_limit_percent > 0);
+    }
+
+    #[test]
+    fn test_chain_config_default() {
+        let cc = ChainConfig::default();
+        assert!(cc.rpc_url.is_empty());
+        assert!(cc.chain_id.is_empty());
+        assert!(cc.contract_address.is_empty());
+        assert!(cc.wallet_key_path.is_empty());
+        assert!(cc.gas_budget > 0);
+    }
+
+    #[test]
+    fn test_max_agents_for_tier() {
+        let mut section = WebUiSection {
+            license_tier: "free".into(),
+            ..Default::default()
+        };
+        assert_eq!(section.max_agents_for_tier(), 1);
+        section.license_tier = "pro".into();
+        assert_eq!(section.max_agents_for_tier(), 5);
+        section.license_tier = "professional".into();
+        assert_eq!(section.max_agents_for_tier(), 5);
+        section.license_tier = "enterprise".into();
+        assert_eq!(section.max_agents_for_tier(), 10);
+        section.license_tier = "unlimited".into();
+        assert_eq!(section.max_agents_for_tier(), 10);
+        section.license_tier = "unknown".into();
+        assert_eq!(section.max_agents_for_tier(), 1);
+    }
+
+    #[test]
+    fn test_effective_max_agents() {
+        let mut section = WebUiSection {
+            license_tier: "free".into(),
+            max_agents: 100,
+            ..Default::default()
+        };
+        // Free tier limits to 1, so effective = min(100, 1) = 1
+        assert_eq!(section.effective_max_agents(), 1);
+        section.license_tier = "enterprise".into();
+        section.max_agents = 5;
+        // Enterprise allows 10, config says 5, effective = 5
+        assert_eq!(section.effective_max_agents(), 5);
+    }
+
+    #[test]
+    fn test_multi_chain_section_default() {
+        let mcs = MultiChainSection::default();
+        assert_eq!(mcs.primary_chain, "sui");
     }
 }

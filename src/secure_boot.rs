@@ -195,6 +195,72 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_boot_stage_all_display() {
+        assert_eq!(BootStage::Bootloader.to_string(), "Bootloader");
+        assert_eq!(BootStage::Kernel.to_string(), "Kernel");
+        assert_eq!(BootStage::Agent.to_string(), "Agent");
+        assert_eq!(BootStage::Plugin.to_string(), "Plugin");
+    }
+
+    #[test]
+    fn test_verify_chain_missing_binary() {
+        let mut verifier = SecureBootVerifier::new();
+        let boot_data = b"boot binary";
+        let boot_hash = SecureBootVerifier::hash_data(boot_data);
+        verifier.add_entry(BootChainEntry {
+            stage: BootStage::Bootloader,
+            binary_path: "boot.bin".into(),
+            expected_hash: boot_hash,
+            signing_key: "def".into(),
+            signature: None,
+        });
+        verifier.add_entry(BootChainEntry {
+            stage: BootStage::Kernel,
+            binary_path: "kernel.bin".into(),
+            expected_hash: "xyz".into(),
+            signing_key: "000".into(),
+            signature: Some("sig".into()),
+        });
+        // Only provide bootloader, not kernel
+        let results = verifier.verify_chain(&[(BootStage::Bootloader, boot_data.to_vec())]);
+        assert_eq!(results.len(), 2);
+        assert!(results[0].passed); // bootloader matches
+        assert!(!results[1].passed); // kernel missing
+        assert_eq!(results[1].actual_hash, "missing");
+        assert!(!verifier.is_chain_valid()); // not all passed
+    }
+
+    #[test]
+    fn test_chain_len_and_results() {
+        let mut verifier = SecureBootVerifier::new();
+        assert_eq!(verifier.chain_len(), 0);
+        assert!(verifier.results().is_empty());
+        verifier.add_entry(BootChainEntry {
+            stage: BootStage::Agent,
+            binary_path: "agent".into(),
+            expected_hash: "hash".into(),
+            signing_key: "key".into(),
+            signature: None,
+        });
+        assert_eq!(verifier.chain_len(), 1);
+    }
+
+    #[test]
+    fn test_verify_signed_binary_hash_mismatch() {
+        let verifier = SecureBootVerifier::new();
+        let data = b"some binary";
+        let result = verifier
+            .verify_signed_binary(
+                data,
+                "0000000000000000000000000000000000000000000000000000000000000000",
+                &hex::encode([1u8; 32]),
+                &hex::encode([2u8; 64]),
+            )
+            .unwrap();
+        assert!(!result); // hash doesn't match
+    }
+
+    #[test]
     fn test_hash_data() {
         let hash = SecureBootVerifier::hash_data(b"hello");
         assert_eq!(hash.len(), 64); // SHA-256 hex = 64 chars

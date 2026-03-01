@@ -406,4 +406,83 @@ mod tests {
         let debug = format!("{:?}", incoming);
         assert!(debug.contains("127.0.0.1:9443"));
     }
+
+    // ── New coverage tests ─────────────────────────────────
+
+    #[tokio::test]
+    async fn test_tcp_server_shutdown_noop_before_start() {
+        let config = TcpServerConfig {
+            bind_addr: "127.0.0.1:0".to_string(),
+            max_connections: 10,
+            handshake_timeout_secs: 5,
+        };
+        let server = TcpServer::new(config);
+        // shutdown before start should be a no-op (no panic)
+        server.shutdown();
+    }
+
+    #[tokio::test]
+    async fn test_send_frame_loopback() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Connect a client
+        let client_handle = tokio::spawn(async move {
+            let mut client = TcpStream::connect(addr).await.unwrap();
+            let mut buf = vec![0u8; 4096];
+            let n = client.read(&mut buf).await.unwrap();
+            let msg = EcnpCodec::decode(&buf[..n]).unwrap();
+            assert_eq!(msg.msg_type, MessageType::Heartbeat as u8);
+        });
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut server_stream = stream;
+        send_frame(&mut server_stream, MessageType::Heartbeat, b"hello")
+            .await
+            .unwrap();
+
+        client_handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_tcp_server_start_and_connect() {
+        let config = TcpServerConfig {
+            bind_addr: "127.0.0.1:0".to_string(),
+            max_connections: 10,
+            handshake_timeout_secs: 5,
+        };
+
+        // Bind listener manually to get port
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let mut server = TcpServer::new(TcpServerConfig {
+            bind_addr: addr.to_string(),
+            ..config
+        });
+
+        let (msg_tx, mut msg_rx) = tokio::sync::mpsc::channel(32);
+
+        let server_handle = tokio::spawn(async move { server.start(msg_tx).await });
+
+        // Wait for server to bind
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Send a valid ECNP frame from client
+        let handshake = EcnpCodec::encode(MessageType::Handshake, b"hello").unwrap();
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        client.write_all(&handshake).await.unwrap();
+
+        // Receive the message
+        let incoming = tokio::time::timeout(std::time::Duration::from_secs(2), msg_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(incoming.peer_addr.contains("127.0.0.1"));
+        assert_eq!(incoming.message.msg_type, MessageType::Handshake as u8);
+
+        server_handle.abort();
+    }
 }

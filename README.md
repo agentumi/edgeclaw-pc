@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/version-1.0.0-blue" alt="Version" />
   <img src="https://img.shields.io/badge/license-MIT%20%7C%20Apache--2.0-green" alt="License" />
   <img src="https://img.shields.io/badge/rust-1.75%2B-orange?logo=rust" alt="Rust" />
-  <img src="https://img.shields.io/badge/tests-96%20passed-success" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-416%20passed-success" alt="Tests" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platform" />
 </p>
 
@@ -52,6 +52,8 @@
 | 📋 **Audit** | Hash-Chained Log | SHA-256 chained audit trail with tamper detection |
 | 🛡️ **Security** | Rate Limiting | Per-client rate limiting, injection detection, lockout |
 | 🐳 **Docker** | Containerized | Multi-stage build with health checks |
+| ⛓️ **Multi-Chain** | 6 Blockchains | SUI, Ethereum, Solana, NEAR, Cosmos, Aptos — modular providers |
+| 📋 **Task Templates** | 75 Built-in | Dev, Marketing, DevOps, Security, System, Data workflow templates |
 
 ## 🏗️ Architecture
 
@@ -59,6 +61,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                        CLI (clap)                            │
 │  start │ status │ identity │ capabilities │ info │ init      │
+│  chain list/status │ template list/run/search               │
 ├─────────────────────────────────────────────────────────────┤
 │                      AgentEngine                             │
 │  ┌──────────────┬──────────────┬──────────────────────────┐  │
@@ -67,12 +70,17 @@
 │  │  (Ed25519/    │  (ECDH +     │   17 capabilities)       │  │
 │  │   X25519)     │   AES-GCM)   │                          │  │
 │  ├──────────────┼──────────────┼──────────────────────────┤  │
-│  │  Command      │  System      │  Peer Manager            │  │
-│  │  Executor     │  Monitor     │  (Connection pool,       │  │
-│  │  (Async +     │  (CPU, Mem,  │   role tracking)         │  │
+│  │  Multi-Chain  │  Task        │  Peer Manager            │  │
+│  │  Client       │  Templates   │  (Connection pool,       │  │
+│  │  (6 chains)   │  (75 built-  │   role tracking)         │  │
+│  │              │   in flows)  │                          │  │
+│  ├──────────────┼──────────────┼──────────────────────────┤  │
+│  │  Command      │  System      │  Federation              │  │
+│  │  Executor     │  Monitor     │  Manager                 │  │
+│  │  (Async +     │  (CPU, Mem,  │  (Cross-org mesh)        │  │
 │  │   Limits)     │   Disk)      │                          │  │
 │  ├──────────────┴──────────────┴──────────────────────────┤  │
-│  │               TCP Server (tokio async)                  │  │
+│  │        TCP / QUIC Server (tokio async)                     │  │
 │  │           ECNP v1.1 Codec (binary framing)              │  │
 │  └─────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
@@ -116,6 +124,12 @@ cargo build --release
 | `capabilities` | List system capabilities detected on this host | `edgeclaw-agent capabilities` |
 | `info` | Show full system information (CPU, memory, disk) | `edgeclaw-agent info` |
 | `init` | Generate default configuration file | `edgeclaw-agent init` |
+| `chain list` | List all configured blockchain providers | `edgeclaw-agent chain list` |
+| `chain status` | Show blockchain connection status | `edgeclaw-agent chain status` |
+| `chain set-primary` | Set the primary blockchain | `edgeclaw-agent chain set-primary sui` |
+| `template list` | List all available task templates | `edgeclaw-agent template list` |
+| `template search` | Search templates by keyword | `edgeclaw-agent template search rust` |
+| `template run` | Execute a template with parameters | `edgeclaw-agent template run dev.rust.build` |
 
 ## 🔐 Security Model
 
@@ -195,6 +209,24 @@ disk_limit_mb = 1024
 level = "info"
 file = "edgeclaw-agent.log"
 max_size_mb = 50
+
+[multi_chain]
+primary = "sui"
+
+[[multi_chain.chains]]
+chain_type = "sui"
+rpc_url = "https://fullnode.devnet.sui.io:443"
+contract_address = "0xabc..."
+gas_budget = 10000000
+
+[[multi_chain.chains]]
+chain_type = "ethereum"
+rpc_url = "https://mainnet.infura.io/v3/YOUR_KEY"
+chain_id = "1"
+
+[task_templates]
+custom_dir = "~/.edgeclaw/templates"
+auto_load = true
 ```
 
 ## 📁 Project Structure
@@ -214,9 +246,32 @@ edgeclaw_desktop/
 │   ├── system.rs        # System info & capability detection
 │   ├── executor.rs      # Async command execution with limits
 │   ├── peer.rs          # Peer connection management
-│   └── server.rs        # TCP server with connection pool
+│   ├── server.rs        # TCP server with connection pool
+│   ├── chain.rs         # Multi-chain blockchain abstraction (6 chains)
+│   ├── task_templates.rs # Standardized workflow templates (75 built-in)
+│   ├── blockchain.rs    # SUI blockchain SDK integration
+│   ├── federation.rs    # Federated mesh network
+│   ├── gateway.rs       # Cross-org gateway agent
+│   ├── transport.rs     # TCP/QUIC transport layer
+│   ├── tee.rs           # TEE abstraction (simulator)
+│   ├── tee_sgx.rs       # Intel SGX backend (feature-gated)
+│   ├── edge_ai.rs       # Edge AI runtime + plugin system
+│   ├── wasm.rs          # WASM ECNP bridge
+│   ├── k8s.rs           # Kubernetes CRD/operator
+│   ├── secure_boot.rs   # Secure boot verification
+│   ├── webui.rs         # Web dashboard
+│   ├── websocket.rs     # WebSocket server
+│   ├── metrics.rs       # Prometheus metrics
+│   └── ...              # Additional modules
 ├── config/
 │   └── default.toml     # Default agent configuration
+├── contracts/           # Multi-chain smart contracts
+│   ├── sui/             # SUI Move contracts
+│   ├── evm/             # Ethereum/EVM Solidity contracts (Hardhat)
+│   ├── solana/          # Solana Anchor programs
+│   ├── near/            # NEAR Protocol contracts
+│   ├── cosmos/          # Cosmos CosmWasm contracts
+│   └── aptos/           # Aptos Move contracts
 │
 ├── .github/workflows/ci.yml
 ├── AGENTS.md            # AI agent guidelines
@@ -239,17 +294,24 @@ edgeclaw_desktop/
 |--------|-------|---------|
 | Config | — | `cargo test config::tests` |
 | Identity | 4 | `cargo test identity::tests` |
-| Session | 5 | `cargo test session::tests` |
+| Session | 8 | `cargo test session::tests` |
 | Policy | 10 | `cargo test policy::tests` |
 | Executor | — | `cargo test executor::tests` |
 | Peer | — | `cargo test peer::tests` |
 | Server | — | `cargo test server::tests` |
-| **Total** | **62** | `cargo test` |
+| Chain (Multi-Chain) | 31 | `cargo test chain::tests` |
+| Task Templates | 17 | `cargo test task_templates::tests` |
+| Discovery | 13 | `cargo test discovery::tests` |
+| Federation | — | `cargo test federation::tests` |
+| Transport | — | `cargo test transport::tests` |
+| TEE | — | `cargo test tee::tests` |
+| Blockchain | — | `cargo test blockchain::tests` |
+| **Total** | **416** | `cargo test` |
 
 ### Run Tests
 
 ```bash
-# All 62 tests
+# All 416 tests
 cargo test
 
 # Verbose output

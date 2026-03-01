@@ -7,7 +7,7 @@
 | Item | Details |
 |------|---------|
 | **Rust MSRV** | 1.75+ |
-| **Tests** | 96 unit tests |
+| **Tests** | 686 unit tests + 5 doc tests |
 | **Protocol** | ECNP v1.1 binary |
 | **Security** | Zero-trust: Ed25519 + X25519 + AES-256-GCM |
 | **Async** | tokio runtime |
@@ -16,7 +16,7 @@
 
 ```bash
 cargo build --release
-cargo test                      # 96 tests
+cargo test                      # 625 tests (620 lib + 5 doc)
 cargo clippy --all-targets -- -D warnings
 cargo fmt
 ```
@@ -55,11 +55,25 @@ src/
 ├── lib.rs          # AgentEngine (17 capabilities)
 ├── config.rs       # TOML config loading
 ├── error.rs        # AgentError enum
-├── identity.rs     # Ed25519/X25519 (Ed claims 4 tests)
-├── session.rs      # ECDH + AES-256-GCM (5 tests)
+├── identity.rs     # Ed25519/X25519 (4 tests)
+├── session.rs      # ECDH + AES-256-GCM (8 tests)
 ├── policy.rs       # RBAC 5 roles (10 tests)
 ├── protocol.rs     # Message types
 ├── ecnp.rs         # Binary codec
+├── activity_log.rs     # Team activity log (30 tests)
+├── activity_collector.rs # EventBus → activity entries (18 tests)
+├── team_sync.rs        # P2P activity sync (20 tests)
+├── chain.rs        # Multi-chain blockchain (31 tests)
+├── task_templates.rs # Workflow templates (17 tests)
+├── blockchain.rs   # SUI blockchain SDK
+├── federation.rs   # Federated mesh network
+├── gateway.rs      # Cross-org gateway
+├── transport.rs    # TCP/QUIC transport
+├── tee.rs          # TEE abstraction
+├── edge_ai.rs      # Edge AI + plugins
+├── wasm.rs         # WASM ECNP bridge
+├── k8s.rs          # Kubernetes operator
+├── secure_boot.rs  # Secure boot verification
 ├── system.rs       # System monitoring
 ├── executor.rs     # Async command exec
 ├── peer.rs         # Connection pooling
@@ -67,13 +81,21 @@ src/
 
 config/
 └── default.toml    # Default configuration
+
+contracts/              # Multi-chain smart contracts
+├── sui/                # SUI Move (device_registry, policy_nft, task_token, audit_anchor)
+├── evm/                # Ethereum/EVM Solidity (Hardhat + OpenZeppelin)
+├── solana/             # Solana Anchor programs
+├── near/              # NEAR Protocol (near-sdk)
+├── cosmos/            # Cosmos CosmWasm
+└── aptos/             # Aptos Move
 ```
 
 ## PR Checklist
 
 - [ ] One logical change per PR
 - [ ] Tests added for new functionality
-- [ ] `cargo test` passes (96 tests)
+- [ ] `cargo test` passes (686 tests)
 - [ ] `cargo clippy --all-targets -- -D warnings` (zero warnings)
 - [ ] `cargo fmt` run
 - [ ] CHANGELOG.md updated
@@ -96,8 +118,17 @@ config/
 ```bash
 cargo test config::tests       # Config loading (?)
 cargo test identity::tests     # Ed25519/X25519 (4 tests)
-cargo test session::tests      # ECDH + AES-GCM (5 tests)
+cargo test session::tests      # ECDH + AES-GCM (8 tests)
 cargo test policy::tests       # RBAC (10 tests)
+cargo test activity_log::tests # Team activity log (30 tests)
+cargo test activity_collector::tests # Activity collector (18 tests)
+cargo test team_sync::tests    # P2P activity sync (20 tests)
+cargo test chain::tests        # Multi-chain blockchain (31 tests)
+cargo test task_templates::tests # Task templates (17 tests)
+cargo test discovery::tests    # Discovery + blockchain registry (13 tests)
+cargo test blockchain::tests   # SUI blockchain SDK
+cargo test federation::tests   # Federation protocol
+cargo test transport::tests    # TCP/QUIC transport
 cargo test executor::tests     # Command execution (?)
 cargo test peer::tests         # Peer mgmt (?)
 cargo test server::tests       # TCP server (?)

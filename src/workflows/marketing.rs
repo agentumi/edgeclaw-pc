@@ -430,4 +430,234 @@ mod tests {
         let json = serde_json::to_string(&report).unwrap();
         assert!(json.contains("example.com"));
     }
+
+    #[test]
+    fn test_seo_extract_title_missing() {
+        let html = "<html><head></head></html>";
+        assert!(SeoChecker::extract_tag(html, "title").is_none());
+    }
+
+    #[test]
+    fn test_seo_extract_meta_missing() {
+        let html = "<html><head></head></html>";
+        assert!(SeoChecker::extract_meta(html, "description").is_none());
+    }
+
+    #[test]
+    fn test_seo_images_all_have_alt() {
+        let html = r#"<img src="a.png" alt="A"><img src="b.png" alt="B">"#;
+        assert_eq!(SeoChecker::count_images_without_alt(html), 0);
+    }
+
+    #[test]
+    fn test_seo_no_images() {
+        let html = "<html><body><p>No images</p></body></html>";
+        assert_eq!(SeoChecker::count_images_without_alt(html), 0);
+    }
+
+    #[test]
+    fn test_seo_extract_tag_with_attrs() {
+        let html = r#"<h1 class="big">Main Heading</h1>"#;
+        let h1 = SeoChecker::extract_tag(html, "h1");
+        assert_eq!(h1, Some("Main Heading".to_string()));
+    }
+
+    #[test]
+    fn test_calendar_load_nonexistent() {
+        let path = std::env::temp_dir().join("ectest_nofile_calendar.json");
+        let _ = std::fs::remove_file(&path);
+        let mut cal = ContentCalendar::new(path);
+        // Loading a non-existent file should succeed (empty calendar)
+        assert!(cal.load().is_ok());
+        assert!(cal.list_all().is_empty());
+    }
+
+    #[test]
+    fn test_calendar_mark_done_nonexistent() {
+        let path = std::env::temp_dir().join("ectest_mark_none.json");
+        let mut cal = ContentCalendar::new(path);
+        assert!(!cal.mark_done("nonexistent-id"));
+    }
+
+    #[test]
+    fn test_calendar_entry_serialize() {
+        let entry = CalendarEntry {
+            id: "e1".into(),
+            title: "Blog Post".into(),
+            description: "Write it".into(),
+            scheduled_at: Utc::now(),
+            platform: "blog".into(),
+            done: false,
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(json.contains("Blog Post"));
+        let parsed: CalendarEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.id, "e1");
+        assert!(!parsed.done);
+    }
+
+    #[test]
+    fn test_report_empty_calendar() {
+        let path = std::env::temp_dir().join("ectest_empty_report.json");
+        let cal = ContentCalendar::new(path);
+        let report = ReportGenerator::weekly_report(&cal);
+        assert_eq!(report.total_entries, 0);
+        assert_eq!(report.completed, 0);
+        assert!(report.markdown.contains("Weekly Content Report"));
+    }
+
+    #[test]
+    fn test_weekly_report_serialize() {
+        let report = WeeklyReport {
+            title: "Test Report".into(),
+            period: "2024-01-01 — 2024-01-07".into(),
+            markdown: "# Test\n".into(),
+            total_entries: 5,
+            completed: 3,
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        let parsed: WeeklyReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.total_entries, 5);
+        assert_eq!(parsed.completed, 3);
+    }
+
+    #[test]
+    fn test_export_html_headings_and_content() {
+        let report = WeeklyReport {
+            title: "T".into(),
+            period: "P".into(),
+            markdown: "# Title\n\n## Section\n\nSome text\n\n- Item A\n- Item B\n".into(),
+            total_entries: 0,
+            completed: 0,
+        };
+        let html = ReportGenerator::export_html(&report);
+        assert!(html.contains("<h1>Title</h1>"));
+        assert!(html.contains("<h2>Section</h2>"));
+        assert!(html.contains("<p>Some text</p>"));
+        assert!(html.contains("<li>Item A</li>"));
+        assert!(html.contains("<li>Item B</li>"));
+        assert!(html.contains("<br>"));
+        assert!(html.contains("<!DOCTYPE html>"));
+        assert!(html.contains("</html>"));
+    }
+
+    #[test]
+    fn test_calendar_save_and_reload() {
+        let path =
+            std::env::temp_dir().join(format!("ectest_save_reload_{}.json", uuid::Uuid::new_v4()));
+        let mut cal = ContentCalendar::new(path.clone());
+        for i in 0..3 {
+            cal.add_entry(CalendarEntry {
+                id: format!("e{i}"),
+                title: format!("Entry {i}"),
+                description: "desc".into(),
+                scheduled_at: Utc::now() + chrono::Duration::days(i as i64 + 1),
+                platform: "twitter".into(),
+                done: i == 0,
+            });
+        }
+        cal.save().unwrap();
+
+        let mut cal2 = ContentCalendar::new(path.clone());
+        cal2.load().unwrap();
+        assert_eq!(cal2.list_all().len(), 3);
+        assert!(cal2.list_all()[0].done);
+        assert!(!cal2.list_all()[1].done);
+        // Upcoming should exclude done entries
+        assert_eq!(cal2.list_upcoming().len(), 2);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_check_url_with_local_server() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let html = concat!(
+            "<html><head><title>Test Page</title>",
+            "<meta name=\"description\" content=\"A test page\">",
+            "</head><body>",
+            "<h1>Hello</h1>",
+            "<img src=\"test.png\" alt=\"test\">",
+            "<img src=\"noalt.png\">",
+            "</body></html>"
+        );
+
+        let html_owned = html.to_string();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf).unwrap();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                html_owned.len(),
+                html_owned
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+
+        let url = format!("http://127.0.0.1:{}", port);
+        let report = SeoChecker::check_url(&url);
+        assert_eq!(report.url, url);
+        assert_eq!(report.title.as_deref(), Some("Test Page"));
+        assert_eq!(report.meta_description.as_deref(), Some("A test page"));
+        assert_eq!(report.h1_count, 1);
+        assert_eq!(report.img_without_alt, 1);
+        assert!(report.score > 0);
+        assert!(report.response_time_ms < 5000);
+
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn test_check_url_bad_html() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        // HTML with no title, no meta, multiple h1s, no images
+        let html = "<html><body><h1>First</h1><h1>Second</h1></body></html>";
+
+        let html_owned = html.to_string();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf).unwrap();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                html_owned.len(),
+                html_owned
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+
+        let url = format!("http://127.0.0.1:{}", port);
+        let report = SeoChecker::check_url(&url);
+        assert!(report.title.is_none());
+        assert!(report.meta_description.is_none());
+        assert_eq!(report.h1_count, 2);
+        assert_eq!(report.img_without_alt, 0);
+        // Should have issues for missing title, missing meta, multiple h1
+        assert!(report.issues.len() >= 3);
+        // Score should be reduced
+        assert!(report.score < 100);
+
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn test_check_url_fetch_failure() {
+        // Port 1 is almost certainly not listening
+        let report = SeoChecker::check_url("http://127.0.0.1:1/invalid");
+        assert_eq!(report.score, 0);
+        assert!(report.title.is_none());
+        assert!(!report.issues.is_empty());
+        assert!(report.issues[0].contains("Failed to fetch URL"));
+    }
 }

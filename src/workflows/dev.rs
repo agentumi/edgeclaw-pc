@@ -350,4 +350,114 @@ mod tests {
         // Will fail because /tmp/nonexistent doesn't exist, but shouldn't panic
         assert!(result.is_err() || !result.unwrap().success);
     }
+
+    #[test]
+    fn test_auto_branch_hotfix() {
+        let gw = GitWorkflow::new(Some("/tmp/nonexistent".into()));
+        let result = gw.auto_branch("hotfix", "urgent-fix");
+        assert!(result.is_err() || !result.unwrap().success);
+    }
+
+    #[test]
+    fn test_auto_branch_release() {
+        let gw = GitWorkflow::new(Some("/tmp/nonexistent".into()));
+        let result = gw.auto_branch("release", "1.0.0");
+        assert!(result.is_err() || !result.unwrap().success);
+    }
+
+    #[test]
+    fn test_auto_branch_unknown_kind() {
+        let gw = GitWorkflow::new(Some("/tmp/nonexistent".into()));
+        let result = gw.auto_branch("random", "test");
+        // Should default to "feature/" prefix
+        assert!(result.is_err() || !result.unwrap().success);
+    }
+
+    #[test]
+    fn test_detect_conflicts() {
+        let gw = GitWorkflow::new(Some("/tmp/nonexistent".into()));
+        let result = gw.detect_conflicts("main");
+        assert!(result.is_err() || !result.unwrap().success);
+    }
+
+    #[test]
+    fn test_auto_tag_with_v() {
+        let gw = GitWorkflow::new(Some("/tmp/nonexistent".into()));
+        let result = gw.auto_tag("v1.0.0");
+        assert!(result.is_err() || !result.unwrap().success);
+    }
+
+    #[test]
+    fn test_auto_tag_without_v() {
+        let gw = GitWorkflow::new(Some("/tmp/nonexistent".into()));
+        let result = gw.auto_tag("2.0.0");
+        assert!(result.is_err() || !result.unwrap().success);
+    }
+
+    #[test]
+    fn test_git_workflow_with_work_dir() {
+        let gw = GitWorkflow::new(Some("/tmp/test_dir".into()));
+        assert_eq!(gw.work_dir, Some("/tmp/test_dir".to_string()));
+    }
+
+    #[test]
+    fn test_ci_status_serialize() {
+        let status = CiStatus {
+            runs: vec![
+                CiRun {
+                    id: "1".into(),
+                    name: "Build".into(),
+                    status: "completed".into(),
+                    conclusion: "success".into(),
+                },
+                CiRun {
+                    id: "2".into(),
+                    name: "Test".into(),
+                    status: "in_progress".into(),
+                    conclusion: "".into(),
+                },
+            ],
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("Build"));
+        assert!(json.contains("in_progress"));
+        let parsed: CiStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.runs.len(), 2);
+    }
+
+    #[test]
+    fn test_audit_result_not_available() {
+        let r = AuditResult {
+            success: false,
+            advisories: 0,
+            output: "cargo audit not available".into(),
+        };
+        assert!(!r.success);
+        assert_eq!(r.advisories, 0);
+    }
+
+    #[test]
+    fn test_scan_todos_nonexistent_dir() {
+        let items = CodeQuality::scan_todos("/nonexistent/path");
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn test_git_result_no_branch() {
+        let r = GitResult {
+            success: false,
+            output: "error".into(),
+            branch: None,
+        };
+        let json = serde_json::to_string(&r).unwrap();
+        assert!(json.contains("null"));
+    }
+
+    #[test]
+    fn test_ci_retry_no_gh() {
+        // gh CLI likely not installed in test env
+        let result = CiWorkflow::retry_workflow("12345");
+        // May succeed or fail, just shouldn't panic
+        let _ = result;
+    }
 }

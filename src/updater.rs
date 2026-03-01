@@ -278,4 +278,151 @@ mod tests {
         // The important thing is it doesn't panic
         let _ = result;
     }
+
+    #[test]
+    fn test_is_newer_edge_cases() {
+        assert!(UpdateChecker::is_newer("0.0.0", "0.0.1"));
+        assert!(!UpdateChecker::is_newer("0.0.1", "0.0.1"));
+        assert!(!UpdateChecker::is_newer("1.0.0", "0.99.99"));
+        assert!(UpdateChecker::is_newer("0.9.9", "1.0.0"));
+        // Partial version strings
+        assert!(UpdateChecker::is_newer("1", "2"));
+        assert!(UpdateChecker::is_newer("1.0", "1.1"));
+    }
+
+    #[test]
+    fn test_verify_sha256_uppercase() {
+        let data = b"hello world";
+        let expected = "B94D27B9934D3E08A52E52D7DA7DABFAC484EFE37A5380EE9088F7ACE2EFCDE9";
+        // Our impl lowercases expected, so uppercase should work
+        assert!(UpdateChecker::verify_sha256(data, expected));
+    }
+
+    #[test]
+    fn test_verify_sha256_empty() {
+        let data = b"";
+        // SHA-256 of empty string
+        let expected = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        assert!(UpdateChecker::verify_sha256(data, expected));
+    }
+
+    #[test]
+    fn test_update_config_custom() {
+        let cfg = UpdateConfig {
+            manifest_url: "https://custom.example.com/releases".into(),
+            auto_check: false,
+            check_interval_hours: 12,
+        };
+        assert!(!cfg.auto_check);
+        assert_eq!(cfg.check_interval_hours, 12);
+    }
+
+    #[test]
+    fn test_update_check_result_not_available() {
+        let result = UpdateCheckResult {
+            available: false,
+            current_version: "1.0.0".into(),
+            latest_version: None,
+            release_notes: None,
+        };
+        assert!(!result.available);
+        let json = serde_json::to_string(&result).unwrap();
+        let parsed: UpdateCheckResult = serde_json::from_str(&json).unwrap();
+        assert!(parsed.latest_version.is_none());
+    }
+
+    #[test]
+    fn test_checker_auto_check_disabled() {
+        let cfg = UpdateConfig {
+            auto_check: false,
+            ..Default::default()
+        };
+        let checker = UpdateChecker::new(cfg, "2.0.0");
+        assert!(!checker.auto_check());
+        assert_eq!(checker.current_version(), "2.0.0");
+    }
+
+    #[test]
+    fn test_check_parses_github_json() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let json_body = r#"{"tag_name":"v2.0.0","body":"New release notes"}"#;
+
+        let json_owned = json_body.to_string();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf).unwrap();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                json_owned.len(),
+                json_owned
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+
+        let cfg = UpdateConfig {
+            manifest_url: format!("http://127.0.0.1:{}/releases", port),
+            ..Default::default()
+        };
+        let checker = UpdateChecker::new(cfg, "1.0.0");
+        let result = checker.check().unwrap();
+        assert!(result.available);
+        assert_eq!(result.latest_version.as_deref(), Some("v2.0.0"));
+        assert_eq!(result.release_notes.as_deref(), Some("New release notes"));
+
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn test_check_unparseable_json() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let body = "this is not json";
+
+        let body_owned = body.to_string();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf).unwrap();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body_owned.len(),
+                body_owned
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+
+        let cfg = UpdateConfig {
+            manifest_url: format!("http://127.0.0.1:{}/releases", port),
+            ..Default::default()
+        };
+        let checker = UpdateChecker::new(cfg, "1.0.0");
+        let result = checker.check().unwrap();
+        assert!(!result.available);
+        assert!(result.latest_version.is_none());
+
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn test_backup_current_runs() {
+        // backup_current copies the running executable to .bak
+        // This test just ensures it doesn't panic
+        let result = UpdateChecker::backup_current();
+        if let Ok(path) = &result {
+            // Clean up
+            let _ = std::fs::remove_file(path);
+        }
+        // Either succeeds or returns an error (e.g., permissions)
+        let _ = result;
+    }
 }

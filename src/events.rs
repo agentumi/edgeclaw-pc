@@ -93,6 +93,31 @@ pub enum AgentEvent {
         role: String,
         content: String,
     },
+
+    /// File created or modified (activity tracking)
+    FileModified {
+        file_path: String,
+        lines_changed: u32,
+        before_snippet: Option<String>,
+        after_snippet: Option<String>,
+        peer_id: String,
+    },
+
+    /// Design decision recorded (activity tracking)
+    DecisionMade {
+        title: String,
+        chosen: String,
+        rationale: String,
+        alternatives: Vec<String>,
+    },
+
+    /// Error occurred (activity tracking)
+    ErrorOccurred {
+        severity: u8,
+        message: String,
+        source: String,
+        stack_trace: Option<String>,
+    },
 }
 
 /// Output stream type
@@ -364,6 +389,25 @@ mod tests {
                 peer_id: "p".into(),
                 role: "user".into(),
                 content: "hi".into(),
+            },
+            AgentEvent::FileModified {
+                file_path: "src/main.rs".into(),
+                lines_changed: 5,
+                before_snippet: None,
+                after_snippet: None,
+                peer_id: "p".into(),
+            },
+            AgentEvent::DecisionMade {
+                title: "Use Rust".into(),
+                chosen: "Rust".into(),
+                rationale: "Performance".into(),
+                alternatives: vec!["Go".into()],
+            },
+            AgentEvent::ErrorOccurred {
+                severity: 2,
+                message: "build failed".into(),
+                source: "cargo".into(),
+                stack_trace: None,
             },
         ];
 

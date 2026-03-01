@@ -91,4 +91,56 @@ mod tests {
         let agent_err: AgentError = io_err.into();
         assert!(matches!(agent_err, AgentError::IoError(_)));
     }
+
+    #[test]
+    fn test_all_error_display() {
+        let cases: Vec<AgentError> = vec![
+            AgentError::CryptoError("bad key".into()),
+            AgentError::ConnectionError("refused".into()),
+            AgentError::PolicyDenied("no".into()),
+            AgentError::InvalidCapability("foo".into()),
+            AgentError::SessionExpired,
+            AgentError::InvalidParameter("x".into()),
+            AgentError::Timeout(30),
+            AgentError::ExecutionError("fail".into()),
+            AgentError::SerializationError("json".into()),
+            AgentError::IoError("disk".into()),
+            AgentError::ConfigError("toml".into()),
+            AgentError::NotFound("missing".into()),
+            AgentError::AuthenticationError("auth".into()),
+            AgentError::InternalError("bug".into()),
+        ];
+        for e in &cases {
+            let msg = e.to_string();
+            assert!(!msg.is_empty());
+        }
+        assert!(cases[0].to_string().contains("crypto"));
+        assert!(cases[1].to_string().contains("connection"));
+        assert!(cases[4].to_string().contains("session expired"));
+        assert!(cases[6].to_string().contains("30"));
+    }
+
+    #[test]
+    fn test_serde_json_error_conversion() {
+        let bad_json = serde_json::from_str::<serde_json::Value>("not json");
+        let agent_err: AgentError = bad_json.unwrap_err().into();
+        assert!(matches!(agent_err, AgentError::SerializationError(_)));
+        assert!(agent_err.to_string().contains("serialization"));
+    }
+
+    #[test]
+    fn test_toml_error_conversion() {
+        let bad_toml = toml::from_str::<toml::Value>("= invalid");
+        let agent_err: AgentError = bad_toml.unwrap_err().into();
+        assert!(matches!(agent_err, AgentError::ConfigError(_)));
+    }
+
+    #[test]
+    fn test_aes_gcm_error_conversion() {
+        // aes_gcm::Error is opaque but we can trigger it via From impl
+        // Manually construct by using the From impl's pattern
+        let e: AgentError = aes_gcm::Error.into();
+        assert!(matches!(e, AgentError::CryptoError(_)));
+        assert!(e.to_string().contains("AES-GCM"));
+    }
 }

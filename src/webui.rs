@@ -1052,4 +1052,410 @@ mod tests {
         let text = reg.render_prometheus();
         assert!(text.contains("edgeclaw_cpu_usage_percent"));
     }
+
+    // ── New coverage tests ─────────────────────────────────
+
+    #[tokio::test]
+    async fn test_session_manager_multiple_sessions() {
+        let mgr = SessionManager::new();
+        let tok1 = mgr.create_session("10.0.0.1").await;
+        let tok2 = mgr.create_session("10.0.0.2").await;
+        let tok3 = mgr.create_session("10.0.0.3").await;
+        assert_ne!(tok1, tok2);
+        assert_ne!(tok2, tok3);
+        assert!(mgr.validate(&tok1, "10.0.0.1").await);
+        assert!(mgr.validate(&tok2, "10.0.0.2").await);
+        assert!(mgr.validate(&tok3, "10.0.0.3").await);
+        // Cross-IP should fail
+        assert!(!mgr.validate(&tok1, "10.0.0.2").await);
+        assert_eq!(mgr.count().await, 3);
+    }
+
+    // Helper: start a WebUI server on port 0, return the bound address
+    async fn start_test_server(
+        auth_password: &str,
+    ) -> (String, Arc<AgentEngine>, broadcast::Sender<()>) {
+        let engine = Arc::new(AgentEngine::new(crate::config::AgentConfig::default()));
+        let config = WebUiConfig {
+            bind_addr: "127.0.0.1:0".to_string(),
+            auth_password: auth_password.to_string(),
+            cors_origin: String::new(),
+        };
+        let mut server = WebUiServer::new(config, engine.clone());
+
+        // Bind manually to get the port
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+
+        let rate_limiter = server.rate_limiter.clone();
+        let sessions = server.sessions.clone();
+        let metrics = server.metrics.clone();
+        let (shutdown_tx, _) = broadcast::channel::<()>(1);
+        server.shutdown_tx = Some(shutdown_tx.clone());
+
+        let password = auth_password.to_string();
+        let auth_required = !password.is_empty();
+        let cors_origin = format!("http://{}", addr);
+        let eng = engine.clone();
+
+        tokio::spawn(async move {
+            loop {
+                let mut shutdown_rx = shutdown_tx.subscribe();
+                let eng = eng.clone();
+                tokio::select! {
+                    result = listener.accept() => {
+                        match result {
+                            Ok((stream, _)) => {
+                                let eng = eng.clone();
+                                let limiter = rate_limiter.clone();
+                                let sessions = sessions.clone();
+                                let cors = cors_origin.clone();
+                                let password = password.clone();
+                                let metrics = metrics.clone();
+                                let mut shutdown = shutdown_tx.subscribe();
+                                tokio::spawn(async move {
+                                    let _ = handle_http(
+                                        stream, eng, &limiter, &sessions,
+                                        &cors, &password, auth_required,
+                                        &metrics, &mut shutdown,
+                                    ).await;
+                                });
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                    _ = shutdown_rx.recv() => break,
+                }
+            }
+        });
+
+        // Return the shutdown sender from the server
+        let tx = server.shutdown_tx.take().unwrap();
+        (addr, engine, tx)
+    }
+
+    // Helper: raw HTTP request and read response
+    async fn http_request(addr: &str, request: &str) -> String {
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        stream.write_all(request.as_bytes()).await.unwrap();
+        stream.flush().await.unwrap();
+
+        // Read response
+        let mut buf = Vec::new();
+        let mut tmp = [0u8; 8192];
+        loop {
+            match tokio::time::timeout(Duration::from_secs(2), stream.read(&mut tmp)).await {
+                Ok(Ok(0)) => break,
+                Ok(Ok(n)) => buf.extend_from_slice(&tmp[..n]),
+                Ok(Err(_)) => break,
+                Err(_) => break, // timeout
+            }
+        }
+        String::from_utf8_lossy(&buf).to_string()
+    }
+
+    #[tokio::test]
+    async fn test_webui_serve_index_html() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("EdgeClaw"));
+    }
+
+    #[tokio::test]
+    async fn test_webui_serve_dashboard() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "GET /dashboard HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("Dashboard"));
+    }
+
+    #[tokio::test]
+    async fn test_webui_health_endpoint() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("\"status\":\"ok\""));
+    }
+
+    #[tokio::test]
+    async fn test_webui_options_cors() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "OPTIONS /api/chat HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("Access-Control-Allow-Methods"));
+    }
+
+    #[tokio::test]
+    async fn test_webui_login_no_auth() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let body = r#"{"password":""}"#;
+        let req = format!(
+            "POST /api/login HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("\"token\""));
+    }
+
+    #[tokio::test]
+    async fn test_webui_login_bad_password() {
+        let (addr, _engine, _tx) = start_test_server("secret123").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let body = r#"{"password":"wrong"}"#;
+        let req = format!(
+            "POST /api/login HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 401"));
+        assert!(resp.contains("invalid password"));
+    }
+
+    #[tokio::test]
+    async fn test_webui_login_good_password() {
+        let (addr, _engine, _tx) = start_test_server("secret123").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let body = r#"{"password":"secret123"}"#;
+        let req = format!(
+            "POST /api/login HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("\"token\""));
+    }
+
+    #[tokio::test]
+    async fn test_webui_not_found() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "GET /api/nonexistent HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 404"));
+        assert!(resp.contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_webui_status_no_auth() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "GET /api/status HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("\"version\""));
+    }
+
+    #[tokio::test]
+    async fn test_webui_protected_no_token() {
+        let (addr, _engine, _tx) = start_test_server("secret").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "GET /api/status HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 401"));
+        assert!(resp.contains("unauthorized"));
+    }
+
+    #[tokio::test]
+    async fn test_webui_metrics_endpoint() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "GET /metrics HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("edgeclaw_"));
+    }
+
+    #[tokio::test]
+    async fn test_webui_quick_actions() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "GET /api/quick-actions HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 200"));
+    }
+
+    #[tokio::test]
+    async fn test_webui_agents_info() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "GET /api/agents HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("\"max_agents\""));
+    }
+
+    #[tokio::test]
+    async fn test_webui_audit_entries() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "GET /api/audit/entries HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("\"count\""));
+    }
+
+    #[tokio::test]
+    async fn test_webui_audit_verify() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "GET /api/audit/verify HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("\"valid\""));
+    }
+
+    #[tokio::test]
+    async fn test_webui_metrics_history() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "GET /api/metrics/history HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("\"uptime_secs\""));
+    }
+
+    #[tokio::test]
+    async fn test_webui_chat_empty_message() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let body = r#"{"message":""}"#;
+        let req = format!(
+            "POST /api/chat HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 400"));
+        assert!(resp.contains("empty message"));
+    }
+
+    #[tokio::test]
+    async fn test_webui_chat_invalid_json() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let body = "not json at all";
+        let req = format!(
+            "POST /api/chat HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 400"));
+        assert!(resp.contains("invalid JSON"));
+    }
+
+    #[tokio::test]
+    async fn test_webui_delete_nonexistent_agent() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "DELETE /api/agents/nonexistent HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 404"));
+    }
+
+    #[tokio::test]
+    async fn test_webui_execute_nonexistent_agent() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let body = r#"{"command":"test"}"#;
+        let req = format!(
+            "POST /api/agents/fake/execute HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 404"));
+    }
+
+    #[tokio::test]
+    async fn test_webui_config_update_invalid_toml() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let body = "this is not valid toml {{{";
+        let req = format!(
+            "PUT /api/config HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 400"));
+        assert!(resp.contains("invalid TOML"));
+    }
 }

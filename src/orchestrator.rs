@@ -354,4 +354,88 @@ mod tests {
         let deserialized: Task = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.command, "echo test");
     }
+
+    #[test]
+    fn test_priority_routing() {
+        let registry = setup_registry(vec![
+            make_agent("a1", "System", AgentStatus::Online),
+            make_agent("a2", "System", AgentStatus::Online),
+        ]);
+        let orch = Orchestrator::new(registry, RoutingStrategy::Priority, "local");
+        let task = make_task("monitor", None);
+        let agent = orch.select_agent(&task).unwrap();
+        // Priority routing prefers Online agents; both are online so first is selected
+        assert!(!agent.id.is_empty());
+    }
+
+    #[test]
+    fn test_manual_no_target_error() {
+        let registry = setup_registry(vec![make_agent("a1", "System", AgentStatus::Online)]);
+        let orch = Orchestrator::new(registry, RoutingStrategy::Manual, "local");
+        let task = make_task("cmd", None);
+        let result = orch.select_agent(&task);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_next_task_empty_queue() {
+        let registry = setup_registry(vec![]);
+        let orch = Orchestrator::new(registry, RoutingStrategy::RoundRobin, "local");
+        assert!(orch.next_task().is_none());
+        assert_eq!(orch.queue_len(), 0);
+    }
+
+    #[test]
+    fn test_strategy_accessor() {
+        let registry = setup_registry(vec![]);
+        let orch = Orchestrator::new(registry, RoutingStrategy::Priority, "local");
+        assert_eq!(*orch.strategy(), RoutingStrategy::Priority);
+    }
+
+    #[test]
+    fn test_local_agent_id_accessor() {
+        let registry = setup_registry(vec![]);
+        let orch = Orchestrator::new(registry, RoutingStrategy::RoundRobin, "my-local-id");
+        assert_eq!(orch.local_agent_id(), "my-local-id");
+    }
+
+    #[test]
+    fn test_task_result_serialize() {
+        let result = TaskResult {
+            task_id: "t1".into(),
+            agent_id: "a1".into(),
+            success: true,
+            output: "done".into(),
+            duration_ms: 42,
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("\"success\":true"));
+        let parsed: TaskResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.task_id, "t1");
+        assert_eq!(parsed.duration_ms, 42);
+    }
+
+    #[test]
+    fn test_manual_offline_agent_fallback_error() {
+        let registry = setup_registry(vec![make_agent("a1", "System", AgentStatus::Offline)]);
+        let orch = Orchestrator::new(registry, RoutingStrategy::ProfileBased, "local");
+        let mut task = make_task("cmd", None);
+        task.target_agent = Some("a1".to_string());
+        // a1 is offline, no other online agents → should fail
+        let result = orch.select_agent(&task);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_routing_strategy_serialize() {
+        let s = RoutingStrategy::RoundRobin;
+        let json = serde_json::to_string(&s).unwrap();
+        let parsed: RoutingStrategy = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, RoutingStrategy::RoundRobin);
+    }
+
+    #[test]
+    fn test_task_priority_default() {
+        assert_eq!(TaskPriority::default(), TaskPriority::Normal);
+    }
 }

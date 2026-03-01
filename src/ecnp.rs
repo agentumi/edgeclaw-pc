@@ -131,6 +131,13 @@ mod tests {
             MessageType::Auth,
             MessageType::Telemetry,
             MessageType::PolicyUpdate,
+            MessageType::ActivityBroadcast,
+            MessageType::SessionSummary,
+            MessageType::LogQuery,
+            MessageType::LogResponse,
+            MessageType::ContextRequest,
+            MessageType::ContextResponse,
+            MessageType::ActivityAck,
         ];
         for mt in types {
             let encoded = EcnpCodec::encode(mt, b"ok").unwrap();
@@ -155,5 +162,43 @@ mod tests {
         let encoded = EcnpCodec::encode(MessageType::Heartbeat, &[]).unwrap();
         let decoded = EcnpCodec::decode(&encoded).unwrap();
         assert!(decoded.payload.is_empty());
+    }
+
+    #[test]
+    fn test_decode_payload_exceeds_max() {
+        // Craft a header claiming 2 MB payload size
+        let mut frame = vec![ECNP_VERSION, MessageType::Data as u8];
+        let huge_len: u32 = 2 * 1024 * 1024;
+        frame.extend_from_slice(&huge_len.to_be_bytes());
+        let result = EcnpCodec::decode(&frame);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("max size"),
+            "Expected max size error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_decode_frame_truncated() {
+        // Header says 100 bytes but only 10 bytes of payload
+        let mut frame = vec![ECNP_VERSION, MessageType::Data as u8];
+        let len: u32 = 100;
+        frame.extend_from_slice(&len.to_be_bytes());
+        frame.extend_from_slice(&[0u8; 10]); // only 10 bytes, not 100
+        let result = EcnpCodec::decode(&frame);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("truncated"),
+            "Expected truncated error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_encode_payload_exceeds_max() {
+        let big_payload = vec![0u8; MAX_PAYLOAD_SIZE + 1];
+        let result = EcnpCodec::encode(MessageType::Data, &big_payload);
+        assert!(result.is_err());
     }
 }

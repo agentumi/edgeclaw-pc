@@ -17,6 +17,20 @@ pub enum MessageType {
     Auth = 0x06,
     Telemetry = 0x07,
     PolicyUpdate = 0x08,
+    /// Activity broadcast (team sync)
+    ActivityBroadcast = 0x20,
+    /// Session summary (team sync)
+    SessionSummary = 0x21,
+    /// Log query (team sync)
+    LogQuery = 0x22,
+    /// Log response (team sync)
+    LogResponse = 0x23,
+    /// Context request (team sync)
+    ContextRequest = 0x24,
+    /// Context response (team sync)
+    ContextResponse = 0x25,
+    /// Activity acknowledgement (team sync)
+    ActivityAck = 0x26,
 }
 
 impl TryFrom<u8> for MessageType {
@@ -31,6 +45,13 @@ impl TryFrom<u8> for MessageType {
             0x06 => Ok(MessageType::Auth),
             0x07 => Ok(MessageType::Telemetry),
             0x08 => Ok(MessageType::PolicyUpdate),
+            0x20 => Ok(MessageType::ActivityBroadcast),
+            0x21 => Ok(MessageType::SessionSummary),
+            0x22 => Ok(MessageType::LogQuery),
+            0x23 => Ok(MessageType::LogResponse),
+            0x24 => Ok(MessageType::ContextRequest),
+            0x25 => Ok(MessageType::ContextResponse),
+            0x26 => Ok(MessageType::ActivityAck),
             _ => Err(AgentError::InvalidParameter(format!(
                 "unknown message type: 0x{value:02x}"
             ))),
@@ -205,6 +226,31 @@ mod tests {
     fn test_message_type_conversion() {
         assert_eq!(MessageType::try_from(0x01).unwrap(), MessageType::Handshake);
         assert_eq!(MessageType::try_from(0x07).unwrap(), MessageType::Telemetry);
+        assert_eq!(
+            MessageType::try_from(0x20).unwrap(),
+            MessageType::ActivityBroadcast
+        );
+        assert_eq!(
+            MessageType::try_from(0x21).unwrap(),
+            MessageType::SessionSummary
+        );
+        assert_eq!(MessageType::try_from(0x22).unwrap(), MessageType::LogQuery);
+        assert_eq!(
+            MessageType::try_from(0x23).unwrap(),
+            MessageType::LogResponse
+        );
+        assert_eq!(
+            MessageType::try_from(0x24).unwrap(),
+            MessageType::ContextRequest
+        );
+        assert_eq!(
+            MessageType::try_from(0x25).unwrap(),
+            MessageType::ContextResponse
+        );
+        assert_eq!(
+            MessageType::try_from(0x26).unwrap(),
+            MessageType::ActivityAck
+        );
         assert!(MessageType::try_from(0xFF).is_err());
     }
 

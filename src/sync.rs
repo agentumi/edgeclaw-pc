@@ -382,4 +382,36 @@ mod tests {
             let _: SyncMessage = serde_json::from_str(&json).unwrap();
         }
     }
+
+    #[test]
+    fn test_handle_config_sync() {
+        let server = SyncServer::new(SyncConfig::default());
+        let msg = SyncMessage::ConfigSync {
+            config_hash: "abc123".into(),
+            config_data: "[agent]\nname = \"test\"".into(),
+        };
+        let response = server.handle_message(&msg).unwrap();
+        assert!(response.is_none()); // ConfigSync returns None
+    }
+
+    #[test]
+    fn test_handle_status_push() {
+        let server = SyncServer::new(SyncConfig::default());
+        let msg = SyncMessage::StatusPush {
+            cpu_percent: 50.0,
+            memory_percent: 60.0,
+            disk_percent: 70.0,
+            uptime_secs: 1000,
+            active_peers: 2,
+            active_sessions: 1,
+        };
+        let response = server.handle_message(&msg).unwrap();
+        assert!(response.is_none()); // StatusPush returns None
+    }
+
+    #[test]
+    fn test_push_interval() {
+        let server = SyncServer::new(SyncConfig::default());
+        assert_eq!(server.push_interval_secs(), 30);
+    }
 }

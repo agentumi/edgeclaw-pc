@@ -602,6 +602,71 @@ mod tests {
         assert_eq!(ConnectionState::Connected.to_string(), "Connected");
         assert_eq!(ConnectionState::Reconnecting.to_string(), "Reconnecting");
         assert_eq!(ConnectionState::Failed.to_string(), "Failed");
+        assert_eq!(ConnectionState::Disconnected.to_string(), "Disconnected");
+        assert_eq!(ConnectionState::Connecting.to_string(), "Connecting");
+        assert_eq!(ConnectionState::Handshaking.to_string(), "Handshaking");
+    }
+
+    #[test]
+    fn test_peer_info_serialize() {
+        let mut mgr = PeerManager::new(10);
+        let peer = mgr
+            .add_peer("p1", "TestDevice", "desktop", "10.0.0.1", "admin")
+            .unwrap();
+        let json = serde_json::to_string(&peer).unwrap();
+        assert!(json.contains("\"peer_id\":\"p1\""));
+        assert!(json.contains("\"device_name\":\"TestDevice\""));
+        let parsed: PeerInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.peer_id, "p1");
+        assert_eq!(parsed.role, "admin");
+        assert!(parsed.is_connected);
+    }
+
+    #[test]
+    fn test_set_connected_disconnect() {
+        let mut mgr = PeerManager::new(10);
+        mgr.add_peer("p1", "test", "pc", "1.1.1.1", "viewer")
+            .unwrap();
+        assert!(mgr.get_peer("p1").unwrap().is_connected);
+
+        mgr.set_connected("p1", false);
+        assert!(!mgr.get_peer("p1").unwrap().is_connected);
+
+        mgr.set_connected("p1", true);
+        assert!(mgr.get_peer("p1").unwrap().is_connected);
+
+        // set_connected on nonexistent peer is a no-op
+        mgr.set_connected("nonexistent", true);
+    }
+
+    #[test]
+    fn test_peer_connection_info_serialize() {
+        let mut pool = ConnectionPool::new(5);
+        pool.track_connect("peer-1", "10.0.0.1:8443");
+        pool.mark_connected("peer-1", "sess-123");
+        let ci = pool.get("peer-1").unwrap();
+        let json = serde_json::to_string(&ci).unwrap();
+        assert!(json.contains("\"peer_id\":\"peer-1\""));
+        assert!(json.contains("\"sess-123\""));
+        let parsed: PeerConnectionInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.peer_id, "peer-1");
+        assert_eq!(parsed.state, ConnectionState::Connected);
+    }
+
+    #[test]
+    fn test_list_peers() {
+        let mut mgr = PeerManager::new(10);
+        mgr.add_peer("p1", "a", "pc", "1.1.1.1", "viewer").unwrap();
+        mgr.add_peer("p2", "b", "mobile", "2.2.2.2", "admin")
+            .unwrap();
+        let all = mgr.list_peers();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn test_default_peer_manager() {
+        let mgr = PeerManager::default();
+        assert_eq!(mgr.list_peers().len(), 0);
     }
 
     // -----------------------------------------------------------------------

@@ -414,4 +414,78 @@ mod tests {
         let mgr = PluginManager::new(dir);
         assert!(mgr.scan_plugins().is_empty());
     }
+
+    #[test]
+    fn test_plugin_manager_with_sandbox() {
+        let dir = std::env::temp_dir().join("ecplugins_sandbox");
+        let sandbox = SandboxConfig {
+            allow_network: true,
+            allow_filesystem: true,
+            ..Default::default()
+        };
+        let mut mgr = PluginManager::with_sandbox(dir.clone(), sandbox);
+        assert_eq!(mgr.plugins_dir(), dir);
+
+        // register with network+filesystem perms should succeed
+        let mut manifest = test_manifest("net-fs-plugin");
+        manifest.permissions = vec!["network".into(), "filesystem".into()];
+        mgr.register(manifest).unwrap();
+        assert_eq!(mgr.list_plugins().len(), 1);
+    }
+
+    #[test]
+    fn test_plugin_denied_filesystem() {
+        let dir = std::env::temp_dir().join("ecplugins_fs");
+        let mut mgr = PluginManager::new(dir); // default sandbox denies filesystem
+        let mut manifest = test_manifest("fs-plugin");
+        manifest.permissions = vec!["filesystem".into()];
+        let result = mgr.register(manifest);
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("filesystem"));
+    }
+
+    #[test]
+    fn test_load_plugin_no_manifest() {
+        let dir = std::env::temp_dir().join("ecplugins_nomf");
+        let mut mgr = PluginManager::new(dir);
+        let result = mgr.load_plugin("nonexistent", vec![0, 1, 2, 3]);
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("manifest"));
+    }
+
+    #[test]
+    fn test_unload_plugin() {
+        let dir = std::env::temp_dir().join("ecplugins_unload");
+        let mut mgr = PluginManager::new(dir);
+        mgr.register(test_manifest("p1")).unwrap();
+        mgr.load_plugin("p1", vec![0, 97, 115, 109]).unwrap();
+        assert_eq!(mgr.list_plugins().len(), 1);
+        assert!(mgr.unload_plugin("p1"));
+        assert_eq!(mgr.list_plugins().len(), 0);
+        assert!(!mgr.unload_plugin("p1")); // already unloaded
+    }
+
+    #[test]
+    fn test_scan_plugins_with_wasm_files() {
+        let dir = std::env::temp_dir().join(format!("ecscan_wasm_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("plugin_a.wasm"), b"fake wasm").unwrap();
+        std::fs::write(dir.join("plugin_b.wasm"), b"fake wasm 2").unwrap();
+        std::fs::write(dir.join("readme.txt"), b"not a plugin").unwrap();
+        let mgr = PluginManager::new(dir.clone());
+        let found = mgr.scan_plugins();
+        assert_eq!(found.len(), 2);
+        assert!(found.contains(&"plugin_a".to_string()));
+        assert!(found.contains(&"plugin_b".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_plugin_type_all_display() {
+        assert_eq!(PluginType::DataTransform.to_string(), "Data Transform");
+        assert_eq!(PluginType::ProtocolHandler.to_string(), "Protocol Handler");
+        assert_eq!(PluginType::SecurityScanner.to_string(), "Security Scanner");
+    }
 }

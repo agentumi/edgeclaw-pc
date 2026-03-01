@@ -295,4 +295,123 @@ mod tests {
         let deserialized: License = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.tier, LicenseTier::Free);
     }
+
+    #[test]
+    fn test_verify_signature_missing_for_pro() {
+        let now = Utc::now();
+        let lic = License {
+            tier: LicenseTier::Pro,
+            max_agents: 10,
+            issued_to: "test".into(),
+            issued_at: now,
+            expires_at: now + chrono::Duration::days(365),
+            signature: String::new(), // missing!
+        };
+        let result = lic.verify_signature(&"00".repeat(32));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_verify_signature_bad_pubkey_hex() {
+        let now = Utc::now();
+        let lic = License {
+            tier: LicenseTier::Pro,
+            max_agents: 10,
+            issued_to: "test".into(),
+            issued_at: now,
+            expires_at: now + chrono::Duration::days(365),
+            signature: "aa".repeat(64),
+        };
+        let result = lic.verify_signature("zzzz_not_hex");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_verify_signature_wrong_key_length() {
+        let now = Utc::now();
+        let lic = License {
+            tier: LicenseTier::Pro,
+            max_agents: 10,
+            issued_to: "test".into(),
+            issued_at: now,
+            expires_at: now + chrono::Duration::days(365),
+            signature: "aa".repeat(64),
+        };
+        // 16 bytes instead of 32
+        let result = lic.verify_signature(&"aa".repeat(16));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_verify_signature_wrong_sig_length() {
+        let now = Utc::now();
+        let lic = License {
+            tier: LicenseTier::Pro,
+            max_agents: 10,
+            issued_to: "test".into(),
+            issued_at: now,
+            expires_at: now + chrono::Duration::days(365),
+            signature: "aa".repeat(10), // too short (should be 64 bytes)
+        };
+        let result = lic.verify_signature(&"00".repeat(32));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_verify_signature_invalid_signature() {
+        let now = Utc::now();
+        let lic = License {
+            tier: LicenseTier::Pro,
+            max_agents: 10,
+            issued_to: "test".into(),
+            issued_at: now,
+            expires_at: now + chrono::Duration::days(365),
+            signature: "00".repeat(64),
+        };
+        // Valid key length but wrong key — signature won't verify
+        // Need a valid Ed25519 public key (32 bytes)
+        use ed25519_dalek::SigningKey;
+        let sk = SigningKey::from_bytes(&[1u8; 32]);
+        let pk_hex = hex::encode(sk.verifying_key().to_bytes());
+        let result = lic.verify_signature(&pk_hex);
+        assert!(result.is_ok());
+        assert!(!result.unwrap()); // signature is all zeros, won't match
+    }
+
+    #[test]
+    fn test_license_tier_default() {
+        assert_eq!(LicenseTier::default(), LicenseTier::Free);
+    }
+
+    #[test]
+    fn test_expired_license_feature_downgrade() {
+        let now = Utc::now();
+        let lic = License {
+            tier: LicenseTier::Enterprise,
+            max_agents: 1000,
+            issued_to: "expired-corp".into(),
+            issued_at: now - chrono::Duration::days(366),
+            expires_at: now - chrono::Duration::days(1),
+            signature: String::new(),
+        };
+        // Expired enterprise should not have pro features
+        assert!(!lic.has_feature("websocket"));
+        assert!(!lic.has_feature("dashboard"));
+        // But should have free features
+        assert!(lic.has_feature("basic_chat"));
+    }
+
+    #[test]
+    fn test_effective_tier_not_expired() {
+        let now = Utc::now();
+        let lic = License {
+            tier: LicenseTier::Enterprise,
+            max_agents: 1000,
+            issued_to: "valid-corp".into(),
+            issued_at: now,
+            expires_at: now + chrono::Duration::days(365),
+            signature: String::new(),
+        };
+        assert_eq!(lic.effective_tier(), LicenseTier::Enterprise);
+    }
 }

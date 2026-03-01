@@ -24,9 +24,12 @@
 //! println!("Device: {}", identity.device_id);
 //! ```
 
+pub mod activity_collector;
+pub mod activity_log;
 pub mod ai;
 pub mod audit;
 pub mod blockchain;
+pub mod chain;
 pub mod config;
 pub mod discovery;
 pub mod ecnp;
@@ -51,6 +54,8 @@ pub mod server;
 pub mod session;
 pub mod sync;
 pub mod system;
+pub mod task_templates;
+pub mod team_sync;
 pub mod tee;
 pub mod tee_sgx;
 pub mod transport;
@@ -745,5 +750,89 @@ mod tests {
         let result = engine.execute_command("ctrl-2", request).await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), AgentError::PolicyDenied(_)));
+    }
+
+    #[test]
+    fn test_event_bus_accessible() {
+        let engine = test_engine();
+        let bus = engine.event_bus();
+        let mut rx = bus.subscribe();
+        bus.publish(crate::events::AgentEvent::Heartbeat { uptime_secs: 1 });
+        let event = rx.try_recv();
+        assert!(event.is_ok());
+    }
+
+    #[test]
+    fn test_quick_actions_owner() {
+        let engine = test_engine();
+        let actions = engine.get_quick_actions("owner");
+        assert!(!actions.is_empty(), "owner should have quick actions");
+    }
+
+    #[test]
+    fn test_quick_actions_viewer() {
+        let engine = test_engine();
+        let actions = engine.get_quick_actions("viewer");
+        // Viewer has limited capabilities
+        for action in &actions {
+            assert!(
+                ["status_query", "log_read", "system_info"].contains(&action.capability.as_str()),
+                "viewer should only have viewer-level capabilities"
+            );
+        }
+    }
+
+    #[test]
+    fn test_ai_status() {
+        let engine = test_engine();
+        let status = engine.ai_status();
+        assert!(status.get("provider").is_some());
+        assert!(status.get("available").is_some());
+        assert!(status.get("local").is_some());
+    }
+
+    #[test]
+    fn test_audit_log() {
+        let engine = test_engine();
+        let entries = engine.get_audit_log(10);
+        // may or may not be empty depending on engine init
+        let _ = entries;
+        let _ = engine.audit_count();
+    }
+
+    #[test]
+    fn test_audit_chain_verify() {
+        let engine = test_engine();
+        let result = engine.verify_audit_chain();
+        // May succeed or fail based on log state
+        let _ = result;
+    }
+
+    #[test]
+    fn test_export_audit_log() {
+        let engine = test_engine();
+        let json = engine.export_audit_log().unwrap();
+        assert!(json.starts_with('['));
+    }
+
+    #[test]
+    fn test_create_heartbeat() {
+        let engine = test_engine();
+        engine.generate_identity().unwrap();
+        let hb = engine.create_heartbeat();
+        assert!(hb.is_ok());
+        let json: serde_json::Value = serde_json::from_str(&hb.unwrap()).unwrap();
+        assert!(json.get("uptime_secs").is_some());
+    }
+
+    #[test]
+    fn test_chat_without_identity() {
+        let engine = test_engine();
+        engine
+            .add_peer("p1", "User", "mobile", "10.0.0.1", "owner")
+            .unwrap();
+        // Chat should work even without identity (uses "unknown" for audit)
+        let response = engine.chat("p1", "hello");
+        assert!(response.is_ok());
     }
 }

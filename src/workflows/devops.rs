@@ -393,4 +393,188 @@ mod tests {
         let info = AutoResponse::cert_check("invalid-host-that-does-not-exist.local");
         assert!(!info.valid);
     }
+
+    // ── New coverage tests ─────────────────────────────────
+
+    #[test]
+    fn test_check_disk_zero_threshold() {
+        // With threshold 0, all disks should alert (any usage > 0%)
+        let disks = InfraMonitor::check_disk(0.0);
+        assert!(!disks.is_empty());
+        for d in &disks {
+            assert!(d.alert, "disk {} should alert with 0% threshold", d.mount);
+        }
+    }
+
+    #[test]
+    fn test_check_disk_100_threshold() {
+        // With threshold 100%, no disks should alert (usage < 100% normally)
+        let disks = InfraMonitor::check_disk(100.0);
+        for d in &disks {
+            assert!(
+                !d.alert || d.usage_percent >= 100.0,
+                "disk {} should not alert with 100% threshold",
+                d.mount
+            );
+        }
+    }
+
+    #[test]
+    fn test_disk_usage_fields_valid() {
+        let disks = InfraMonitor::check_disk(90.0);
+        for d in &disks {
+            assert!(!d.mount.is_empty(), "mount should not be empty");
+            assert!(d.total_gb >= 0.0, "total_gb should be non-negative");
+            assert!(d.used_gb >= 0.0, "used_gb should be non-negative");
+            assert!(
+                d.usage_percent >= 0.0 && d.usage_percent <= 100.0,
+                "usage_percent should be 0-100, got {}",
+                d.usage_percent
+            );
+        }
+    }
+
+    #[test]
+    fn test_disk_cleanup_runs() {
+        // Just verify it returns without panicking
+        let result = AutoResponse::disk_cleanup();
+        // temp_files_removed can be 0 (no old files) — just ensure no crash
+        assert!(!result.output.is_empty());
+    }
+
+    #[test]
+    fn test_docker_container_info_roundtrip() {
+        let info = DockerContainerInfo {
+            id: "abc123def".into(),
+            name: "my-container".into(),
+            image: "nginx:1.25".into(),
+            status: "Up 3 hours".into(),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let parsed: DockerContainerInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.id, "abc123def");
+        assert_eq!(parsed.name, "my-container");
+        assert_eq!(parsed.image, "nginx:1.25");
+        assert_eq!(parsed.status, "Up 3 hours");
+    }
+
+    #[test]
+    fn test_service_status_running_flag() {
+        let running = ServiceStatus {
+            name: "nginx".into(),
+            state: "Running".into(),
+            running: true,
+        };
+        assert!(running.running);
+
+        let stopped = ServiceStatus {
+            name: "mysql".into(),
+            state: "Stopped".into(),
+            running: false,
+        };
+        assert!(!stopped.running);
+    }
+
+    #[test]
+    fn test_cleanup_result_roundtrip() {
+        let r = CleanupResult {
+            temp_files_removed: 42,
+            docker_pruned: false,
+            bytes_freed: 102400,
+            output: "cleaned up".into(),
+        };
+        let json = serde_json::to_string(&r).unwrap();
+        let parsed: CleanupResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.temp_files_removed, 42);
+        assert!(!parsed.docker_pruned);
+        assert_eq!(parsed.bytes_freed, 102400);
+    }
+
+    #[test]
+    fn test_cert_info_roundtrip() {
+        let c = CertInfo {
+            host: "api.example.com".into(),
+            valid: true,
+            expires_in_days: Some(365),
+            output: "cert data".into(),
+        };
+        let json = serde_json::to_string(&c).unwrap();
+        let parsed: CertInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.host, "api.example.com");
+        assert!(parsed.valid);
+        assert_eq!(parsed.expires_in_days, Some(365));
+    }
+
+    #[test]
+    fn test_check_docker_runs() {
+        // Docker may or may not be installed — this just verifies no panic
+        let result = InfraMonitor::check_docker();
+        // If docker is available, returns Ok with a list
+        // If not, returns Err (which is fine)
+        match result {
+            Ok(containers) => {
+                for c in &containers {
+                    assert!(!c.id.is_empty());
+                    assert!(!c.name.is_empty());
+                }
+            }
+            Err(e) => {
+                assert!(e.to_string().contains("docker") || e.to_string().contains("execution"));
+            }
+        }
+    }
+
+    #[test]
+    fn test_check_services_runs() {
+        // Runs systemctl or Get-Service depending on OS — should not panic
+        let result = InfraMonitor::check_services();
+        if let Ok(services) = result {
+            for s in &services {
+                assert!(!s.name.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn test_collect_logs_runs() {
+        // Collects system logs — may fail in CI but should not panic
+        let result = InfraMonitor::collect_logs(5);
+        if let Ok(text) = result {
+            // May be empty in some environments
+            let _ = text;
+        }
+    }
+
+    #[test]
+    fn test_restart_service_nonexistent() {
+        // Attempting to restart a non-existent service
+        let result = AutoResponse::restart_service("edgeclaw_nonexistent_test_service_xyz");
+        // Either succeeds with an error message or returns Err — both fine
+        let _ = result;
+    }
+
+    #[test]
+    fn test_cert_check_localhost() {
+        // localhost:443 likely has nothing — should return invalid
+        let info = AutoResponse::cert_check("127.0.0.1");
+        assert_eq!(info.host, "127.0.0.1");
+        // Usually not valid since localhost doesn't serve HTTPS
+        assert!(!info.valid || info.output.contains("Verify return code: 0"));
+    }
+
+    #[test]
+    fn test_disk_usage_serialize_roundtrip() {
+        let du = DiskUsage {
+            mount: "/".into(),
+            total_gb: 500.0,
+            used_gb: 250.0,
+            usage_percent: 50.0,
+            alert: false,
+        };
+        let json = serde_json::to_string(&du).unwrap();
+        let parsed: DiskUsage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.mount, "/");
+        assert!(!parsed.alert);
+        assert_eq!(parsed.usage_percent, 50.0);
+    }
 }

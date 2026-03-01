@@ -1,0 +1,36 @@
+{
+  "network": "testnet",
+  "chain_id": "4c78adac",
+  "deployer": "0x5468d1c65415ac6b3c7d2bac7832e224654de795fe78b5d631418a01a21f8a4f",
+  "package_id": "0xdbab4b17a959e9356beb6aef1d5306dcb5e9a51f64cfc00e962d7b0eee33301a",
+  "upgrade_capability": "0x87faa6447b1396d6587c089aba83295373351a2f5d026413d5116ad7b77c2788",
+  "sui_cli_version": "1.66.2",
+  "deployed_at": "2026-03-01",
+  "gas_used_mist": 59408280,
+  "modules": [
+    "device_registry",
+    "policy_nft",
+    "task_token",
+    "audit_anchor"
+  ],
+  "tests": {
+    "total": 12,
+    "passed": 12,
+    "failed": 0,
+    "test_results": [
+      "edgeclaw::audit_anchor_tests::test_anchor_first_batch — PASS",
+      "edgeclaw::audit_anchor_tests::test_anchor_sequential_batches — PASS",
+      "edgeclaw::audit_anchor_tests::test_invalid_range_fails — PASS",
+      "edgeclaw::audit_anchor_tests::test_overlapping_batch_fails — PASS",
+      "edgeclaw::audit_anchor_tests::test_verify_empty_chain — PASS",
+      "edgeclaw::device_registry_tests::test_register_device — PASS",
+      "edgeclaw::device_registry_tests::test_register_multiple_devices — PASS",
+      "edgeclaw::device_registry_tests::test_duplicate_registration_fails — PASS",
+      "edgeclaw::device_registry_tests::test_deactivate_device — PASS",
+      "edgeclaw::device_registry_tests::test_reactivate_device — PASS",
+      "edgeclaw::device_registry_tests::test_admin_can_deactivate — PASS",
+      "edgeclaw::device_registry_tests::test_unauthorized_deactivate_fails — PASS"
+    ]
+  },
+  "explorer": "https://suiscan.xyz/testnet/object/0xdbab4b17a959e9356beb6aef1d5306dcb5e9a51f64cfc00e962d7b0eee33301a"
+}

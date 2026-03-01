@@ -3,8 +3,11 @@ require("@nomicfoundation/hardhat-toolbox");
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: {
-    version: "0.8.20",
-    settings: { optimizer: { enabled: true, runs: 200 } },
+    version: "0.8.28",
+    settings: {
+      evmVersion: "cancun",
+      optimizer: { enabled: true, runs: 200 },
+    },
   },
   networks: {
     hardhat: {},

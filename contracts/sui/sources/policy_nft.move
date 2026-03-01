@@ -4,12 +4,8 @@
 /// a role, a set of capabilities, an expiry epoch, and the issuer identity.
 /// Policies can be verified on-chain and revoked by the issuer or admin.
 module edgeclaw::policy_nft {
-    use sui::object::{Self, UID};
-    use sui::tx_context::{Self, TxContext};
-    use sui::transfer;
     use sui::event;
     use std::string::{Self, String};
-    use std::vector;
 
     // ─── Errors ────────────────────────────────────────────
 
@@ -21,12 +17,12 @@ module edgeclaw::policy_nft {
     // ─── Objects ───────────────────────────────────────────
 
     /// Admin capability — granted to deployer.
-    struct AdminCap has key, store {
+    public struct AdminCap has key, store {
         id: UID,
     }
 
     /// A Policy NFT representing an RBAC assignment.
-    struct PolicyNFT has key, store {
+    public struct PolicyNFT has key, store {
         id: UID,
         /// Owner address.
         owner: address,
@@ -46,14 +42,14 @@ module edgeclaw::policy_nft {
 
     // ─── Events ────────────────────────────────────────────
 
-    struct PolicyMinted has copy, drop {
+    public struct PolicyMinted has copy, drop {
         policy_id: address,
         owner: address,
         role: String,
         issuer: address,
     }
 
-    struct PolicyRevoked has copy, drop {
+    public struct PolicyRevoked has copy, drop {
         policy_id: address,
         revoked_by: address,
     }
@@ -68,7 +64,7 @@ module edgeclaw::policy_nft {
     // ─── Public Functions ──────────────────────────────────
 
     /// Mint a new Policy NFT and transfer it to `owner`.
-    public entry fun mint_policy(
+    public fun mint_policy(
         _admin: &AdminCap,
         owner: address,
         role: vector<u8>,
@@ -79,8 +75,8 @@ module edgeclaw::policy_nft {
         let role_str = string::utf8(role);
         assert!(is_valid_role(&role_str), E_INVALID_ROLE);
 
-        let caps = vector::empty<String>();
-        let i = 0;
+        let mut caps = vector::empty<String>();
+        let mut i = 0;
         let len = vector::length(&capabilities);
         while (i < len) {
             vector::push_back(&mut caps, string::utf8(*vector::borrow(&capabilities, i)));
@@ -112,7 +108,7 @@ module edgeclaw::policy_nft {
     }
 
     /// Revoke a policy NFT. Only the original issuer or admin can revoke.
-    public entry fun revoke_policy(
+    public fun revoke_policy(
         policy: &mut PolicyNFT,
         ctx: &mut TxContext,
     ) {
@@ -126,7 +122,7 @@ module edgeclaw::policy_nft {
     }
 
     /// Admin-force revoke (for emergency revocations).
-    public entry fun admin_revoke(
+    public fun admin_revoke(
         _admin: &AdminCap,
         policy: &mut PolicyNFT,
         ctx: &mut TxContext,

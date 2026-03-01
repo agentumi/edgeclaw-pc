@@ -3,9 +3,6 @@
 /// Provides on-chain anchoring of audit log batches. Each anchor stores
 /// a batch range and SHA-256 hash, forming a verifiable chain of audit integrity.
 module edgeclaw::audit_anchor {
-    use sui::object::{Self, UID};
-    use sui::tx_context::{Self, TxContext};
-    use sui::transfer;
     use sui::event;
     use std::string::{Self, String};
     use sui::table::{Self, Table};
@@ -19,7 +16,7 @@ module edgeclaw::audit_anchor {
     // ─── Objects ───────────────────────────────────────────
 
     /// Global audit anchor store (shared object).
-    struct AuditStore has key {
+    public struct AuditStore has key {
         id: UID,
         /// Sequential anchor records.
         anchors: Table<u64, AnchorRecord>,
@@ -32,7 +29,7 @@ module edgeclaw::audit_anchor {
     }
 
     /// Individual audit anchor record.
-    struct AnchorRecord has store, drop, copy {
+    public struct AnchorRecord has store, drop, copy {
         /// Batch start index (inclusive).
         batch_start: u64,
         /// Batch end index (inclusive).
@@ -47,7 +44,7 @@ module edgeclaw::audit_anchor {
 
     // ─── Events ────────────────────────────────────────────
 
-    struct AuditAnchored has copy, drop {
+    public struct AuditAnchored has copy, drop {
         anchor_index: u64,
         batch_start: u64,
         batch_end: u64,
@@ -55,7 +52,7 @@ module edgeclaw::audit_anchor {
         submitter: address,
     }
 
-    struct AuditVerified has copy, drop {
+    public struct AuditVerified has copy, drop {
         total_anchors: u64,
         chain_valid: bool,
     }
@@ -77,7 +74,7 @@ module edgeclaw::audit_anchor {
 
     /// Anchor a new audit batch on-chain.
     /// batch_start must be > last_batch_end (unless first anchor).
-    public entry fun anchor_audit(
+    public fun anchor_audit(
         store: &mut AuditStore,
         batch_start: u64,
         batch_end: u64,
@@ -117,6 +114,13 @@ module edgeclaw::audit_anchor {
 
     // ─── View Functions ────────────────────────────────────
 
+    // ─── Test Helpers ─────────────────────────────────────
+
+    #[test_only]
+    public fun init_for_testing(ctx: &mut TxContext) {
+        init(ctx)
+    }
+
     /// Get total number of audit anchors.
     public fun anchor_count(store: &AuditStore): u64 {
         store.anchor_count
@@ -132,8 +136,8 @@ module edgeclaw::audit_anchor {
     public fun verify_chain(store: &AuditStore): bool {
         if (store.anchor_count <= 1) return true;
 
-        let i = 1;
-        let valid = true;
+        let mut i = 1;
+        let mut valid = true;
         while (i < store.anchor_count) {
             let prev = table::borrow(&store.anchors, i - 1);
             let curr = table::borrow(&store.anchors, i);

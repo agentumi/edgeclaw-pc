@@ -3,32 +3,27 @@
 /// Fungible token used for task execution accounting, staking,
 /// and reputation incentives within the EdgeClaw network.
 module edgeclaw::task_token {
-    use sui::object::{Self, UID};
-    use sui::tx_context::{Self, TxContext};
-    use sui::transfer;
     use sui::coin::{Self, TreasuryCap, Coin};
     use sui::event;
-    use std::option;
-    use std::string;
 
     // ─── OTW ───────────────────────────────────────────────
 
     /// One-Time Witness for coin creation.
-    struct TASK_TOKEN has drop {}
+    public struct TASK_TOKEN has drop {}
 
     // ─── Events ────────────────────────────────────────────
 
-    struct TokensMinted has copy, drop {
+    public struct TokensMinted has copy, drop {
         amount: u64,
         recipient: address,
     }
 
-    struct TokensBurned has copy, drop {
+    public struct TokensBurned has copy, drop {
         amount: u64,
         burner: address,
     }
 
-    struct TaskReward has copy, drop {
+    public struct TaskReward has copy, drop {
         task_id: vector<u8>,
         amount: u64,
         executor: address,
@@ -36,6 +31,7 @@ module edgeclaw::task_token {
 
     // ─── Init ──────────────────────────────────────────────
 
+    #[allow(deprecated_usage, lint(public_entry))]
     fun init(witness: TASK_TOKEN, ctx: &mut TxContext) {
         let (treasury_cap, metadata) = coin::create_currency(
             witness,
@@ -53,7 +49,7 @@ module edgeclaw::task_token {
     // ─── Minting ───────────────────────────────────────────
 
     /// Mint new ECLAW tokens to a recipient.
-    public entry fun mint(
+    public fun mint(
         treasury_cap: &mut TreasuryCap<TASK_TOKEN>,
         amount: u64,
         recipient: address,
@@ -66,7 +62,7 @@ module edgeclaw::task_token {
     }
 
     /// Burn ECLAW tokens.
-    public entry fun burn(
+    public fun burn(
         treasury_cap: &mut TreasuryCap<TASK_TOKEN>,
         coin: Coin<TASK_TOKEN>,
         ctx: &mut TxContext,
@@ -78,7 +74,7 @@ module edgeclaw::task_token {
     }
 
     /// Reward a task executor.
-    public entry fun reward_task(
+    public fun reward_task(
         treasury_cap: &mut TreasuryCap<TASK_TOKEN>,
         task_id: vector<u8>,
         amount: u64,

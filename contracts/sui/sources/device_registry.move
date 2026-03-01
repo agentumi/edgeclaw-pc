@@ -4,9 +4,6 @@
 /// Each device is represented as a shared object storing its Ed25519 public key,
 /// name, type, and active status.
 module edgeclaw::device_registry {
-    use sui::object::{Self, UID};
-    use sui::tx_context::{Self, TxContext};
-    use sui::transfer;
     use sui::event;
     use std::string::{Self, String};
     use sui::table::{Self, Table};
@@ -21,7 +18,7 @@ module edgeclaw::device_registry {
     // ─── Objects ───────────────────────────────────────────
 
     /// Global registry (shared object).
-    struct Registry has key {
+    public struct Registry has key {
         id: UID,
         /// public_key (hex string) → DeviceRecord
         devices: Table<String, DeviceRecord>,
@@ -32,7 +29,7 @@ module edgeclaw::device_registry {
     }
 
     /// Individual device record.
-    struct DeviceRecord has store, drop, copy {
+    public struct DeviceRecord has store, drop, copy {
         /// Ed25519 public key (hex-encoded).
         public_key: String,
         /// Human-readable device name.
@@ -49,19 +46,19 @@ module edgeclaw::device_registry {
 
     // ─── Events ────────────────────────────────────────────
 
-    struct DeviceRegistered has copy, drop {
+    public struct DeviceRegistered has copy, drop {
         public_key: String,
         device_name: String,
         device_type: String,
         owner: address,
     }
 
-    struct DeviceDeactivated has copy, drop {
+    public struct DeviceDeactivated has copy, drop {
         public_key: String,
         deactivated_by: address,
     }
 
-    struct DeviceReactivated has copy, drop {
+    public struct DeviceReactivated has copy, drop {
         public_key: String,
         reactivated_by: address,
     }
@@ -81,7 +78,7 @@ module edgeclaw::device_registry {
     // ─── Public Functions ──────────────────────────────────
 
     /// Register a new device. Aborts if public_key already registered.
-    public entry fun register_device(
+    public fun register_device(
         registry: &mut Registry,
         public_key: vector<u8>,
         device_name: vector<u8>,
@@ -112,7 +109,7 @@ module edgeclaw::device_registry {
     }
 
     /// Deactivate a device. Only owner or admin may do this.
-    public entry fun deactivate_device(
+    public fun deactivate_device(
         registry: &mut Registry,
         public_key: vector<u8>,
         ctx: &mut TxContext,
@@ -129,7 +126,7 @@ module edgeclaw::device_registry {
     }
 
     /// Reactivate a device. Only owner or admin may do this.
-    public entry fun reactivate_device(
+    public fun reactivate_device(
         registry: &mut Registry,
         public_key: vector<u8>,
         ctx: &mut TxContext,
@@ -146,6 +143,13 @@ module edgeclaw::device_registry {
     }
 
     // ─── View Functions ────────────────────────────────────
+
+    // ─── Test Helpers ─────────────────────────────────────
+
+    #[test_only]
+    public fun init_for_testing(ctx: &mut TxContext) {
+        init(ctx)
+    }
 
     /// Check if a device is registered.
     public fun is_registered(registry: &Registry, public_key: String): bool {

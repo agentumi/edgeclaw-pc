@@ -50,6 +50,11 @@ pub mod edgeclaw {
 
     // ─── Policy NFT ────────────────────────────────────────
 
+    /// Initialize the policy counter.
+    pub fn initialize_policy_counter(ctx: Context<InitializePolicyCounter>) -> Result<()> {
+        policy_nft::initialize_policy_counter(ctx)
+    }
+
     /// Mint a policy NFT.
     pub fn mint_policy(
         ctx: Context<MintPolicy>,

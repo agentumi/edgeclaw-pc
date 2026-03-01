@@ -57,8 +57,21 @@ pub struct PolicyCounter {
 
 // ─── Contexts ──────────────────────────────────────────
 
-#[derive(Accounts)]
-pub struct MintPolicy<'info> {
+#[derive(Accounts)]pub struct InitializePolicyCounter<'info> {
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + 8 + 32 + 1,
+        seeds = [b"policy_counter"],
+        bump,
+    )]
+    pub counter: Account<'info, PolicyCounter>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]pub struct MintPolicy<'info> {
     #[account(mut, seeds = [b"policy_counter"], bump = counter.bump)]
     pub counter: Account<'info, PolicyCounter>,
     #[account(
@@ -102,7 +115,13 @@ pub enum PolicyError {
 }
 
 // ─── Handlers ──────────────────────────────────────────
-
+pub fn initialize_policy_counter(ctx: Context<InitializePolicyCounter>) -> Result<()> {
+    let counter = &mut ctx.accounts.counter;
+    counter.next_id = 0;
+    counter.admin = ctx.accounts.admin.key();
+    counter.bump = ctx.bumps.counter;
+    Ok(())
+}
 pub fn mint_policy(
     ctx: Context<MintPolicy>,
     role: String,

@@ -76,7 +76,7 @@ base64 = "0.22"
 hex = "0.4"
 
 # Directory management
-dirs = "5"
+dirs = "6"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }

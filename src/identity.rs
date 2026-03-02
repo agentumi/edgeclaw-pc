@@ -114,6 +114,21 @@ impl IdentityManager {
         let signature = key.sign(data);
         Ok(signature.to_bytes().to_vec())
     }
+
+    /// Get a clone of the Ed25519 signing key.
+    pub fn get_signing_key(&self) -> Result<SigningKey, AgentError> {
+        self.signing_key
+            .clone()
+            .ok_or(AgentError::InternalError("signing key not available".into()))
+    }
+
+    /// Get the Ed25519 verifying (public) key.
+    pub fn get_verifying_key(&self) -> Result<VerifyingKey, AgentError> {
+        let signing = self.signing_key.as_ref().ok_or(AgentError::InternalError(
+            "signing key not available".into(),
+        ))?;
+        Ok(signing.verifying_key())
+    }
 }
 
 /// Detect the current platform string

@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EdgeClaw Task Board</title>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --border: #30363d;
+  --text: #c9d1d9; --text-muted: #8b949e; --accent: #58a6ff;
+  --green: #3fb950; --yellow: #d29922; --red: #f85149; --purple: #bc8cff;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.topbar h1 { font-size: 18px; font-weight: 600; }
+.topbar h1 span { color: var(--accent); }
+.topbar .actions { display: flex; gap: 8px; }
+.btn { background: var(--accent); color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
+.btn:hover { opacity: 0.9; }
+.btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+.btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Kanban columns */
+.kanban { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 24px; max-width: 1600px; margin: 0 auto; min-height: calc(100vh - 60px); }
+.column { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; }
+.column-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.column-header h2 { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.column-header .count { background: var(--border); color: var(--text-muted); font-size: 12px; padding: 2px 8px; border-radius: 10px; }
+.column-header.backlog h2 { color: var(--text-muted); }
+.column-header.in-progress h2 { color: var(--accent); }
+.column-header.review h2 { color: var(--yellow); }
+.column-header.done h2 { color: var(--green); }
+.column-body { flex: 1; padding: 8px; overflow-y: auto; min-height: 200px; }
+
+/* Task cards */
+.task-card { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px; cursor: grab; transition: border-color 0.2s, box-shadow 0.2s; }
+.task-card:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.task-card.dragging { opacity: 0.5; }
+.task-title { font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+.task-meta { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-muted); flex-wrap: wrap; }
+.task-id { font-family: monospace; color: var(--text-muted); }
+.tag { background: rgba(88, 166, 255, 0.15); color: var(--accent); padding: 1px 6px; border-radius: 3px; font-size: 11px; }
+.priority-critical { border-left: 3px solid var(--red); }
+.priority-high { border-left: 3px solid var(--yellow); }
+.priority-medium { border-left: 3px solid var(--accent); }
+.priority-low { border-left: 3px solid var(--text-muted); }
+.assignee { display: flex; align-items: center; gap: 4px; }
+.assignee-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+
+/* Create modal */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
+.modal-overlay.active { display: flex; }
+.modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; width: 440px; max-width: 95vw; }
+.modal h2 { font-size: 16px; margin-bottom: 16px; }
+.modal label { display: block; font-size: 13px; color: var(--text-muted); margin-bottom: 4px; margin-top: 12px; }
+.modal input, .modal select, .modal textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: 6px; font-size: 14px; }
+.modal textarea { height: 80px; resize: vertical; }
+.modal .btn-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+/* Drop indicator */
+.column-body.drag-over { background: rgba(88,166,255,0.05); border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>🔲 <span>EdgeClaw</span> Task Board</h1>
+  <div class="actions">
+    <button class="btn-outline btn" onclick="refreshBoard()">↻ Refresh</button>
+    <button class="btn" onclick="openCreate()">+ New Task</button>
+  </div>
+</div>
+
+<div class="kanban">
+  <div class="column" data-status="backlog">
+    <div class="column-header backlog"><h2>Backlog</h2><span class="count" id="cnt-backlog">0</span></div>
+    <div class="column-body" id="col-backlog"></div>
+  </div>
+  <div class="column" data-status="in_progress">
+    <div class="column-header in-progress"><h2>In Progress</h2><span class="count" id="cnt-in_progress">0</span></div>
+    <div class="column-body" id="col-in_progress"></div>
+  </div>
+  <div class="column" data-status="review">
+    <div class="column-header review"><h2>Review</h2><span class="count" id="cnt-review">0</span></div>
+    <div class="column-body" id="col-review"></div>
+  </div>
+  <div class="column" data-status="done">
+    <div class="column-header done"><h2>Done</h2><span class="count" id="cnt-done">0</span></div>
+    <div class="column-body" id="col-done"></div>
+  </div>
+</div>
+
+<!-- Create Task Modal -->
+<div class="modal-overlay" id="create-modal">
+  <div class="modal">
+    <h2>Create Task</h2>
+    <label>Title</label>
+    <input type="text" id="new-title" placeholder="Task title…">
+    <label>Project</label>
+    <input type="text" id="new-project" value="default">
+    <label>Priority</label>
+    <select id="new-priority">
+      <option value="low">Low</option>
+      <option value="medium" selected>Medium</option>
+      <option value="high">High</option>
+      <option value="critical">Critical</option>
+    </select>
+    <label>Description</label>
+    <textarea id="new-desc" placeholder="Optional description…"></textarea>
+    <label>Tags (comma-separated)</label>
+    <input type="text" id="new-tags" placeholder="rust, refactor">
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="closeCreate()">Cancel</button>
+      <button class="btn" onclick="submitCreate()">Create</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin + '/api';
+const statusMap = { 'Backlog': 'backlog', 'Todo': 'backlog', 'InProgress': 'in_progress', 'Review': 'review', 'Done': 'done' };
+
+function statusKey(s) {
+  if (typeof s === 'string') return statusMap[s] || 'backlog';
+  if (s && s.type) return statusMap[s.type] || 'backlog';
+  return 'backlog';
+}
+
+function priorityClass(p) {
+  const v = (typeof p === 'string') ? p.toLowerCase() : (p?.type || 'medium').toLowerCase();
+  return 'priority-' + v;
+}
+
+function renderCard(task) {
+  const id = task.id.substring(0, 8);
+  const assigneeHtml = task.assignee ? `<span class="assignee"><span class="assignee-dot"></span>${task.assignee.substring(0,12)}</span>` : '';
+  const tagsHtml = (task.tags || []).map(t => `<span class="tag">${t}</span>`).join('');
+  return `<div class="task-card ${priorityClass(task.priority)}" draggable="true" data-id="${task.id}"
+    ondragstart="drag(event)" ondragend="dragEnd(event)">
+    <div class="task-title">${task.title}</div>
+    <div class="task-meta">
+      <span class="task-id">#${id}</span>
+      ${assigneeHtml}
+      ${tagsHtml}
+    </div>
+  </div>`;
+}
+
+async function refreshBoard() {
+  try {
+    const res = await fetch(API + '/tasks');
+    if (!res.ok) { console.error('fetch failed'); return; }
+    const tasks = await res.json();
+    const buckets = { backlog: [], in_progress: [], review: [], done: [] };
+    tasks.forEach(t => {
+      const k = statusKey(t.status);
+      (buckets[k] || buckets.backlog).push(t);
+    });
+    for (const [k, items] of Object.entries(buckets)) {
+      document.getElementById('col-' + k).innerHTML = items.map(renderCard).join('');
+      document.getElementById('cnt-' + k).textContent = items.length;
+    }
+    initDrop();
+  } catch(e) { console.error('refreshBoard', e); }
+}
+
+function drag(ev) {
+  ev.dataTransfer.setData('text/plain', ev.target.dataset.id);
+  ev.target.classList.add('dragging');
+}
+function dragEnd(ev) { ev.target.classList.remove('dragging'); }
+
+function initDrop() {
+  document.querySelectorAll('.column-body').forEach(col => {
+    col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('drag-over'); });
+    col.addEventListener('dragleave', () => col.classList.remove('drag-over'));
+    col.addEventListener('drop', async e => {
+      e.preventDefault();
+      col.classList.remove('drag-over');
+      const id = e.dataTransfer.getData('text/plain');
+      const newStatus = col.parentElement.dataset.status;
+      try {
+        await fetch(API + '/tasks/' + id + '/move', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: newStatus })
+        });
+        refreshBoard();
+      } catch(err) { console.error('drop', err); }
+    });
+  });
+}
+
+function openCreate() { document.getElementById('create-modal').classList.add('active'); }
+function closeCreate() { document.getElementById('create-modal').classList.remove('active'); }
+
+async function submitCreate() {
+  const title = document.getElementById('new-title').value.trim();
+  if (!title) return;
+  const body = {
+    title,
+    project: document.getElementById('new-project').value.trim() || 'default',
+    priority: document.getElementById('new-priority').value,
+    description: document.getElementById('new-desc').value.trim() || null,
+    tags: document.getElementById('new-tags').value.split(',').map(s => s.trim()).filter(Boolean),
+  };
+  try {
+    await fetch(API + '/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    closeCreate();
+    document.getElementById('new-title').value = '';
+    document.getElementById('new-desc').value = '';
+    document.getElementById('new-tags').value = '';
+    refreshBoard();
+  } catch(err) { console.error('create', err); }
+}
+
+// Initial load
+refreshBoard();
+// Auto-refresh every 10s
+setInterval(refreshBoard, 10000);
+</script>
+</body>
+</html>

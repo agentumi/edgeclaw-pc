@@ -24,11 +24,15 @@
 //! println!("Device: {}", identity.device_id);
 //! ```
 
+pub mod activity_anchor;
 pub mod activity_collector;
 pub mod activity_log;
+pub mod activity_signing;
 pub mod ai;
+pub mod ai_summary;
 pub mod audit;
 pub mod blockchain;
+pub mod cbor_encoding;
 pub mod chain;
 pub mod config;
 pub mod discovery;
@@ -39,6 +43,7 @@ pub mod events;
 pub mod executor;
 pub mod federation;
 pub mod gateway;
+pub mod git_integration;
 pub mod identity;
 pub mod k8s;
 pub mod license;
@@ -48,12 +53,14 @@ pub mod peer;
 pub mod policy;
 pub mod protocol;
 pub mod registry;
+pub mod search;
 pub mod secure_boot;
 pub mod security;
 pub mod server;
 pub mod session;
 pub mod sync;
 pub mod system;
+pub mod task_board;
 pub mod task_templates;
 pub mod team_sync;
 pub mod tee;
@@ -61,12 +68,14 @@ pub mod tee_sgx;
 pub mod transport;
 pub mod updater;
 pub mod wasm;
+pub mod webhook;
 pub mod websocket;
 pub mod webui;
 pub mod workflows;
 
 use std::sync::{Arc, Mutex};
 
+use crate::activity_log::{ActivityEntry, ActivityManager, ActivityStats, ActivityType};
 use crate::ai::{AiManager, AiRequest, AiResponse, ChatMessage, ChatRole};
 use crate::audit::AuditManager;
 use crate::config::AgentConfig;
@@ -91,6 +100,7 @@ pub struct AgentEngine {
     executor: Executor,
     ai_manager: AiManager,
     audit_manager: AuditManager,
+    activity_manager: Arc<ActivityManager>,
     event_bus: Arc<EventBus>,
     chat_history: Mutex<Vec<ChatMessage>>,
     start_time: chrono::DateTime<chrono::Utc>,
@@ -116,6 +126,20 @@ impl AgentEngine {
             AuditManager::with_persistence(audit_path)
         };
 
+        // Use persistent activity log if config dir is available
+        let activity_manager = {
+            let activity_path = dirs::data_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join("edgeclaw")
+                .join("activity.jsonl");
+            Arc::new(ActivityManager::with_persistence(
+                "local",
+                &config.agent.device_name,
+                "owner",
+                activity_path,
+            ))
+        };
+
         Self {
             config,
             identity_manager: Mutex::new(IdentityManager::new()),
@@ -125,6 +149,7 @@ impl AgentEngine {
             executor,
             ai_manager,
             audit_manager,
+            activity_manager,
             event_bus: Arc::new(EventBus::new(256)),
             chat_history: Mutex::new(Vec::new()),
             start_time: chrono::Utc::now(),
@@ -438,6 +463,85 @@ impl AgentEngine {
     /// Get the event bus for subscribing to real-time events
     pub fn event_bus(&self) -> &Arc<EventBus> {
         &self.event_bus
+    }
+
+    // ─── Activity Log ──────────────────────────────────────
+
+    /// Get the activity manager reference
+    pub fn activity_manager(&self) -> &Arc<ActivityManager> {
+        &self.activity_manager
+    }
+
+    /// Record an activity entry
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_activity(
+        &self,
+        activity_type: ActivityType,
+        content: &str,
+        session_id: uuid::Uuid,
+        importance: u8,
+        tags: &[&str],
+        file_path: Option<&str>,
+        project: &str,
+    ) -> ActivityEntry {
+        self.activity_manager.record(
+            activity_type,
+            content,
+            session_id,
+            importance,
+            tags,
+            file_path,
+            project,
+        )
+    }
+
+    /// Get activity log statistics
+    pub fn activity_stats(&self) -> ActivityStats {
+        self.activity_manager.stats()
+    }
+
+    /// Search activity log
+    pub fn search_activities(&self, query: &str, limit: usize) -> Vec<ActivityEntry> {
+        self.activity_manager.search(query, limit)
+    }
+
+    /// Get recent activity entries
+    pub fn recent_activities(&self, n: usize) -> Vec<ActivityEntry> {
+        self.activity_manager.recent(n)
+    }
+
+    /// Get activity count
+    pub fn activity_count(&self) -> usize {
+        self.activity_manager.count()
+    }
+
+    /// Verify activity chain integrity
+    pub fn verify_activity_chain(&self) -> Result<bool, String> {
+        self.activity_manager.verify_chain()
+    }
+
+    /// Export activity log as JSON
+    pub fn export_activity_log(&self) -> Result<String, serde_json::Error> {
+        self.activity_manager.export_json()
+    }
+
+    /// Export activity log as CSV
+    pub fn export_activity_csv(&self) -> Result<String, AgentError> {
+        self.activity_manager.export_csv()
+    }
+
+    /// Full-text search using Tantivy index (scored results)
+    pub fn fts_search_activities(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Vec<(f32, ActivityEntry)> {
+        self.activity_manager.full_text_search(query, limit)
+    }
+
+    /// Generate a highlighted snippet for a search result.
+    pub fn highlight_activity(&self, query: &str, content: &str) -> String {
+        self.activity_manager.highlight(query, content)
     }
 
     // ─── AI Chat ───────────────────────────────────────────

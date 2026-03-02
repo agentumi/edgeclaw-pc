@@ -3,6 +3,18 @@
 //! Provides a [`WebSocketServer`] that upgrades HTTP connections to WebSocket,
 //! authenticates clients, and bridges them to the [`EventBus`].
 //! Supports up to 50 concurrent clients with 30-second heartbeat ping/pong.
+//!
+//! ## V4.0 Activity Streaming
+//!
+//! Clients can subscribe to real-time activity updates by sending a subscribe
+//! message with optional filters:
+//!
+//! ```json
+//! { "subscribe": { "project": "edgeclaw", "min_importance": 2, "agent": "dev-001" } }
+//! ```
+//!
+//! Only `ActivityRecorded` events matching the subscription filters are forwarded.
+//! Clients without a subscription receive all events (backward-compatible).
 
 use crate::error::AgentError;
 use crate::events::{AgentEvent, EventBus};
@@ -51,6 +63,41 @@ pub struct WsClientInfo {
     pub peer_addr: String,
     pub connected_at: chrono::DateTime<chrono::Utc>,
     pub authenticated: bool,
+    /// Activity subscription filter (None = receive all events, Some = activity-only filtered)
+    pub activity_filter: Option<ActivityFilter>,
+}
+
+/// Client-side activity subscription filter.
+///
+/// When a client sends a `subscribe` message, only `ActivityRecorded` events
+/// matching ALL non-empty filters are forwarded.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct ActivityFilter {
+    /// Filter by project name (empty = all projects)
+    #[serde(default)]
+    pub project: String,
+    /// Filter by agent ID (empty = all agents)
+    #[serde(default)]
+    pub agent: String,
+    /// Minimum importance level (0 = all)
+    #[serde(default)]
+    pub min_importance: u8,
+}
+
+impl ActivityFilter {
+    /// Check if an ActivityRecorded event matches this filter.
+    pub fn matches(&self, project: &str, agent_id: &str, importance: u8) -> bool {
+        if !self.project.is_empty() && self.project != project {
+            return false;
+        }
+        if !self.agent.is_empty() && self.agent != agent_id {
+            return false;
+        }
+        if importance < self.min_importance {
+            return false;
+        }
+        true
+    }
 }
 
 /// WebSocket server for real-time event distribution
@@ -192,6 +239,7 @@ async fn handle_ws_client(
                 peer_addr: peer_addr.clone(),
                 connected_at: chrono::Utc::now(),
                 authenticated: !auth_required,
+                activity_filter: None,
             },
         );
     }
@@ -241,6 +289,8 @@ async fn handle_ws_client(
     let sink_clone = ws_sink.clone();
     let pong_clone = last_pong.clone();
     let peer_clone = peer_addr.clone();
+    let clients_clone = clients.clone();
+    let client_id_clone = client_id.clone();
     let forward_handle = tokio::spawn(async move {
         let mut heartbeat_interval = tokio::time::interval(HEARTBEAT_INTERVAL);
 
@@ -249,10 +299,29 @@ async fn handle_ws_client(
                 event = event_rx.recv() => {
                     match event {
                         Ok(evt) => {
-                            if let Ok(json) = serde_json::to_string(&evt) {
-                                let mut sink = sink_clone.lock().await;
-                                if sink.send(Message::Text(json)).await.is_err() {
-                                    break; // Client disconnected
+                            // Apply activity filter if client has subscribed
+                            let should_send = {
+                                let cl = clients_clone.read().await;
+                                if let Some(info) = cl.get(&client_id_clone) {
+                                    if let Some(ref filter) = info.activity_filter {
+                                        // Client has activity filter — only send matching ActivityRecorded
+                                        matches!(&evt, AgentEvent::ActivityRecorded {
+                                            project, agent_id, importance, ..
+                                        } if filter.matches(project, agent_id, *importance))
+                                    } else {
+                                        true // No filter — send everything
+                                    }
+                                } else {
+                                    false // Client removed — stop
+                                }
+                            };
+
+                            if should_send {
+                                if let Ok(json) = serde_json::to_string(&evt) {
+                                    let mut sink = sink_clone.lock().await;
+                                    if sink.send(Message::Text(json)).await.is_err() {
+                                        break; // Client disconnected
+                                    }
                                 }
                             }
                         }
@@ -285,7 +354,7 @@ async fn handle_ws_client(
             msg = ws_stream_rx.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        handle_ws_message(&text, &event_bus, &peer_addr);
+                        handle_ws_message(&text, &event_bus, &peer_addr, &clients);
                     }
                     Some(Ok(Message::Pong(_))) => {
                         *last_pong.lock().await = std::time::Instant::now();
@@ -339,7 +408,35 @@ async fn wait_for_auth(
 }
 
 /// Handle an incoming WebSocket text message from the client
-fn handle_ws_message(text: &str, event_bus: &EventBus, peer_addr: &str) {
+fn handle_ws_message(
+    text: &str,
+    event_bus: &EventBus,
+    peer_addr: &str,
+    clients: &Arc<RwLock<HashMap<String, WsClientInfo>>>,
+) {
+    // Try subscribe message first
+    #[derive(serde::Deserialize)]
+    struct SubscribeMsg {
+        subscribe: ActivityFilter,
+    }
+
+    if let Ok(sub) = serde_json::from_str::<SubscribeMsg>(text) {
+        info!(peer = %peer_addr, project = %sub.subscribe.project,
+              agent = %sub.subscribe.agent, min_imp = sub.subscribe.min_importance,
+              "WS client subscribed to activity stream");
+        let clients = clients.clone();
+        let client_id = peer_addr.to_string();
+        let filter = sub.subscribe;
+        // Spawn a small task to update the filter (needs async lock)
+        tokio::spawn(async move {
+            let mut cl = clients.write().await;
+            if let Some(info) = cl.get_mut(&client_id) {
+                info.activity_filter = Some(filter);
+            }
+        });
+        return;
+    }
+
     // Parse incoming JSON message
     #[derive(serde::Deserialize)]
     struct WsCommand {
@@ -351,6 +448,17 @@ fn handle_ws_message(text: &str, event_bus: &EventBus, peer_addr: &str) {
         match cmd.action.as_str() {
             "ping" => {
                 event_bus.publish(AgentEvent::Heartbeat { uptime_secs: 0 });
+            }
+            "unsubscribe" => {
+                let clients = clients.clone();
+                let client_id = peer_addr.to_string();
+                tokio::spawn(async move {
+                    let mut cl = clients.write().await;
+                    if let Some(info) = cl.get_mut(&client_id) {
+                        info.activity_filter = None;
+                    }
+                });
+                info!(peer = %peer_addr, "WS client unsubscribed from activity stream");
             }
             _ => {
                 warn!(peer = %peer_addr, action = %cmd.action, "unknown WS action");
@@ -377,6 +485,7 @@ mod tests {
             peer_addr: "127.0.0.1:12345".to_string(),
             connected_at: chrono::Utc::now(),
             authenticated: true,
+            activity_filter: None,
         };
         assert!(info.authenticated);
         assert_eq!(info.peer_addr, "127.0.0.1:12345");
@@ -394,8 +503,9 @@ mod tests {
     #[test]
     fn test_handle_ws_message_ping() {
         let bus = EventBus::new(64);
+        let clients = Arc::new(RwLock::new(HashMap::new()));
         let mut rx = bus.subscribe();
-        handle_ws_message(r#"{"action":"ping"}"#, &bus, "test");
+        handle_ws_message(r#"{"action":"ping"}"#, &bus, "test", &clients);
         // Should have published a heartbeat
         let event = rx.try_recv();
         assert!(event.is_ok());
@@ -405,15 +515,17 @@ mod tests {
     #[test]
     fn test_handle_ws_message_unknown() {
         let bus = EventBus::new(64);
+        let clients = Arc::new(RwLock::new(HashMap::new()));
         // Should not panic on unknown action
-        handle_ws_message(r#"{"action":"unknown"}"#, &bus, "test");
+        handle_ws_message(r#"{"action":"unknown"}"#, &bus, "test", &clients);
     }
 
     #[test]
     fn test_handle_ws_message_invalid_json() {
         let bus = EventBus::new(64);
+        let clients = Arc::new(RwLock::new(HashMap::new()));
         // Should not panic on invalid JSON
-        handle_ws_message("not json", &bus, "test");
+        handle_ws_message("not json", &bus, "test", &clients);
     }
 
     #[tokio::test]
@@ -456,6 +568,7 @@ mod tests {
             peer_addr: "10.0.0.1:5555".into(),
             connected_at: now,
             authenticated: false,
+            activity_filter: None,
         };
         assert!(!info.authenticated);
         assert_eq!(info.peer_addr, "10.0.0.1:5555");
@@ -475,15 +588,17 @@ mod tests {
     #[test]
     fn test_handle_ws_message_empty() {
         let bus = EventBus::new(64);
+        let clients = Arc::new(RwLock::new(HashMap::new()));
         // Empty string should not panic
-        handle_ws_message("", &bus, "test");
+        handle_ws_message("", &bus, "test", &clients);
     }
 
     #[test]
     fn test_handle_ws_message_valid_json_no_action() {
         let bus = EventBus::new(64);
+        let clients = Arc::new(RwLock::new(HashMap::new()));
         // JSON without "action" should not panic (default empty string)
-        handle_ws_message(r#"{"foo": "bar"}"#, &bus, "test");
+        handle_ws_message(r#"{"foo": "bar"}"#, &bus, "test", &clients);
     }
 
     #[test]
@@ -539,5 +654,170 @@ mod tests {
         }
 
         server_handle.await.unwrap();
+    }
+
+    // ─── V4.0 Activity Streaming Tests ───────────────────
+
+    #[test]
+    fn test_activity_filter_matches_all() {
+        let filter = ActivityFilter {
+            project: String::new(),
+            agent: String::new(),
+            min_importance: 0,
+        };
+        assert!(filter.matches("any-project", "any-agent", 0));
+        assert!(filter.matches("proj-b", "dev-002", 3));
+    }
+
+    #[test]
+    fn test_activity_filter_project() {
+        let filter = ActivityFilter {
+            project: "edgeclaw".to_string(),
+            agent: String::new(),
+            min_importance: 0,
+        };
+        assert!(filter.matches("edgeclaw", "dev-001", 1));
+        assert!(!filter.matches("other-project", "dev-001", 1));
+    }
+
+    #[test]
+    fn test_activity_filter_agent() {
+        let filter = ActivityFilter {
+            project: String::new(),
+            agent: "dev-001".to_string(),
+            min_importance: 0,
+        };
+        assert!(filter.matches("any", "dev-001", 0));
+        assert!(!filter.matches("any", "dev-002", 0));
+    }
+
+    #[test]
+    fn test_activity_filter_min_importance() {
+        let filter = ActivityFilter {
+            project: String::new(),
+            agent: String::new(),
+            min_importance: 2,
+        };
+        assert!(filter.matches("any", "any", 2));
+        assert!(filter.matches("any", "any", 3));
+        assert!(!filter.matches("any", "any", 1));
+        assert!(!filter.matches("any", "any", 0));
+    }
+
+    #[test]
+    fn test_activity_filter_combined() {
+        let filter = ActivityFilter {
+            project: "edgeclaw".to_string(),
+            agent: "dev-001".to_string(),
+            min_importance: 2,
+        };
+        // All match
+        assert!(filter.matches("edgeclaw", "dev-001", 3));
+        // Wrong project
+        assert!(!filter.matches("other", "dev-001", 3));
+        // Wrong agent
+        assert!(!filter.matches("edgeclaw", "dev-999", 3));
+        // Too low importance
+        assert!(!filter.matches("edgeclaw", "dev-001", 1));
+    }
+
+    #[test]
+    fn test_subscribe_message_parsing() {
+        let msg = r#"{"subscribe": {"project": "edgeclaw", "min_importance": 2}}"#;
+        #[derive(serde::Deserialize)]
+        struct SubscribeMsg {
+            subscribe: ActivityFilter,
+        }
+        let parsed: SubscribeMsg = serde_json::from_str(msg).unwrap();
+        assert_eq!(parsed.subscribe.project, "edgeclaw");
+        assert_eq!(parsed.subscribe.min_importance, 2);
+        assert!(parsed.subscribe.agent.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_subscribe_updates_client_filter() {
+        let bus = EventBus::new(64);
+        let clients: Arc<RwLock<HashMap<String, WsClientInfo>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+
+        // Register a client
+        {
+            let mut cl = clients.write().await;
+            cl.insert(
+                "test-peer".to_string(),
+                WsClientInfo {
+                    peer_addr: "test-peer".to_string(),
+                    connected_at: chrono::Utc::now(),
+                    authenticated: true,
+                    activity_filter: None,
+                },
+            );
+        }
+
+        // Send subscribe message
+        let sub_msg = r#"{"subscribe": {"project": "edgeclaw", "min_importance": 2}}"#;
+        handle_ws_message(sub_msg, &bus, "test-peer", &clients);
+
+        // Allow the spawned task to run
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Verify filter was set
+        let cl = clients.read().await;
+        let info = cl.get("test-peer").unwrap();
+        assert!(info.activity_filter.is_some());
+        let filter = info.activity_filter.as_ref().unwrap();
+        assert_eq!(filter.project, "edgeclaw");
+        assert_eq!(filter.min_importance, 2);
+    }
+
+    #[tokio::test]
+    async fn test_ws_activity_event_broadcast() {
+        use tokio_tungstenite::connect_async;
+
+        // Start a raw WS server that sends an ActivityRecorded event
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_handle = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let (mut sink, _) = ws.split();
+
+            let event = AgentEvent::ActivityRecorded {
+                entry_json: r#"{"id":"abc"}"#.to_string(),
+                project: "edgeclaw".into(),
+                agent_id: "dev-001".into(),
+                importance: 2,
+            };
+            let json = serde_json::to_string(&event).unwrap();
+            sink.send(Message::Text(json)).await.unwrap();
+        });
+
+        let url = format!("ws://{}", addr);
+        let (ws, _) = connect_async(&url).await.unwrap();
+        let (_, mut read) = ws.split();
+
+        if let Some(Ok(Message::Text(text))) = read.next().await {
+            let event: AgentEvent = serde_json::from_str(&text).unwrap();
+            assert!(matches!(event, AgentEvent::ActivityRecorded { importance: 2, .. }));
+        } else {
+            panic!("expected ActivityRecorded text message");
+        }
+
+        server_handle.await.unwrap();
+    }
+
+    #[test]
+    fn test_activity_filter_serialization() {
+        let filter = ActivityFilter {
+            project: "edgeclaw".into(),
+            agent: "dev-001".into(),
+            min_importance: 2,
+        };
+        let json = serde_json::to_string(&filter).unwrap();
+        let parsed: ActivityFilter = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.project, "edgeclaw");
+        assert_eq!(parsed.agent, "dev-001");
+        assert_eq!(parsed.min_importance, 2);
     }
 }

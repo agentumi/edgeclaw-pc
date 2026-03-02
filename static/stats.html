@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EdgeClaw — Statistics</title>
+<style>
+:root { --bg: #1a1a2e; --surface: #16213e; --card: #0f3460; --accent: #e94560; --text: #eee; --muted: #999; --border: #2a2a4a; }
+[data-theme="light"] { --bg: #f5f5f5; --surface: #fff; --card: #e8e8e8; --accent: #e94560; --text: #222; --muted: #666; --border: #ddd; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+nav .logo { font-weight: 700; font-size: 1.1rem; color: var(--accent); }
+nav .links a { color: var(--muted); text-decoration: none; margin-left: 1rem; font-size: 0.9rem; }
+nav .links a:hover, nav .links a.active { color: var(--accent); }
+.theme-toggle { cursor: pointer; background: none; border: 1px solid var(--border); color: var(--text); padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.8rem; }
+.container { max-width: 1000px; margin: 0 auto; padding: 1rem; }
+h1 { font-size: 1.3rem; margin-bottom: 1rem; }
+.kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; text-align: center; }
+.kpi .kv { font-size: 2rem; font-weight: 700; color: var(--accent); }
+.kpi .kl { font-size: 0.8rem; color: var(--muted); }
+.charts { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
+.chart-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+.chart-panel h2 { font-size: 1rem; margin-bottom: 0.75rem; }
+.bar-row { display: flex; align-items: center; margin-bottom: 0.4rem; }
+.bar-row .bl { width: 100px; font-size: 0.8rem; color: var(--muted); text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-row .bf { height: 18px; border-radius: 3px; transition: width 0.5s; min-width: 2px; }
+.bar-row .bv { margin-left: 0.5rem; font-size: 0.8rem; }
+.pie-container { display: flex; justify-content: center; align-items: center; min-height: 200px; }
+.pie-legend { margin-top: 0.5rem; font-size: 0.8rem; }
+.pie-legend span { display: inline-block; margin-right: 0.8rem; }
+.pie-legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 3px; vertical-align: middle; }
+.trend-row { display: flex; align-items: flex-end; gap: 2px; height: 120px; padding-top: 10px; }
+.trend-bar { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; min-width: 4px; transition: height 0.3s; position: relative; }
+.trend-bar:hover::after { content: attr(data-label); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); font-size: 0.65rem; background: var(--card); padding: 2px 4px; border-radius: 3px; white-space: nowrap; }
+.trend-labels { display: flex; gap: 2px; font-size: 0.6rem; color: var(--muted); text-align: center; }
+.trend-labels span { flex: 1; }
+@media (max-width: 700px) { .charts { grid-template-columns: 1fr; } .kpi-row { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body>
+<nav>
+  <span class="logo">🔷 EdgeClaw</span>
+  <div class="links">
+    <a href="/">Chat</a>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/activity">Activity</a>
+    <a href="/sessions">Sessions</a>
+    <a href="/search">Search</a>
+    <a href="/stats" class="active">Stats</a>
+  </div>
+  <button class="theme-toggle" onclick="toggleTheme()">🌓</button>
+</nav>
+<div class="container">
+  <h1>📊 Activity Statistics</h1>
+  <div class="kpi-row" id="kpis"></div>
+  <div class="charts">
+    <div class="chart-panel">
+      <h2>Activity Types</h2>
+      <div id="type-pie" class="pie-container"></div>
+      <div id="type-legend" class="pie-legend"></div>
+    </div>
+    <div class="chart-panel">
+      <h2>By Project</h2>
+      <div id="project-bars"></div>
+    </div>
+    <div class="chart-panel" style="grid-column: 1 / -1;">
+      <h2>Daily Activity (Last 14 Days)</h2>
+      <div class="trend-row" id="daily-trend"></div>
+      <div class="trend-labels" id="daily-labels"></div>
+    </div>
+  </div>
+</div>
+<script>
+function toggleTheme() { const t = document.documentElement.dataset.theme; document.documentElement.dataset.theme = t === 'dark' ? 'light' : 'dark'; }
+
+const COLORS = ['#e94560','#4ade80','#60a5fa','#fbbf24','#a78bfa','#f472b6','#34d399','#fb923c','#818cf8','#f87171'];
+
+async function load() {
+  try {
+    const res = await fetch('/api/activities/stats');
+    const data = await res.json();
+
+    // KPIs
+    const kpiDiv = document.getElementById('kpis');
+    const kpis = [
+      { v: data.total_entries || 0, l: 'Total Entries' },
+      { v: data.total_sessions || 0, l: 'Sessions' },
+      { v: `$${(data.total_cost || 0).toFixed(2)}`, l: 'Total Cost' },
+      { v: (data.total_tokens || 0).toLocaleString(), l: 'Total Tokens' },
+    ];
+    kpiDiv.innerHTML = kpis.map(k => `<div class="kpi"><div class="kv">${k.v}</div><div class="kl">${k.l}</div></div>`).join('');
+
+    // Type pie chart (SVG)
+    const types = data.by_type || {};
+    const typeEntries = Object.entries(types).sort((a, b) => b[1] - a[1]);
+    const total = typeEntries.reduce((s, [, v]) => s + v, 0) || 1;
+    const pieDiv = document.getElementById('type-pie');
+    const legendDiv = document.getElementById('type-legend');
+
+    if (typeEntries.length > 0) {
+      let svg = '<svg width="180" height="180" viewBox="-1 -1 2 2" style="transform:rotate(-90deg)">';
+      let cumulative = 0;
+      typeEntries.forEach(([type, count], i) => {
+        const pct = count / total;
+        const x1 = Math.cos(2 * Math.PI * cumulative);
+        const y1 = Math.sin(2 * Math.PI * cumulative);
+        cumulative += pct;
+        const x2 = Math.cos(2 * Math.PI * cumulative);
+        const y2 = Math.sin(2 * Math.PI * cumulative);
+        const largeArc = pct > 0.5 ? 1 : 0;
+        svg += `<path d="M ${x1} ${y1} A 1 1 0 ${largeArc} 1 ${x2} ${y2} L 0 0" fill="${COLORS[i % COLORS.length]}"/>`;
+      });
+      svg += '</svg>';
+      pieDiv.innerHTML = svg;
+      legendDiv.innerHTML = typeEntries.map(([type, count], i) => `<span><span class="dot" style="background:${COLORS[i % COLORS.length]}"></span>${type}: ${count}</span>`).join('');
+    } else {
+      pieDiv.innerHTML = '<span style="color:var(--muted)">No data</span>';
+    }
+
+    // Project bars
+    const projects = data.by_project || {};
+    const projEntries = Object.entries(projects).sort((a, b) => b[1] - a[1]);
+    const projMax = projEntries.length > 0 ? projEntries[0][1] : 1;
+    const projDiv = document.getElementById('project-bars');
+    if (projEntries.length > 0) {
+      projDiv.innerHTML = projEntries.slice(0, 10).map(([p, c], i) => {
+        const pct = (c / projMax * 100).toFixed(1);
+        return `<div class="bar-row"><span class="bl" title="${p}">${p}</span><div class="bf" style="width:${pct}%;background:${COLORS[i % COLORS.length]}"></div><span class="bv">${c}</span></div>`;
+      }).join('');
+    } else {
+      projDiv.innerHTML = '<span style="color:var(--muted)">No project data</span>';
+    }
+
+    // Daily trend
+    const daily = data.daily || [];
+    const trendDiv = document.getElementById('daily-trend');
+    const labelsDiv = document.getElementById('daily-labels');
+    if (daily.length > 0) {
+      const maxD = Math.max(...daily.map(d => d.count || 0)) || 1;
+      trendDiv.innerHTML = daily.map(d => {
+        const h = ((d.count || 0) / maxD * 100).toFixed(1);
+        return `<div class="trend-bar" style="height:${h}%" data-label="${d.date}: ${d.count}"></div>`;
+      }).join('');
+      labelsDiv.innerHTML = daily.map(d => `<span>${(d.date || '').slice(5)}</span>`).join('');
+    } else {
+      trendDiv.innerHTML = '<span style="color:var(--muted)">No trend data</span>';
+    }
+
+  } catch(e) { console.error(e); document.getElementById('kpis').innerHTML = '<div class="kpi"><div class="kv">—</div><div class="kl">Failed to load stats</div></div>'; }
+}
+
+load();
+</script>
+</body>
+</html>

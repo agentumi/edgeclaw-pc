@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::activity_log::{ActivityEntry, AgentSession, ContextInjection};
 use crate::error::AgentError;
+use crate::task_board::{TaskEntry, TASK_CREATE, TASK_RESPONSE};
 
 // ─── Sync Message Types ───────────────────────────────────
 
@@ -150,12 +151,13 @@ pub fn filter_for_role(
 
 // ─── Sync Codec Helpers ───────────────────────────────────
 
-/// Check if an ECNP message type byte is an activity sync message.
+/// Check if an ECNP message type byte is an activity or task sync message.
 pub fn is_activity_sync_type(msg_type: u8) -> bool {
     (ACTIVITY_BROADCAST..=ACTIVITY_ACK).contains(&msg_type)
+        || (TASK_CREATE..=TASK_RESPONSE).contains(&msg_type)
 }
 
-/// Get description of an activity sync message type.
+/// Get description of an activity/task sync message type.
 pub fn sync_type_name(msg_type: u8) -> &'static str {
     match msg_type {
         ACTIVITY_BROADCAST => "ActivityBroadcast",
@@ -165,8 +167,50 @@ pub fn sync_type_name(msg_type: u8) -> &'static str {
         CONTEXT_REQUEST => "ContextRequest",
         CONTEXT_RESPONSE => "ContextResponse",
         ACTIVITY_ACK => "ActivityAck",
+        0x27 => "TaskCreate",
+        0x28 => "TaskUpdate",
+        0x29 => "TaskQuery",
+        0x2A => "TaskResponse",
         _ => "Unknown",
     }
+}
+
+// ─── Task RBAC Filter ─────────────────────────────────────
+
+/// Filter task entries based on RBAC role.
+///
+/// | Role     | Access                            |
+/// |----------|-----------------------------------|
+/// | Owner    | All tasks                         |
+/// | Admin    | All tasks                         |
+/// | Operator | Same project only                 |
+/// | Viewer   | Read-only (all tasks, no mutate)  |
+/// | Guest    | None                              |
+pub fn filter_tasks_for_role(
+    tasks: &[TaskEntry],
+    role: &str,
+    requester_project: Option<&str>,
+) -> Vec<TaskEntry> {
+    match role {
+        "owner" | "admin" | "viewer" => tasks.to_vec(),
+        "operator" => {
+            if let Some(proj) = requester_project {
+                tasks
+                    .iter()
+                    .filter(|t| t.project.eq_ignore_ascii_case(proj))
+                    .cloned()
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        }
+        _ => Vec::new(), // guest or unknown
+    }
+}
+
+/// Check if a role is allowed to mutate tasks (create/update/assign).
+pub fn can_mutate_tasks(role: &str) -> bool {
+    matches!(role, "owner" | "admin" | "operator")
 }
 
 // ─── Tests ────────────────────────────────────────────────
@@ -175,6 +219,7 @@ pub fn sync_type_name(msg_type: u8) -> &'static str {
 mod tests {
     use super::*;
     use crate::activity_log::{ActivityBrief, ActivityType, SessionStatus, SessionSummaryBrief};
+    use crate::task_board::{TaskEntry, TaskPriority, TaskStatus};
 
     fn sample_entry(project: &str, importance: u8) -> ActivityEntry {
         ActivityEntry {
@@ -197,6 +242,7 @@ mod tests {
             lamport_clock: 1,
             prev_hash: "0".repeat(64),
             hash: "abc123".into(),
+            signature: String::new(),
         }
     }
 
@@ -349,6 +395,9 @@ mod tests {
             }],
             recent_errors: vec![],
             active_decisions: vec![],
+            memory_md: None,
+            repeated_errors: vec![],
+            cross_session_insights: vec![],
         };
         let msg = TeamSyncMessage::ContextResponse {
             session_id: sid,
@@ -442,6 +491,9 @@ mod tests {
                     important_activities: vec![],
                     recent_errors: vec![],
                     active_decisions: vec![],
+                    memory_md: None,
+                    repeated_errors: vec![],
+                    cross_session_insights: vec![],
                 },
             }
             .sync_type_code(),
@@ -536,8 +588,11 @@ mod tests {
         assert!(is_activity_sync_type(0x20));
         assert!(is_activity_sync_type(0x23));
         assert!(is_activity_sync_type(0x26));
+        // Task sync range (0x27-0x2A) now included
+        assert!(is_activity_sync_type(0x27));
+        assert!(is_activity_sync_type(0x2A));
         assert!(!is_activity_sync_type(0x01));
-        assert!(!is_activity_sync_type(0x27));
+        assert!(!is_activity_sync_type(0x2B));
         assert!(!is_activity_sync_type(0xFF));
     }
 
@@ -550,6 +605,10 @@ mod tests {
         assert_eq!(sync_type_name(0x24), "ContextRequest");
         assert_eq!(sync_type_name(0x25), "ContextResponse");
         assert_eq!(sync_type_name(0x26), "ActivityAck");
+        assert_eq!(sync_type_name(0x27), "TaskCreate");
+        assert_eq!(sync_type_name(0x28), "TaskUpdate");
+        assert_eq!(sync_type_name(0x29), "TaskQuery");
+        assert_eq!(sync_type_name(0x2A), "TaskResponse");
         assert_eq!(sync_type_name(0xFF), "Unknown");
     }
 
@@ -570,5 +629,56 @@ mod tests {
     fn test_invalid_json_returns_error() {
         let result = TeamSyncMessage::from_bytes(b"not json");
         assert!(result.is_err());
+    }
+
+    // ─── Task RBAC Filtering ───────────────────────────
+
+    fn sample_task(project: &str) -> TaskEntry {
+        TaskEntry {
+            id: Uuid::new_v4(),
+            title: "Fix bug".into(),
+            description: None,
+            status: TaskStatus::Backlog,
+            assignee: None,
+            priority: TaskPriority::Medium,
+            due_date: None,
+            tags: vec![],
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            created_by: "dev-1".into(),
+            project: project.into(),
+            hash: String::new(),
+        }
+    }
+
+    #[test]
+    fn test_task_filter_owner_sees_all() {
+        let tasks = vec![sample_task("proj-a"), sample_task("proj-b")];
+        let filtered = filter_tasks_for_role(&tasks, "owner", None);
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn test_task_filter_operator_same_project() {
+        let tasks = vec![sample_task("proj-a"), sample_task("proj-b")];
+        let filtered = filter_tasks_for_role(&tasks, "operator", Some("proj-a"));
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].project, "proj-a");
+    }
+
+    #[test]
+    fn test_task_filter_guest_sees_nothing() {
+        let tasks = vec![sample_task("proj-a")];
+        let filtered = filter_tasks_for_role(&tasks, "guest", None);
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_can_mutate_tasks() {
+        assert!(can_mutate_tasks("owner"));
+        assert!(can_mutate_tasks("admin"));
+        assert!(can_mutate_tasks("operator"));
+        assert!(!can_mutate_tasks("viewer"));
+        assert!(!can_mutate_tasks("guest"));
     }
 }

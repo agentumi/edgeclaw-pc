@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EdgeClaw — Team Network</title>
+<style>
+:root { --bg: #1a1a2e; --surface: #16213e; --card: #0f3460; --accent: #e94560; --text: #eee; --muted: #999; --border: #2a2a4a; --node: #60a5fa; --edge: #4a4a6a; }
+[data-theme="light"] { --bg: #f5f5f5; --surface: #fff; --card: #e8e8e8; --accent: #e94560; --text: #222; --muted: #666; --border: #ddd; --node: #3b82f6; --edge: #ccc; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+nav .logo { font-weight: 700; font-size: 1.1rem; color: var(--accent); }
+nav .links a { color: var(--muted); text-decoration: none; margin-left: 1rem; font-size: 0.9rem; }
+nav .links a:hover, nav .links a.active { color: var(--accent); }
+.theme-toggle { cursor: pointer; background: none; border: 1px solid var(--border); color: var(--text); padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.8rem; }
+.container { max-width: 1200px; margin: 0 auto; padding: 1rem; }
+h1 { font-size: 1.3rem; margin-bottom: 0.5rem; }
+.subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 1rem; }
+.map-wrapper { display: grid; grid-template-columns: 1fr 280px; gap: 1rem; }
+.canvas-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; position: relative; overflow: hidden; min-height: 500px; }
+canvas { width: 100%; height: 100%; display: block; }
+.sidebar { display: flex; flex-direction: column; gap: 0.75rem; }
+.info-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.8rem; }
+.info-card h3 { font-size: 0.95rem; margin-bottom: 0.5rem; }
+.peer-list { list-style: none; max-height: 200px; overflow-y: auto; }
+.peer-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+.peer-dot { width: 8px; height: 8px; border-radius: 50%; }
+.peer-dot.online { background: #4ade80; }
+.peer-dot.offline { background: #ef4444; }
+.peer-dot.syncing { background: #fbbf24; }
+.stat-row { display: flex; justify-content: space-between; font-size: 0.85rem; padding: 0.2rem 0; }
+.stat-row .sl { color: var(--muted); }
+.legend { font-size: 0.8rem; }
+.legend span { display: inline-flex; align-items: center; gap: 4px; margin-right: 0.8rem; }
+.controls { display: flex; gap: 0.4rem; margin-bottom: 0.5rem; }
+.controls button { padding: 0.3rem 0.6rem; background: var(--card); border: 1px solid var(--border); color: var(--text); border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+.controls button:hover { border-color: var(--accent); }
+@media (max-width: 700px) { .map-wrapper { grid-template-columns: 1fr; } .canvas-wrap { min-height: 350px; } }
+</style>
+</head>
+<body>
+<nav>
+  <span class="logo">🔷 EdgeClaw</span>
+  <div class="links">
+    <a href="/">Chat</a>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/activity">Activity</a>
+    <a href="/sessions">Sessions</a>
+    <a href="/search">Search</a>
+    <a href="/stats">Stats</a>
+    <a href="/team" class="active">Team</a>
+  </div>
+  <button class="theme-toggle" onclick="toggleTheme()">🌓</button>
+</nav>
+<div class="container">
+  <h1>🗺️ Team P2P Network</h1>
+  <div class="subtitle">Real-time mesh topology and peer status</div>
+  <div class="controls">
+    <button onclick="refresh()">⟳ Refresh</button>
+    <button onclick="resetLayout()">⊞ Reset Layout</button>
+  </div>
+  <div class="map-wrapper">
+    <div class="canvas-wrap">
+      <canvas id="graph"></canvas>
+    </div>
+    <div class="sidebar">
+      <div class="info-card">
+        <h3>Network Summary</h3>
+        <div id="net-stats"></div>
+      </div>
+      <div class="info-card">
+        <h3>Peers</h3>
+        <ul class="peer-list" id="peer-list"></ul>
+      </div>
+      <div class="info-card">
+        <h3>Selected Node</h3>
+        <div id="node-detail"><span style="color:var(--muted);font-size:0.85rem">Click a node to inspect</span></div>
+      </div>
+      <div class="legend">
+        <span><span class="peer-dot online"></span>Online</span>
+        <span><span class="peer-dot syncing"></span>Syncing</span>
+        <span><span class="peer-dot offline"></span>Offline</span>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function toggleTheme() { const t = document.documentElement.dataset.theme; document.documentElement.dataset.theme = t === 'dark' ? 'light' : 'dark'; }
+
+const canvas = document.getElementById('graph');
+const ctx = canvas.getContext('2d');
+let nodes = [], edges = [], selectedNode = null, dragging = null, offsetX = 0, offsetY = 0;
+
+function resize() { const r = canvas.parentElement.getBoundingClientRect(); canvas.width = r.width; canvas.height = r.height; draw(); }
+window.addEventListener('resize', resize);
+
+async function refresh() {
+  try {
+    const res = await fetch('/api/peers');
+    const data = await res.json();
+    const peers = data.peers || [];
+
+    // Build nodes from peers + self
+    nodes = [{ id: 'self', label: 'This Agent', x: canvas.width / 2, y: canvas.height / 2, r: 18, status: 'online', role: 'owner', vx: 0, vy: 0 }];
+    peers.forEach((p, i) => {
+      const angle = (2 * Math.PI * i) / Math.max(peers.length, 1);
+      const dist = 120 + Math.random() * 60;
+      nodes.push({
+        id: p.id || `peer-${i}`,
+        label: p.name || p.id || `Peer ${i}`,
+        x: canvas.width / 2 + Math.cos(angle) * dist,
+        y: canvas.height / 2 + Math.sin(angle) * dist,
+        r: 12,
+        status: p.status || p.state || 'online',
+        role: p.role || 'viewer',
+        vx: 0, vy: 0,
+      });
+    });
+
+    edges = [];
+    for (let i = 1; i < nodes.length; i++) {
+      edges.push({ from: 'self', to: nodes[i].id });
+    }
+    // Add some cross-links for mesh visualization
+    for (let i = 1; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length && j <= i + 2; j++) {
+        if (Math.random() > 0.5) edges.push({ from: nodes[i].id, to: nodes[j].id });
+      }
+    }
+
+    updateSidebar(peers);
+    draw();
+  } catch(e) {
+    console.error(e);
+    // Show demo data
+    generateDemoData();
+    draw();
+  }
+}
+
+function generateDemoData() {
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  nodes = [
+    { id: 'self', label: 'This Agent', x: cx, y: cy, r: 18, status: 'online', role: 'owner', vx: 0, vy: 0 },
+    { id: 'p1', label: 'Desktop-02', x: cx - 140, y: cy - 100, r: 12, status: 'online', role: 'admin', vx: 0, vy: 0 },
+    { id: 'p2', label: 'Mobile-01', x: cx + 150, y: cy - 80, r: 12, status: 'syncing', role: 'operator', vx: 0, vy: 0 },
+    { id: 'p3', label: 'Desktop-03', x: cx - 100, y: cy + 120, r: 12, status: 'online', role: 'viewer', vx: 0, vy: 0 },
+    { id: 'p4', label: 'Edge-Node', x: cx + 130, y: cy + 100, r: 12, status: 'offline', role: 'viewer', vx: 0, vy: 0 },
+  ];
+  edges = [
+    { from: 'self', to: 'p1' }, { from: 'self', to: 'p2' }, { from: 'self', to: 'p3' }, { from: 'self', to: 'p4' },
+    { from: 'p1', to: 'p3' }, { from: 'p2', to: 'p4' },
+  ];
+  updateSidebar(nodes.slice(1).map(n => ({ id: n.id, name: n.label, status: n.status, role: n.role })));
+}
+
+function updateSidebar(peers) {
+  const statsDiv = document.getElementById('net-stats');
+  const online = nodes.filter(n => n.status === 'online').length;
+  const syncing = nodes.filter(n => n.status === 'syncing').length;
+  statsDiv.innerHTML = `
+    <div class="stat-row"><span class="sl">Total Nodes</span><span>${nodes.length}</span></div>
+    <div class="stat-row"><span class="sl">Online</span><span>${online}</span></div>
+    <div class="stat-row"><span class="sl">Syncing</span><span>${syncing}</span></div>
+    <div class="stat-row"><span class="sl">Connections</span><span>${edges.length}</span></div>`;
+
+  const list = document.getElementById('peer-list');
+  list.innerHTML = nodes.map(n => `<li class="peer-item"><span class="peer-dot ${n.status}"></span>${n.label} <span style="color:var(--muted);font-size:0.75rem">(${n.role})</span></li>`).join('');
+}
+
+function statusColor(status) {
+  if (status === 'online') return '#4ade80';
+  if (status === 'syncing') return '#fbbf24';
+  return '#ef4444';
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const isDark = document.documentElement.dataset.theme !== 'light';
+
+  // Edges
+  edges.forEach(e => {
+    const from = nodes.find(n => n.id === e.from);
+    const to = nodes.find(n => n.id === e.to);
+    if (!from || !to) return;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.strokeStyle = isDark ? '#3a3a5a' : '#ccc';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  });
+
+  // Nodes
+  nodes.forEach(n => {
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+    ctx.fillStyle = statusColor(n.status);
+    if (n.id === 'self') ctx.fillStyle = '#e94560';
+    ctx.fill();
+    if (selectedNode === n.id) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); }
+
+    ctx.fillStyle = isDark ? '#eee' : '#222';
+    ctx.font = `${n.r > 14 ? '11' : '10'}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(n.label, n.x, n.y + n.r + 14);
+  });
+}
+
+// Interaction
+canvas.addEventListener('mousedown', e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  for (const n of nodes) {
+    const d = Math.hypot(n.x - mx, n.y - my);
+    if (d < n.r + 4) { dragging = n; offsetX = n.x - mx; offsetY = n.y - my; selectedNode = n.id; showDetail(n); draw(); return; }
+  }
+  selectedNode = null;
+  document.getElementById('node-detail').innerHTML = '<span style="color:var(--muted);font-size:0.85rem">Click a node to inspect</span>';
+  draw();
+});
+canvas.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const rect = canvas.getBoundingClientRect();
+  dragging.x = e.clientX - rect.left + offsetX;
+  dragging.y = e.clientY - rect.top + offsetY;
+  draw();
+});
+canvas.addEventListener('mouseup', () => { dragging = null; });
+
+function showDetail(n) {
+  const connections = edges.filter(e => e.from === n.id || e.to === n.id).length;
+  document.getElementById('node-detail').innerHTML = `
+    <div class="stat-row"><span class="sl">ID</span><span style="font-family:monospace;font-size:0.75rem">${n.id}</span></div>
+    <div class="stat-row"><span class="sl">Name</span><span>${n.label}</span></div>
+    <div class="stat-row"><span class="sl">Status</span><span>${n.status}</span></div>
+    <div class="stat-row"><span class="sl">Role</span><span>${n.role}</span></div>
+    <div class="stat-row"><span class="sl">Connections</span><span>${connections}</span></div>`;
+}
+
+function resetLayout() { refresh(); }
+
+setTimeout(() => { resize(); refresh(); }, 100);
+</script>
+</body>
+</html>

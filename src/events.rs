@@ -118,6 +118,18 @@ pub enum AgentEvent {
         source: String,
         stack_trace: Option<String>,
     },
+
+    /// Activity entry recorded (V4.0 real-time streaming)
+    ActivityRecorded {
+        /// JSON-serialized ActivityEntry
+        entry_json: String,
+        /// Project name for client-side filtering
+        project: String,
+        /// Agent ID for client-side filtering
+        agent_id: String,
+        /// Importance level for client-side filtering
+        importance: u8,
+    },
 }
 
 /// Output stream type

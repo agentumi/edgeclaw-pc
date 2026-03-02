@@ -34,6 +34,14 @@ pub struct AgentConfig {
     pub multi_chain: MultiChainSection,
     #[serde(default)]
     pub task_templates: TaskTemplateSection,
+    #[serde(default)]
+    pub activity_anchor: ActivityAnchorSection,
+    #[serde(default)]
+    pub webhooks: WebhooksSection,
+    #[serde(default)]
+    pub ai_summary: AiSummarySection,
+    #[serde(default)]
+    pub git: GitSection,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -382,6 +390,156 @@ impl Default for TaskTemplateSection {
     }
 }
 
+// ─── Activity Anchor Config ──────────────────────────────
+
+/// Configuration for activity anchoring (Merkle proofs).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActivityAnchorSection {
+    /// Enable periodic anchoring.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Anchor interval in seconds (default 3600 = 1 hour).
+    #[serde(default = "default_anchor_interval")]
+    pub interval_secs: u64,
+    /// Minimum entries before anchoring.
+    #[serde(default = "default_anchor_min_entries")]
+    pub min_entries: usize,
+}
+
+fn default_anchor_interval() -> u64 {
+    3600
+}
+fn default_anchor_min_entries() -> usize {
+    10
+}
+
+impl Default for ActivityAnchorSection {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval_secs: default_anchor_interval(),
+            min_entries: default_anchor_min_entries(),
+        }
+    }
+}
+
+// ─── Webhooks Config ─────────────────────────────────────
+
+/// Configuration for outbound webhooks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhooksSection {
+    /// Enable webhook delivery.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Maximum retry attempts per delivery.
+    #[serde(default = "default_webhook_retries")]
+    pub max_retries: u8,
+    /// Registered webhook endpoints.
+    #[serde(default)]
+    pub endpoints: Vec<WebhookEndpointConfig>,
+}
+
+/// A single webhook endpoint definition.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookEndpointConfig {
+    /// Target URL.
+    pub url: String,
+    /// HMAC secret for signing payloads.
+    #[serde(default)]
+    pub secret: Option<String>,
+    /// Event filter (e.g. "error", "session_end").
+    #[serde(default)]
+    pub events: Vec<String>,
+}
+
+fn default_webhook_retries() -> u8 {
+    3
+}
+
+impl Default for WebhooksSection {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_retries: default_webhook_retries(),
+            endpoints: Vec::new(),
+        }
+    }
+}
+
+// ─── AI Summary Config ───────────────────────────────────
+
+/// Configuration for AI-powered activity summarization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiSummarySection {
+    /// Enable AI summaries.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Primary provider (ollama, openai, claude).
+    #[serde(default = "default_ai_provider")]
+    pub provider: String,
+    /// Model name.
+    #[serde(default = "default_ai_model")]
+    pub model: String,
+    /// API key (for cloud providers).
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Ollama endpoint.
+    #[serde(default = "default_ollama_url")]
+    pub ollama_url: String,
+}
+
+fn default_ai_provider() -> String {
+    "ollama".to_string()
+}
+fn default_ai_model() -> String {
+    "llama3.2".to_string()
+}
+fn default_ollama_url() -> String {
+    "http://localhost:11434".to_string()
+}
+
+impl Default for AiSummarySection {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: default_ai_provider(),
+            model: default_ai_model(),
+            api_key: None,
+            ollama_url: default_ollama_url(),
+        }
+    }
+}
+
+// ─── Git Integration Config ──────────────────────────────
+
+/// Configuration for git integration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitSection {
+    /// Enable git integration.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Auto-commit agent changes.
+    #[serde(default)]
+    pub auto_commit: bool,
+    /// Attribution prefix in commit messages.
+    #[serde(default = "default_git_prefix")]
+    pub attribution_prefix: String,
+}
+
+fn default_git_prefix() -> String {
+    "[edgeclaw".to_string()
+}
+
+impl Default for GitSection {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_commit: false,
+            attribution_prefix: default_git_prefix(),
+        }
+    }
+}
+
 impl WebUiSection {
     /// Get the maximum agents allowed by license tier
     pub fn max_agents_for_tier(&self) -> u16 {
@@ -628,6 +786,10 @@ impl Default for AgentConfig {
             blockchain: BlockchainSection::default(),
             multi_chain: MultiChainSection::default(),
             task_templates: TaskTemplateSection::default(),
+            activity_anchor: ActivityAnchorSection::default(),
+            webhooks: WebhooksSection::default(),
+            ai_summary: AiSummarySection::default(),
+            git: GitSection::default(),
         }
     }
 }

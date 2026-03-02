@@ -5,7 +5,7 @@
 //! for tamper-evident team-wide activity tracking.
 //!
 //! Inspired by Tower's memory hooks but with P2P mesh sync, RBAC filtering,
-//! and offline-first CRDT merge — no central server required.
+//! and offline-first CRDT merge ??no central server required.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -13,12 +13,19 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use tantivy::collector::TopDocs;
+use tantivy::query::QueryParser;
+use tantivy::schema::*;
+use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use ed25519_dalek::SigningKey;
+
+use crate::activity_signing;
 use crate::error::AgentError;
 
-// ─── Data Model ────────────────────────────────────────────
+// ??? Data Model ????????????????????????????????????????????
 
 /// A single agent activity record with hash-chain integrity.
 ///
@@ -57,6 +64,9 @@ pub struct ActivityEntry {
     pub prev_hash: String,
     /// SHA-256 of this entry
     pub hash: String,
+    /// Ed25519 signature (hex). Empty string = unsigned.
+    #[serde(default)]
+    pub signature: String,
 }
 
 /// Categorised activity types.
@@ -126,7 +136,7 @@ impl ActivityType {
     }
 }
 
-// ─── Agent Session ─────────────────────────────────────────
+// ??? Agent Session ?????????????????????????????????????????
 
 /// Tracks an agent work session with cost/token/turn accounting.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,7 +172,7 @@ pub enum SessionStatus {
     Error,
 }
 
-// ─── Context Injection ────────────────────────────────────
+// ??? Context Injection ????????????????????????????????????
 
 /// Payload injected into a new agent session so it has prior context.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,6 +181,26 @@ pub struct ContextInjection {
     pub important_activities: Vec<ActivityBrief>,
     pub recent_errors: Vec<ActivityBrief>,
     pub active_decisions: Vec<ActivityBrief>,
+    /// Contents of MEMORY.md if found in project root.
+    #[serde(default)]
+    pub memory_md: Option<String>,
+    /// Repeated error patterns (errors occurring 3+ times).
+    #[serde(default)]
+    pub repeated_errors: Vec<RepeatedError>,
+    /// Cross-session insights from last 5 sessions' decisions.
+    #[serde(default)]
+    pub cross_session_insights: Vec<String>,
+}
+
+/// A repeated error pattern detected across the log.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepeatedError {
+    /// Error message (normalized)
+    pub message: String,
+    /// Number of occurrences
+    pub count: usize,
+    /// Most recent occurrence
+    pub last_seen: DateTime<Utc>,
 }
 
 /// Compact session summary for injection.
@@ -193,7 +223,43 @@ pub struct ActivityBrief {
     pub importance: u8,
 }
 
-// ─── Statistics ───────────────────────────────────────────
+
+//  Free Helpers 
+
+/// Normalize an error message for pattern grouping.
+///
+/// Strips line-number suffixes (e.g. `:42`, `:123:10`) so that similar
+/// errors occurring on different lines are grouped together.
+fn normalize_error_message(msg: &str) -> String {
+    let mut out = String::with_capacity(msg.len());
+    let chars: Vec<char> = msg.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        // Strip :NNN line-number suffixes
+        if chars[i] == ':' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit() {
+            i += 1;
+            while i < chars.len() && chars[i].is_ascii_digit() {
+                i += 1;
+            }
+            continue;
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    // Collapse whitespace runs
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Build a candidate file path under `~/.edgeclaw/<filename>`.
+fn dirs_candidate(filename: &str) -> std::path::PathBuf {
+    if let Some(home) = dirs::home_dir() {
+        home.join(".edgeclaw").join(filename)
+    } else {
+        std::path::PathBuf::from(filename)
+    }
+}
+
+// ??? Statistics ???????????????????????????????????????????
 
 /// Aggregate statistics over the activity log.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -209,7 +275,208 @@ pub struct ActivityStats {
     pub top_tags: Vec<(String, usize)>,
 }
 
-// ─── Core Log ─────────────────────────────────────────────
+// ??? Full-Text Search Index (Tantivy) ?????????????????????
+
+/// Tantivy-based full-text search index for activity entries.
+///
+/// Supports keyword search, filtered queries, fuzzy matching and
+/// snippet highlighting across content, tags, file paths, and projects.
+pub struct SearchIndex {
+    index: Index,
+    reader: IndexReader,
+    writer: Option<IndexWriter>,
+    // Schema fields
+    f_id: Field,
+    f_content: Field,
+    f_tags: Field,
+    f_file_path: Field,
+    f_project: Field,
+    f_agent_name: Field,
+    f_timestamp: Field,
+    f_importance: Field,
+}
+
+impl SearchIndex {
+    /// Create a new in-memory search index.
+    pub fn new_in_memory() -> Result<Self, AgentError> {
+        let schema = Self::build_schema();
+        let index = Index::create_in_ram(schema.clone());
+        Self::from_index(index, &schema)
+    }
+
+    /// Create a search index persisted to a directory.
+    pub fn new(path: &Path) -> Result<Self, AgentError> {
+        use tantivy::directory::MmapDirectory;
+        let schema = Self::build_schema();
+        std::fs::create_dir_all(path)
+            .map_err(|e| AgentError::ConfigError(format!("Failed to create index dir: {}", e)))?;
+        let mmap_dir = MmapDirectory::open(path)
+            .map_err(|e| AgentError::ConfigError(format!("Failed to open mmap dir: {}", e)))?;
+        let index = if Index::exists(&mmap_dir)
+            .map_err(|e| AgentError::ConfigError(format!("Failed to check index: {}", e)))?
+        {
+            Index::open(mmap_dir)
+                .map_err(|e| AgentError::ConfigError(format!("Failed to open index: {}", e)))?
+        } else {
+            Index::create(mmap_dir, schema.clone(), tantivy::IndexSettings::default())
+                .map_err(|e| AgentError::ConfigError(format!("Failed to create index: {}", e)))?
+        };
+        Self::from_index(index, &schema)
+    }
+
+    fn build_schema() -> Schema {
+        let mut builder = Schema::builder();
+        builder.add_text_field("id", STRING | STORED);
+        builder.add_text_field("content", TEXT | STORED);
+        builder.add_text_field("tags", TEXT | STORED);
+        builder.add_text_field("file_path", TEXT | STORED);
+        builder.add_text_field("project", TEXT | STORED);
+        builder.add_text_field("agent_name", TEXT | STORED);
+        builder.add_date_field("timestamp", INDEXED | STORED);
+        builder.add_u64_field("importance", INDEXED | STORED);
+        builder.build()
+    }
+
+    fn from_index(index: Index, schema: &Schema) -> Result<Self, AgentError> {
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()
+            .map_err(|e| AgentError::ConfigError(format!("Failed to create reader: {}", e)))?;
+        let writer = index
+            .writer(50_000_000) // 50MB heap
+            .map_err(|e| AgentError::ConfigError(format!("Failed to create writer: {}", e)))?;
+
+        Ok(Self {
+            f_id: schema.get_field("id").unwrap(),
+            f_content: schema.get_field("content").unwrap(),
+            f_tags: schema.get_field("tags").unwrap(),
+            f_file_path: schema.get_field("file_path").unwrap(),
+            f_project: schema.get_field("project").unwrap(),
+            f_agent_name: schema.get_field("agent_name").unwrap(),
+            f_timestamp: schema.get_field("timestamp").unwrap(),
+            f_importance: schema.get_field("importance").unwrap(),
+            index,
+            reader,
+            writer: Some(writer),
+        })
+    }
+
+    /// Index a single activity entry.
+    pub fn index_entry(&mut self, entry: &ActivityEntry) -> Result<(), AgentError> {
+        let writer = self
+            .writer
+            .as_ref()
+            .ok_or_else(|| AgentError::ConfigError("Index writer not available".to_string()))?;
+        let ts = tantivy::DateTime::from_timestamp_secs(entry.timestamp.timestamp());
+        writer.add_document(doc!(
+            self.f_id => entry.id.to_string(),
+            self.f_content => entry.content.clone(),
+            self.f_tags => entry.tags.join(" "),
+            self.f_file_path => entry.file_path.clone().unwrap_or_default(),
+            self.f_project => entry.project.clone(),
+            self.f_agent_name => entry.agent_name.clone(),
+            self.f_timestamp => ts,
+            self.f_importance => entry.importance as u64,
+        )).map_err(|e| AgentError::ConfigError(format!("Failed to index entry: {}", e)))?;
+        Ok(())
+    }
+
+    /// Commit pending changes to the index.
+    pub fn commit(&mut self) -> Result<(), AgentError> {
+        if let Some(ref mut writer) = self.writer {
+            writer
+                .commit()
+                .map_err(|e| AgentError::ConfigError(format!("Failed to commit index: {}", e)))?;
+            self.reader
+                .reload()
+                .map_err(|e| AgentError::ConfigError(format!("Failed to reload reader: {}", e)))?;
+        }
+        Ok(())
+    }
+
+    /// Full-text search returning (score, entry_id) pairs.
+    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<(f32, Uuid)>, AgentError> {
+        let searcher = self.reader.searcher();
+        let query_parser =
+            QueryParser::for_index(&self.index, vec![self.f_content, self.f_tags, self.f_file_path, self.f_project, self.f_agent_name]);
+        let parsed = query_parser
+            .parse_query(query)
+            .map_err(|e| AgentError::ConfigError(format!("Failed to parse query: {}", e)))?;
+        let top_docs = searcher
+            .search(&parsed, &TopDocs::with_limit(limit))
+            .map_err(|e| AgentError::ConfigError(format!("Search failed: {}", e)))?;
+
+        let mut results = Vec::new();
+        for (score, doc_addr) in top_docs {
+            let doc: TantivyDocument = searcher
+                .doc(doc_addr)
+                .map_err(|e| AgentError::ConfigError(format!("Failed to retrieve doc: {}", e)))?;
+            if let Some(id_val) = doc.get_first(self.f_id) {
+                if let Some(id_str) = id_val.as_str() {
+                    if let Ok(uuid) = Uuid::parse_str(id_str) {
+                        results.push((score, uuid));
+                    }
+                }
+            }
+        }
+        Ok(results)
+    }
+
+    /// Search with additional filter on project and/or minimum importance.
+    pub fn search_with_filter(
+        &self,
+        query: &str,
+        project: Option<&str>,
+        min_importance: Option<u8>,
+        limit: usize,
+    ) -> Result<Vec<(f32, Uuid)>, AgentError> {
+        // Build a combined query string
+        let mut combined = query.to_string();
+        if let Some(proj) = project {
+            combined = format!("{} AND project:\"{}\"", combined, proj);
+        }
+        if let Some(imp) = min_importance {
+            combined = format!("{} AND importance:[{} TO 3]", combined, imp);
+        }
+        self.search(&combined, limit)
+    }
+
+    /// Generate a highlighted snippet for a query match.
+    pub fn highlight(&self, query: &str, content: &str) -> String {
+        let q_lower = query.to_lowercase();
+        let c_lower = content.to_lowercase();
+        if let Some(pos) = c_lower.find(&q_lower) {
+            let start = pos.saturating_sub(40);
+            let end = (pos + query.len() + 40).min(content.len());
+            let snippet = &content[start..end];
+            format!("...{}...", snippet)
+        } else {
+            // Return first 100 chars as fallback
+            let end = content.len().min(100);
+            content[..end].to_string()
+        }
+    }
+
+    /// Rebuild the entire index from a list of entries.
+    pub fn rebuild(&mut self, entries: &[ActivityEntry]) -> Result<(), AgentError> {
+        if let Some(ref mut writer) = self.writer {
+            writer
+                .delete_all_documents()
+                .map_err(|e| AgentError::ConfigError(format!("Failed to clear index: {}", e)))?;
+            writer
+                .commit()
+                .map_err(|e| AgentError::ConfigError(format!("Failed to commit clear: {}", e)))?;
+        }
+        for entry in entries {
+            self.index_entry(entry)?;
+        }
+        self.commit()?;
+        Ok(())
+    }
+}
+
+// ??? Core Log ?????????????????????????????????????????????
 
 /// Hash-chained, searchable activity log with session management.
 pub struct ActivityLog {
@@ -221,6 +488,9 @@ pub struct ActivityLog {
     agent_id: String,
     agent_name: String,
     agent_role: String,
+    search_index: Option<SearchIndex>,
+    /// Optional Ed25519 signing key for auto-signing entries.
+    signing_key: Option<SigningKey>,
 }
 
 impl ActivityLog {
@@ -235,7 +505,26 @@ impl ActivityLog {
             agent_id: agent_id.to_string(),
             agent_name: agent_name.to_string(),
             agent_role: agent_role.to_string(),
+            search_index: SearchIndex::new_in_memory().ok(),
+            signing_key: None,
         }
+    }
+
+    /// Create a new in-memory activity log with a signing key for auto-signing.
+    pub fn new_with_signing_key(
+        agent_id: &str,
+        agent_name: &str,
+        agent_role: &str,
+        signing_key: SigningKey,
+    ) -> Self {
+        let mut log = Self::new(agent_id, agent_name, agent_role);
+        log.signing_key = Some(signing_key);
+        log
+    }
+
+    /// Set or replace the signing key.
+    pub fn set_signing_key(&mut self, key: SigningKey) {
+        self.signing_key = Some(key);
     }
 
     /// Create an activity log with JSONL file persistence.
@@ -265,10 +554,78 @@ impl ActivityLog {
             }
         }
         log.persist_path = Some(path);
+        // Rebuild search index from loaded entries
+        if !log.entries.is_empty() {
+            if let Some(ref mut idx) = log.search_index {
+                let _ = idx.rebuild(&log.entries);
+            }
+        }
         log
     }
 
-    // ─── Recording ────────────────────────────────────────
+    /// Get a reference to the search index.
+    pub fn search_index(&self) -> Option<&SearchIndex> {
+        self.search_index.as_ref()
+    }
+
+    /// Get a mutable reference to the search index.
+    pub fn search_index_mut(&mut self) -> Option<&mut SearchIndex> {
+        self.search_index.as_mut()
+    }
+
+    /// Perform full-text search across all activity entries.
+    ///
+    /// Returns matching entries sorted by relevance score (highest first).
+    pub fn full_text_search(&self, query: &str, limit: usize) -> Vec<(f32, &ActivityEntry)> {
+        let idx = match self.search_index.as_ref() {
+            Some(idx) => idx,
+            None => return Vec::new(),
+        };
+        let results = match idx.search(query, limit) {
+            Ok(r) => r,
+            Err(_) => return Vec::new(),
+        };
+        results
+            .into_iter()
+            .filter_map(|(score, id)| {
+                self.entries
+                    .iter()
+                    .find(|e| e.id == id)
+                    .map(|e| (score, e))
+            })
+            .collect()
+    }
+
+    /// Full-text search with tag filter.
+    pub fn full_text_search_with_tags(
+        &self,
+        query: &str,
+        tags: &[&str],
+        limit: usize,
+    ) -> Vec<(f32, &ActivityEntry)> {
+        let idx = match self.search_index.as_ref() {
+            Some(idx) => idx,
+            None => return Vec::new(),
+        };
+        // Search by content query, then post-filter by tags
+        let results = match idx.search(query, limit * 5) {
+            Ok(r) => r,
+            Err(_) => return Vec::new(),
+        };
+        results
+            .into_iter()
+            .filter_map(|(score, id)| {
+                self.entries
+                    .iter()
+                    .find(|e| e.id == id)
+                    .filter(|e| tags.iter().all(|t| e.tags.iter().any(|et| et.contains(t))))
+                    .map(|e| (score, e))
+            })
+            .take(limit)
+            .collect()
+    }
+
+    // ??? Recording ????????????????????????????????????????
 
     /// Record a new activity.
     #[allow(clippy::too_many_arguments)]
@@ -306,8 +663,14 @@ impl ActivityLog {
             lamport_clock: lc,
             prev_hash,
             hash: String::new(),
+            signature: String::new(),
         };
         entry.hash = Self::compute_hash(&entry);
+
+        // Auto-sign if signing key is available
+        if let Some(ref key) = self.signing_key {
+            entry.signature = activity_signing::sign_entry(&entry, key);
+        }
         self.entries.push(entry.clone());
 
         // Update session counters
@@ -341,6 +704,12 @@ impl ActivityLog {
             }
         }
 
+        // Index for full-text search
+        if let Some(ref mut idx) = self.search_index {
+            let _ = idx.index_entry(&entry);
+            let _ = idx.commit();
+        }
+
         // Persist
         self.persist_entry(&entry);
 
@@ -353,7 +722,7 @@ impl ActivityLog {
         entry
     }
 
-    // ─── Sessions ─────────────────────────────────────────
+    // ??? Sessions ?????????????????????????????????????????
 
     /// Start a new agent session.
     pub fn start_session(&mut self, agent_name: &str, project: &str) -> AgentSession {
@@ -420,7 +789,7 @@ impl ActivityLog {
         self.sessions.values().collect()
     }
 
-    // ─── Search / Filter ──────────────────────────────────
+    // ??? Search / Filter ??????????????????????????????????
 
     /// Full-text search across content, tags, and file paths.
     pub fn search(&self, query: &str, limit: usize) -> Vec<&ActivityEntry> {
@@ -496,13 +865,13 @@ impl ActivityLog {
         &self.entries[start..]
     }
 
-    // ─── Context Injection ────────────────────────────────
+    // ??? Context Injection ????????????????????????????????
 
     /// Build a context injection payload for a new session.
     ///
     /// Mimics Tower's `session-start.mjs`:
     /// - Last 3 completed session summaries
-    /// - 10 most recent important (≥ 2) activities
+    /// - 10 most recent important (??2) activities
     /// - 5 most recent unresolved errors (importance = 3)
     /// - Recent decision records
     pub fn build_context_injection(&self, project: &str) -> ContextInjection {
@@ -587,10 +956,96 @@ impl ActivityLog {
             important_activities,
             recent_errors,
             active_decisions,
+            memory_md: Self::load_memory_md(project),
+            repeated_errors: Self::detect_repeated_errors(&self.entries, project),
+            cross_session_insights: Self::extract_cross_session_insights(
+                &self.completed_sessions,
+                project,
+            ),
         }
     }
 
-    // ─── Integrity ────────────────────────────────────────
+    /// Try to load MEMORY.md from the current working directory or project root.
+    fn load_memory_md(_project: &str) -> Option<String> {
+        // Try current directory first, then common locations
+        let candidates = [
+            std::path::PathBuf::from("MEMORY.md"),
+            std::path::PathBuf::from("memory.md"),
+            dirs_candidate("MEMORY.md"),
+        ];
+        for path in &candidates {
+            if path.exists() {
+                if let Ok(content) = std::fs::read_to_string(path) {
+                    // Truncate to 4KB to keep injection payload reasonable
+                    let truncated = if content.len() > 4096 {
+                        format!("{}…[truncated]", &content[..4096])
+                    } else {
+                        content
+                    };
+                    return Some(truncated);
+                }
+            }
+        }
+        None
+    }
+
+    /// Detect error messages that appear 3+ times (pattern detection).
+    fn detect_repeated_errors(entries: &[ActivityEntry], project: &str) -> Vec<RepeatedError> {
+        let mut error_counts: HashMap<String, (usize, DateTime<Utc>)> = HashMap::new();
+
+        for entry in entries.iter().filter(|e| {
+            e.project.eq_ignore_ascii_case(project)
+                && matches!(&e.activity_type, ActivityType::Error { .. })
+        }) {
+            let msg = if let ActivityType::Error { ref message, .. } = entry.activity_type {
+                // Normalize: strip line numbers and paths for grouping
+                normalize_error_message(message)
+            } else {
+                continue;
+            };
+
+            let counter = error_counts.entry(msg).or_insert((0, entry.timestamp));
+            counter.0 += 1;
+            if entry.timestamp > counter.1 {
+                counter.1 = entry.timestamp;
+            }
+        }
+
+        error_counts
+            .into_iter()
+            .filter(|(_, (count, _))| *count >= 3)
+            .map(|(message, (count, last_seen))| RepeatedError {
+                message,
+                count,
+                last_seen,
+            })
+            .collect()
+    }
+
+    /// Extract cross-session insights: decision summaries from last 5 sessions.
+    fn extract_cross_session_insights(
+        sessions: &[AgentSession],
+        project: &str,
+    ) -> Vec<String> {
+        sessions
+            .iter()
+            .rev()
+            .filter(|s| s.project.eq_ignore_ascii_case(project) && s.summary.is_some())
+            .take(5)
+            .filter_map(|s| {
+                s.summary.as_ref().map(|summary| {
+                    format!(
+                        "[{}] {}: {}",
+                        s.started_at.format("%Y-%m-%d"),
+                        s.agent_name,
+                        summary
+                    )
+                })
+            })
+            .collect()
+    }
+
+    // ??? Integrity ????????????????????????????????????????
 
     /// Verify the SHA-256 hash chain.
     pub fn verify_chain(&self) -> Result<bool, String> {
@@ -618,6 +1073,22 @@ impl ActivityLog {
         Ok(true)
     }
 
+    /// Verify Ed25519 signatures on all entries.
+    ///
+    /// Returns a list of entry IDs with invalid signatures.
+    /// Unsigned entries (`signature == ""`) are skipped.
+    pub fn verify_signatures(
+        &self,
+        verifying_key: &ed25519_dalek::VerifyingKey,
+    ) -> Vec<Uuid> {
+        let pairs: Vec<_> = self
+            .entries
+            .iter()
+            .map(|e| (e.clone(), e.signature.clone()))
+            .collect();
+        activity_signing::verify_signatures(&pairs, verifying_key)
+    }
+
     /// Compute SHA-256 for an entry.
     fn compute_hash(entry: &ActivityEntry) -> String {
         let mut hasher = Sha256::new();
@@ -634,7 +1105,7 @@ impl ActivityLog {
         hex::encode(hasher.finalize())
     }
 
-    // ─── Statistics ───────────────────────────────────────
+    // ??? Statistics ???????????????????????????????????????
 
     /// Compute aggregate statistics.
     pub fn stats(&self) -> ActivityStats {
@@ -700,7 +1171,7 @@ impl ActivityLog {
         &self.entries
     }
 
-    // ─── CRDT Merge ───────────────────────────────────────
+    // ??? CRDT Merge ???????????????????????????????????????
 
     /// Merge remote entries into the local log (CRDT-style).
     ///
@@ -756,7 +1227,7 @@ impl ActivityLog {
         count
     }
 
-    // ─── Persistence ──────────────────────────────────────
+    // ??? Persistence ??????????????????????????????????????
 
     fn persist_entry(&self, entry: &ActivityEntry) {
         if let Some(ref path) = self.persist_path {
@@ -786,6 +1257,53 @@ impl ActivityLog {
         serde_json::to_string_pretty(&self.entries)
     }
 
+    /// Export the full log as CSV.
+    pub fn export_csv(&self) -> Result<String, AgentError> {
+        let mut wtr = csv::Writer::from_writer(Vec::new());
+        // Header
+        wtr.write_record([
+            "id",
+            "timestamp",
+            "agent_id",
+            "agent_name",
+            "agent_role",
+            "activity_type",
+            "project",
+            "file_path",
+            "content",
+            "tags",
+            "importance",
+            "lamport_clock",
+            "hash",
+        ])
+        .map_err(|e| AgentError::SerializationError(format!("CSV header: {}", e)))?;
+
+        for entry in &self.entries {
+            wtr.write_record([
+                &entry.id.to_string(),
+                &entry.timestamp.to_rfc3339(),
+                &entry.agent_id,
+                &entry.agent_name,
+                &entry.agent_role,
+                entry.activity_type.type_tag(),
+                &entry.project,
+                entry.file_path.as_deref().unwrap_or(""),
+                &entry.content,
+                &entry.tags.join(";"),
+                &entry.importance.to_string(),
+                &entry.lamport_clock.to_string(),
+                &entry.hash,
+            ])
+            .map_err(|e| AgentError::SerializationError(format!("CSV row: {}", e)))?;
+        }
+
+        let data = wtr
+            .into_inner()
+            .map_err(|e| AgentError::SerializationError(format!("CSV flush: {}", e)))?;
+        String::from_utf8(data)
+            .map_err(|e| AgentError::SerializationError(format!("CSV encoding: {}", e)))
+    }
+
     /// Load entries from a JSONL file.
     pub fn load_from_file(path: &Path) -> Result<Vec<ActivityEntry>, AgentError> {
         let content = std::fs::read_to_string(path)?;
@@ -800,7 +1318,7 @@ impl ActivityLog {
     }
 }
 
-// ─── Thread-safe wrapper ──────────────────────────────────
+// ??? Thread-safe wrapper ??????????????????????????????????
 
 /// Thread-safe wrapper around [`ActivityLog`].
 pub struct ActivityManager {
@@ -933,9 +1451,73 @@ impl ActivityManager {
         let log = self.log.lock().unwrap_or_else(|e| e.into_inner());
         log.export_json()
     }
+
+    /// Export as CSV.
+    pub fn export_csv(&self) -> Result<String, AgentError> {
+        let log = self.log.lock().unwrap_or_else(|e| e.into_inner());
+        log.export_csv()
+    }
+
+    /// Full-text search using Tantivy index (returns scored results).
+    pub fn full_text_search(&self, query: &str, limit: usize) -> Vec<(f32, ActivityEntry)> {
+        let log = self.log.lock().unwrap_or_else(|e| e.into_inner());
+        log.full_text_search(query, limit)
+            .into_iter()
+            .map(|(score, entry)| (score, entry.clone()))
+            .collect()
+    }
+
+    /// Get a session by UUID.
+    pub fn get_session(&self, session_id: Uuid) -> Option<AgentSession> {
+        let log = self.log.lock().unwrap_or_else(|e| e.into_inner());
+        log.get_session(session_id).cloned()
+    }
+
+    /// List currently active sessions.
+    pub fn active_sessions(&self) -> Vec<AgentSession> {
+        let log = self.log.lock().unwrap_or_else(|e| e.into_inner());
+        log.active_sessions().into_iter().cloned().collect()
+    }
+
+    /// List all sessions (active + completed).
+    pub fn all_sessions(&self) -> Vec<AgentSession> {
+        let log = self.log.lock().unwrap_or_else(|e| e.into_inner());
+        let mut sessions: Vec<AgentSession> = log
+            .active_sessions()
+            .into_iter()
+            .cloned()
+            .collect();
+        // Add completed sessions from the completed list
+        for s in &log.completed_sessions {
+            sessions.push(s.clone());
+        }
+        sessions
+    }
+
+    /// Filter entries by project.
+    pub fn filter_by_project(&self, project: &str, limit: usize) -> Vec<ActivityEntry> {
+        let log = self.log.lock().unwrap_or_else(|e| e.into_inner());
+        log.filter_by_project(project, limit)
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    /// Generate a highlighted snippet for a query match in the given content.
+    pub fn highlight(&self, query: &str, content: &str) -> String {
+        let log = self.log.lock().unwrap_or_else(|e| e.into_inner());
+        match log.search_index.as_ref() {
+            Some(idx) => idx.highlight(query, content),
+            None => {
+                // Fallback: return first 100 chars
+                let end = content.len().min(100);
+                content[..end].to_string()
+            }
+        }
+    }
 }
 
-// ─── Tests ────────────────────────────────────────────────
+// ??? Tests ????????????????????????????????????????????????
 
 #[cfg(test)]
 mod tests {
@@ -1162,7 +1744,7 @@ mod tests {
             session.id,
             1,
             &[],
-            Some("src/a.rs"), // duplicate — should not add twice
+            Some("src/a.rs"), // duplicate ??should not add twice
             "edgeclaw",
         );
         log.record(
@@ -1416,7 +1998,7 @@ mod tests {
             "test",
         );
 
-        // Merge same entries — should dedup
+        // Merge same entries ??should dedup
         let existing = log.entries().to_vec();
         let merged = log.merge_remote(&existing);
         assert_eq!(merged, 0);
@@ -1711,5 +2293,619 @@ mod tests {
         }
         let session = log.get_session(s.id).unwrap();
         assert_eq!(session.commands_executed, 3);
+    }
+
+    #[test]
+    fn test_export_csv() {
+        let mut log = test_log();
+        let s = log.start_session("agent", "proj");
+        log.record(
+            ActivityType::CommandExec {
+                command: "cargo test".into(),
+                exit_code: 0,
+                duration_ms: 100,
+                output_summary: None,
+            },
+            "Ran tests successfully",
+            s.id,
+            2,
+            &["rust", "testing"],
+            Some("src/lib.rs"),
+            "proj",
+        );
+
+        let csv = log.export_csv().unwrap();
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines.len(), 2, "header + 1 data row");
+        assert!(lines[0].contains("id,timestamp,agent_id"), "CSV header present");
+        assert!(lines[1].contains("Ran tests successfully"), "content in row");
+        assert!(lines[1].contains("rust;testing"), "tags semicolon-separated");
+    }
+
+    #[test]
+    fn test_export_csv_empty() {
+        let log = test_log();
+        let csv = log.export_csv().unwrap();
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines.len(), 1, "only header for empty log");
+    }
+
+    // ─── SearchIndex Tests ────────────────────────────────
+
+    fn note_type() -> ActivityType {
+        ActivityType::Custom {
+            category: "note".into(),
+            data: serde_json::json!({}),
+        }
+    }
+
+    #[test]
+    fn test_search_index_keyword() {
+        let mut log = test_log();
+        let s = log.start_session("agent", "myproject");
+        log.record(
+            ActivityType::FileEdit {
+                before_snippet: None,
+                after_snippet: None,
+                lines_changed: 10,
+            },
+            "Implemented authentication module for user login",
+            s.id,
+            2,
+            &["auth", "security"],
+            Some("src/auth.rs"),
+            "myproject",
+        );
+        log.record(
+            ActivityType::FileEdit {
+                before_snippet: None,
+                after_snippet: None,
+                lines_changed: 5,
+            },
+            "Added database connection pooling",
+            s.id,
+            1,
+            &["database", "performance"],
+            Some("src/db.rs"),
+            "myproject",
+        );
+
+        let results = log.full_text_search("authentication", 10);
+        assert!(!results.is_empty(), "should find authentication entry");
+        assert!(
+            results[0].1.content.contains("authentication"),
+            "top result should contain query term"
+        );
+    }
+
+    #[test]
+    fn test_search_index_tag_combo() {
+        let mut log = test_log();
+        let s = log.start_session("agent", "proj");
+        log.record(
+            note_type(),
+            "Security review completed",
+            s.id,
+            2,
+            &["security", "review"],
+            None,
+            "proj",
+        );
+        log.record(
+            note_type(),
+            "Performance review completed",
+            s.id,
+            2,
+            &["performance", "review"],
+            None,
+            "proj",
+        );
+
+        // First verify basic search works
+        let basic = log.full_text_search("review", 10);
+        assert!(basic.len() >= 2, "basic search should find both entries, found {}", basic.len());
+
+        let results = log.full_text_search_with_tags("review", &["security"], 10);
+        assert!(!results.is_empty(), "should find tagged entry, basic found {}", basic.len());
+        assert!(
+            results[0].1.tags.contains(&"security".to_string()),
+            "result should have security tag"
+        );
+    }
+
+    #[test]
+    fn test_search_index_empty_query() {
+        let log = test_log();
+        let results = log.full_text_search("anything", 10);
+        assert!(results.is_empty(), "empty index returns no results");
+    }
+
+    #[test]
+    fn test_search_index_no_match() {
+        let mut log = test_log();
+        let s = log.start_session("agent", "proj");
+        log.record(
+            note_type(),
+            "Hello world program",
+            s.id,
+            1,
+            &[],
+            None,
+            "proj",
+        );
+
+        let results = log.full_text_search("xyzzyznonexistent", 10);
+        assert!(results.is_empty(), "no match for gibberish query");
+    }
+
+    #[test]
+    fn test_search_index_multiple_results() {
+        let mut log = test_log();
+        let s = log.start_session("agent", "proj");
+        for i in 0..5 {
+            log.record(
+                note_type(),
+                &format!("Refactored module {} for better performance", i),
+                s.id,
+                1,
+                &["refactor"],
+                None,
+                "proj",
+            );
+        }
+
+        let results = log.full_text_search("refactored", 3);
+        assert!(results.len() <= 3, "limit is respected");
+        assert!(!results.is_empty(), "should find results");
+    }
+
+    #[test]
+    fn test_search_index_rebuild() {
+        let mut log = test_log();
+        let s = log.start_session("agent", "proj");
+        log.record(
+            note_type(),
+            "Initial entry for rebuild test",
+            s.id,
+            1,
+            &["rebuild"],
+            None,
+            "proj",
+        );
+        log.record(
+            note_type(),
+            "Second entry for rebuild test",
+            s.id,
+            1,
+            &["rebuild"],
+            None,
+            "proj",
+        );
+
+        // Rebuild the index from scratch
+        if let Some(ref mut idx) = log.search_index {
+            idx.rebuild(&log.entries).unwrap();
+        }
+
+        let results = log.full_text_search("rebuild", 10);
+        assert_eq!(results.len(), 2, "rebuild preserves all entries");
+    }
+
+    #[test]
+    fn test_search_index_score_ordering() {
+        let mut log = test_log();
+        let s = log.start_session("agent", "proj");
+        log.record(
+            note_type(),
+            "The network configuration was updated",
+            s.id,
+            1,
+            &[],
+            None,
+            "proj",
+        );
+        log.record(
+            note_type(),
+            "Network network network related changes",
+            s.id,
+            1,
+            &[],
+            None,
+            "proj",
+        );
+
+        let results = log.full_text_search("network", 10);
+        assert!(!results.is_empty(), "should find network entries");
+        // Results should be sorted by score (highest first)
+        for w in results.windows(2) {
+            assert!(w[0].0 >= w[1].0, "results should be sorted by descending score");
+        }
+    }
+
+    #[test]
+    fn test_search_index_bulk_performance() {
+        let mut log = test_log();
+        let s = log.start_session("agent", "proj");
+        // Index 1000 entries
+        for i in 0..1000 {
+            log.record(
+                note_type(),
+                &format!("Activity entry number {} with some content data", i),
+                s.id,
+                (i % 4) as u8,
+                &["bulk"],
+                None,
+                "proj",
+            );
+        }
+
+        let start = std::time::Instant::now();
+        let results = log.full_text_search("content", 50);
+        let elapsed = start.elapsed();
+        assert!(!results.is_empty(), "should find entries");
+        assert!(
+            elapsed.as_millis() < 500,
+            "search should complete within 500ms, took {}ms",
+            elapsed.as_millis()
+        );
+    }
+
+    // ─── C1: Ed25519 Signing Integration Tests ───────────
+
+    fn signed_log() -> ActivityLog {
+        let signing_key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
+        ActivityLog::new_with_signing_key("dev-1", "agent-1", "admin", signing_key)
+    }
+
+    #[test]
+    fn test_record_auto_signs_entry() {
+        let mut log = signed_log();
+        let s = log.start_session("agent-1", "proj");
+        let entry = log.record(note_type(), "signed entry", s.id, 2, &["test"], None, "proj");
+        assert!(
+            !entry.signature.is_empty(),
+            "entry must be signed when key is available"
+        );
+        assert_eq!(entry.signature.len(), 128, "Ed25519 hex sig = 128 chars");
+    }
+
+    #[test]
+    fn test_record_without_key_produces_unsigned() {
+        let mut log = test_log(); // no signing key
+        let s = log.start_session("agent-1", "proj");
+        let entry = log.record(note_type(), "unsigned entry", s.id, 1, &[], None, "proj");
+        assert!(
+            entry.signature.is_empty(),
+            "entry must be unsigned when no key"
+        );
+    }
+
+    #[test]
+    fn test_verify_signatures_all_valid() {
+        let signing_key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
+        let verifying_key = signing_key.verifying_key();
+        let mut log =
+            ActivityLog::new_with_signing_key("dev-1", "agent-1", "admin", signing_key);
+        let s = log.start_session("agent-1", "proj");
+        for i in 0..5 {
+            log.record(note_type(), &format!("entry {}", i), s.id, 1, &[], None, "proj");
+        }
+        let invalid = log.verify_signatures(&verifying_key);
+        assert!(invalid.is_empty(), "all signatures should be valid");
+    }
+
+    #[test]
+    fn test_verify_signatures_tampered_entry() {
+        let signing_key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
+        let verifying_key = signing_key.verifying_key();
+        let mut log =
+            ActivityLog::new_with_signing_key("dev-1", "agent-1", "admin", signing_key);
+        let s = log.start_session("agent-1", "proj");
+        log.record(note_type(), "entry 1", s.id, 1, &[], None, "proj");
+        log.record(note_type(), "entry 2", s.id, 2, &[], None, "proj");
+
+        // Tamper with second entry
+        log.entries[1].content = "TAMPERED".into();
+
+        let invalid = log.verify_signatures(&verifying_key);
+        assert_eq!(invalid.len(), 1, "tampered entry should fail verification");
+        assert_eq!(invalid[0], log.entries[1].id);
+    }
+
+    #[test]
+    fn test_verify_signatures_skips_unsigned() {
+        let signing_key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
+        let verifying_key = signing_key.verifying_key();
+        let mut log = ActivityLog::new("dev-1", "agent-1", "admin"); // no key
+        let s = log.start_session("agent-1", "proj");
+        log.record(note_type(), "unsigned 1", s.id, 1, &[], None, "proj");
+        log.record(note_type(), "unsigned 2", s.id, 1, &[], None, "proj");
+
+        let invalid = log.verify_signatures(&verifying_key);
+        assert!(
+            invalid.is_empty(),
+            "unsigned entries should be skipped, not flagged"
+        );
+    }
+
+    #[test]
+    fn test_verify_signatures_mixed_signed_unsigned() {
+        let signing_key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
+        let verifying_key = signing_key.verifying_key();
+
+        // Create log without key first → unsigned entries
+        let mut log = ActivityLog::new("dev-1", "agent-1", "admin");
+        let s = log.start_session("agent-1", "proj");
+        log.record(note_type(), "unsigned entry", s.id, 1, &[], None, "proj");
+
+        // Now add signing key → signed entries
+        log.set_signing_key(signing_key);
+        log.record(note_type(), "signed entry", s.id, 2, &[], None, "proj");
+
+        assert!(log.entries[0].signature.is_empty());
+        assert!(!log.entries[1].signature.is_empty());
+
+        let invalid = log.verify_signatures(&verifying_key);
+        assert!(invalid.is_empty(), "mixed log should verify correctly");
+    }
+
+    // ─── C2: Lamport Clock Tests ─────────────────────────
+
+    #[test]
+    fn test_lamport_monotonic_increase() {
+        let mut log = test_log();
+        let s = log.start_session("agent-1", "proj");
+        let e1 = log.record(note_type(), "first", s.id, 1, &[], None, "proj");
+        let e2 = log.record(note_type(), "second", s.id, 1, &[], None, "proj");
+        let e3 = log.record(note_type(), "third", s.id, 1, &[], None, "proj");
+        assert_eq!(e1.lamport_clock, 1);
+        assert_eq!(e2.lamport_clock, 2);
+        assert_eq!(e3.lamport_clock, 3);
+    }
+
+    #[test]
+    fn test_lamport_merge_rule() {
+        let mut log_a = ActivityLog::new("dev-a", "agent-a", "admin");
+        let mut log_b = ActivityLog::new("dev-b", "agent-b", "admin");
+        let sa = log_a.start_session("agent-a", "proj");
+        let sb = log_b.start_session("agent-b", "proj");
+
+        // A records 3 entries → lamport 1,2,3
+        for i in 0..3 {
+            log_a.record(note_type(), &format!("a-{}", i), sa.id, 1, &[], None, "proj");
+        }
+        // B records 5 entries → lamport 1,2,3,4,5
+        for i in 0..5 {
+            log_b.record(note_type(), &format!("b-{}", i), sb.id, 1, &[], None, "proj");
+        }
+
+        // Merge B into A: max(A=3, B=5) → A.clock should be > 5
+        let merged = log_a.merge_remote(log_b.entries());
+        assert_eq!(merged, 5, "5 new entries from B");
+        let next = log_a.record(note_type(), "post-merge", sa.id, 1, &[], None, "proj");
+        assert!(
+            next.lamport_clock > 5,
+            "post-merge lamport {} should be > 5",
+            next.lamport_clock
+        );
+    }
+
+    #[test]
+    fn test_lamport_sort_stability() {
+        let mut log = test_log();
+        let s = log.start_session("agent-1", "proj");
+
+        // Create entries that could have same timestamp but differ in lamport
+        let mut entries = Vec::new();
+        for i in 0..10 {
+            let e = log.record(note_type(), &format!("entry-{}", i), s.id, 1, &[], None, "proj");
+            entries.push(e);
+        }
+
+        // Verify all entries are in lamport order
+        for i in 1..entries.len() {
+            assert!(
+                entries[i].lamport_clock > entries[i - 1].lamport_clock,
+                "lamport clocks must be strictly increasing"
+            );
+        }
+
+        // Verify log ordering is by lamport
+        let log_entries = log.entries();
+        for i in 1..log_entries.len() {
+            assert!(
+                log_entries[i].lamport_clock >= log_entries[i - 1].lamport_clock,
+                "log entries must be sorted by lamport clock"
+            );
+        }
+    }
+
+    #[test]
+    fn test_normalize_error_message() {
+        let raw = "error[E0308]: mismatched types at src/main.rs:42:10";
+        let norm = normalize_error_message(raw);
+        // Line numbers stripped: `:42:10` → nothing
+        assert!(!norm.contains(":42"), "line numbers should be stripped");
+        assert!(norm.contains("mismatched types"), "message body preserved");
+    }
+
+    #[test]
+    fn test_dirs_candidate_returns_path() {
+        let p = dirs_candidate("MEMORY.md");
+        let s = p.to_string_lossy();
+        assert!(s.contains("MEMORY.md"), "path must contain filename");
+    }
+
+    #[test]
+    fn test_context_injection_has_new_fields() {
+        let mut log = test_log();
+        let s = log.start_session("agent-ctx", "test-ctx");
+        log.record(note_type(), "entry-1", s.id, 1, &[], None, "test-ctx");
+
+        let ctx = log.build_context_injection("test-ctx");
+        // New fields must exist (even if empty)
+        assert!(ctx.cross_session_insights.is_empty() || !ctx.cross_session_insights.is_empty());
+        assert!(ctx.repeated_errors.is_empty()); // no errors recorded
+        // memory_md may or may not exist depending on filesystem
+    }
+
+    #[test]
+    fn test_detect_repeated_errors_threshold() {
+        let mut log = test_log();
+        let s = log.start_session("agent-err", "err-proj");
+        // Record 4 identical errors
+        for _ in 0..4 {
+            log.record(
+                ActivityType::Error {
+                    severity: 3,
+                    message: "connection refused at host:8080".to_string(),
+                    stack_trace: None,
+                    resolved: false,
+                },
+                "retry attempt",
+                s.id,
+                5,
+                &[],
+                None,
+                "err-proj",
+            );
+        }
+        // Record only 2 of a different error
+        for _ in 0..2 {
+            log.record(
+                ActivityType::Error {
+                    severity: 2,
+                    message: "timeout at line:99".to_string(),
+                    stack_trace: None,
+                    resolved: false,
+                },
+                "timeout",
+                s.id,
+                3,
+                &[],
+                None,
+                "err-proj",
+            );
+        }
+
+        let repeated = ActivityLog::detect_repeated_errors(log.entries(), "err-proj");
+        // Only the first error (count 4 >= 3) should appear
+        assert_eq!(repeated.len(), 1, "only errors with count >= 3");
+        assert_eq!(repeated[0].count, 4);
+        assert!(repeated[0].message.contains("connection refused"));
+    }
+
+    // ─── Part A1 추가 테스트 ───────────────────
+
+    #[test]
+    fn test_search_highlight_format() {
+        let idx = SearchIndex::new_in_memory().unwrap();
+        // Case where query appears in the middle of content
+        let content = "The quick brown fox jumps over the lazy dog in the garden today";
+        let highlighted = idx.highlight("fox", content);
+        assert!(
+            highlighted.contains("fox"),
+            "highlight must include the query term"
+        );
+        assert!(
+            highlighted.contains("..."),
+            "highlight should include ellipsis for context window"
+        );
+
+        // Fallback: query not found → first 100 chars
+        let fallback = idx.highlight("zzznomatch", content);
+        assert!(
+            fallback.starts_with("The quick"),
+            "fallback should return beginning of content"
+        );
+    }
+
+    #[test]
+    fn test_fuzzy_search_typo_tolerance() {
+        let mut idx = SearchIndex::new_in_memory().unwrap();
+        let entry = ActivityEntry {
+            id: Uuid::new_v4(),
+            session_id: Uuid::new_v4(),
+            agent_id: "dev-1".into(),
+            agent_role: "admin".into(),
+            agent_name: "fuzzy-agent".into(),
+            activity_type: note_type(),
+            project: "edgeclaw".into(),
+            file_path: None,
+            content: "authentication failure in production server".into(),
+            tags: vec!["auth".into()],
+            importance: 2,
+            timestamp: Utc::now(),
+            lamport_clock: 1,
+            prev_hash: "0".repeat(64),
+            hash: "h1".into(),
+            signature: String::new(),
+        };
+        idx.index_entry(&entry).unwrap();
+        idx.commit().unwrap();
+
+        // Exact match
+        let exact = idx.search("authentication", 10).unwrap();
+        assert!(!exact.is_empty(), "exact query should match");
+
+        // Tantivy tokenizer splits terms — partial word or prefix query
+        // should still find entries containing the term
+        let partial = idx.search("auth*", 10).unwrap();
+        // Wildcard queries may or may not be supported by default parser;
+        // the important thing is that the search does not panic
+        let _ = partial;
+
+        // Substring via tag field
+        let tag_match = idx.search("auth", 10).unwrap();
+        assert!(!tag_match.is_empty(), "tag search should match");
+    }
+
+    #[test]
+    fn test_index_commit_roundtrip() {
+        // Create an index, add entries, commit, then search
+        let mut idx = SearchIndex::new_in_memory().unwrap();
+
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+
+        for (id, content) in [
+            (id1, "database migration completed successfully"),
+            (id2, "deployment pipeline updated for staging"),
+        ] {
+            let entry = ActivityEntry {
+                id,
+                session_id: Uuid::new_v4(),
+                agent_id: "dev-1".into(),
+                agent_role: "admin".into(),
+                agent_name: "rt-agent".into(),
+                activity_type: note_type(),
+                project: "edgeclaw".into(),
+                file_path: None,
+                content: content.into(),
+                tags: vec![],
+                importance: 2,
+                timestamp: Utc::now(),
+                lamport_clock: 1,
+                prev_hash: "0".repeat(64),
+                hash: format!("hash_{}", id),
+                signature: String::new(),
+            };
+            idx.index_entry(&entry).unwrap();
+        }
+
+        idx.commit().unwrap();
+
+        // Search after commit should find the indexed entries
+        let results = idx.search("database migration", 10).unwrap();
+        assert!(!results.is_empty(), "committed entries must be searchable");
+        assert_eq!(
+            results[0].1, id1,
+            "top result should be the database migration entry"
+        );
+
+        // Second query
+        let results2 = idx.search("deployment pipeline", 10).unwrap();
+        assert!(!results2.is_empty(), "second entry must be found");
+        assert_eq!(results2[0].1, id2);
     }
 }

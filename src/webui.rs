@@ -23,6 +23,24 @@ const CHAT_HTML: &str = include_str!("../static/chat.html");
 /// Embedded HTML dashboard page (compiled into the binary)
 const DASHBOARD_HTML: &str = include_str!("../static/dashboard.html");
 
+/// Embedded HTML activity feed page (compiled into the binary)
+const ACTIVITY_FEED_HTML: &str = include_str!("../static/activity_feed.html");
+
+/// Embedded HTML sessions list page (compiled into the binary)
+const SESSIONS_HTML: &str = include_str!("../static/sessions.html");
+
+/// Embedded HTML session detail page (compiled into the binary)
+const SESSION_DETAIL_HTML: &str = include_str!("../static/session_detail.html");
+
+/// Embedded HTML search page (compiled into the binary)
+const SEARCH_HTML: &str = include_str!("../static/search.html");
+
+/// Embedded HTML statistics page (compiled into the binary)
+const STATS_HTML: &str = include_str!("../static/stats.html");
+
+/// Embedded HTML team network map page (compiled into the binary)
+const TEAM_MAP_HTML: &str = include_str!("../static/team_map.html");
+
 /// Session token validity duration (1 hour)
 const SESSION_TTL: Duration = Duration::from_secs(3600);
 
@@ -328,6 +346,66 @@ async fn handle_http(
             )
             .await;
         }
+        ("GET", "/activity") => {
+            return send_response(
+                &mut stream,
+                200,
+                "text/html; charset=utf-8",
+                ACTIVITY_FEED_HTML.as_bytes(),
+                cors_origin,
+            )
+            .await;
+        }
+        ("GET", "/sessions") => {
+            return send_response(
+                &mut stream,
+                200,
+                "text/html; charset=utf-8",
+                SESSIONS_HTML.as_bytes(),
+                cors_origin,
+            )
+            .await;
+        }
+        _ if method == "GET" && path.starts_with("/session/") => {
+            return send_response(
+                &mut stream,
+                200,
+                "text/html; charset=utf-8",
+                SESSION_DETAIL_HTML.as_bytes(),
+                cors_origin,
+            )
+            .await;
+        }
+        ("GET", "/search") => {
+            return send_response(
+                &mut stream,
+                200,
+                "text/html; charset=utf-8",
+                SEARCH_HTML.as_bytes(),
+                cors_origin,
+            )
+            .await;
+        }
+        ("GET", "/stats") => {
+            return send_response(
+                &mut stream,
+                200,
+                "text/html; charset=utf-8",
+                STATS_HTML.as_bytes(),
+                cors_origin,
+            )
+            .await;
+        }
+        ("GET", "/team") => {
+            return send_response(
+                &mut stream,
+                200,
+                "text/html; charset=utf-8",
+                TEAM_MAP_HTML.as_bytes(),
+                cors_origin,
+            )
+            .await;
+        }
         ("GET", "/metrics") => {
             return handle_metrics_prometheus(&mut stream, metrics, &engine, cors_origin).await;
         }
@@ -402,6 +480,48 @@ async fn handle_http(
         _ if method == "DELETE" && path.starts_with("/api/agents/") => {
             let agent_id = path.strip_prefix("/api/agents/").unwrap_or("");
             handle_agent_delete(&mut stream, agent_id, cors_origin).await
+        }
+        // ─── V4.0 Activity REST API ──────────────────────
+        ("GET", "/api/activities") => {
+            handle_activities_list(&mut stream, &engine, &request, cors_origin).await
+        }
+        ("POST", "/api/activities/search") => {
+            let body = extract_body(&request);
+            handle_activities_search(&mut stream, &engine, &body, cors_origin).await
+        }
+        ("GET", "/api/activities/stats") => {
+            handle_activities_stats(&mut stream, &engine, cors_origin).await
+        }
+        _ if method == "GET" && path.starts_with("/api/activities/") => {
+            let entry_id = path.strip_prefix("/api/activities/").unwrap_or("");
+            handle_activity_detail(&mut stream, &engine, entry_id, cors_origin).await
+        }
+        ("GET", "/api/sessions") => {
+            handle_sessions_list(&mut stream, &engine, &request, cors_origin).await
+        }
+        _ if method == "GET"
+            && path.starts_with("/api/sessions/")
+            && path.ends_with("/timeline") =>
+        {
+            let session_id = path
+                .strip_prefix("/api/sessions/")
+                .and_then(|s| s.strip_suffix("/timeline"))
+                .unwrap_or("");
+            handle_session_timeline(&mut stream, &engine, session_id, cors_origin).await
+        }
+        _ if method == "GET"
+            && path.starts_with("/api/sessions/")
+            && path.ends_with("/context") =>
+        {
+            let session_id = path
+                .strip_prefix("/api/sessions/")
+                .and_then(|s| s.strip_suffix("/context"))
+                .unwrap_or("");
+            handle_session_context(&mut stream, &engine, session_id, cors_origin).await
+        }
+        _ if method == "GET" && path.starts_with("/api/sessions/") => {
+            let session_id = path.strip_prefix("/api/sessions/").unwrap_or("");
+            handle_session_detail(&mut stream, &engine, session_id, cors_origin).await
         }
         _ => {
             send_response(
@@ -872,6 +992,49 @@ fn extract_bearer_token(request: &str) -> Option<&str> {
     None
 }
 
+/// API access level for RBAC middleware.
+///
+/// Maps REST endpoints to required minimum roles.
+/// Viewer can read activities/sessions/stats.
+/// Operator can additionally search.
+/// Admin and Owner can access everything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[allow(dead_code)]
+enum ApiAccessLevel {
+    /// Any authenticated user
+    Viewer = 0,
+    /// Viewer + search/export
+    Operator = 1,
+    /// Operator + config/write ops
+    Admin = 2,
+    /// All access
+    Owner = 3,
+}
+
+/// Determine the required access level for an API path.
+#[allow(dead_code)]
+fn required_access_level(method: &str, path: &str) -> ApiAccessLevel {
+    match (method, path) {
+        // Read-only endpoints: Viewer
+        ("GET", p)
+            if p.starts_with("/api/activities")
+                || p.starts_with("/api/sessions")
+                || p == "/api/status"
+                || p == "/api/health" =>
+        {
+            ApiAccessLevel::Viewer
+        }
+        // Search/stats: Operator
+        ("POST", "/api/activities/search") => ApiAccessLevel::Operator,
+        // Config changes: Admin
+        ("PUT", "/api/config") => ApiAccessLevel::Admin,
+        // Agent execution: Admin
+        _ if method == "POST" && path.contains("/execute") => ApiAccessLevel::Admin,
+        // Everything else: Viewer
+        _ => ApiAccessLevel::Viewer,
+    }
+}
+
 /// Parse Content-Length header from raw HTTP request
 fn parse_content_length(request: &str) -> usize {
     for line in request.lines() {
@@ -939,6 +1102,395 @@ async fn send_response(
 /// Handle CORS preflight OPTIONS request
 async fn send_cors_preflight(stream: &mut TcpStream, cors_origin: &str) -> Result<(), AgentError> {
     send_response(stream, 200, "text/plain", b"", cors_origin).await
+}
+
+/// Send a JSON response with pagination headers (Link + X-Total-Count).
+async fn send_paginated_response(
+    stream: &mut TcpStream,
+    body: &[u8],
+    cors_origin: &str,
+    total: usize,
+    offset: usize,
+    limit: usize,
+    base_path: &str,
+) -> Result<(), AgentError> {
+    let mut link_parts = Vec::new();
+    if offset + limit < total {
+        link_parts.push(format!(
+            "<{base_path}?offset={}&limit={limit}>; rel=\"next\"",
+            offset + limit,
+        ));
+    }
+    if offset > 0 {
+        let prev = offset.saturating_sub(limit);
+        link_parts.push(format!(
+            "<{base_path}?offset={prev}&limit={limit}>; rel=\"prev\"",
+        ));
+    }
+
+    let link_header = if link_parts.is_empty() {
+        String::new()
+    } else {
+        format!("Link: {}\r\n", link_parts.join(", "))
+    };
+
+    let header = format!(
+        "HTTP/1.1 200 OK\r\n\
+         Content-Type: application/json\r\n\
+         Content-Length: {}\r\n\
+         X-Total-Count: {total}\r\n\
+         {link_header}\
+         Access-Control-Allow-Origin: {cors_origin}\r\n\
+         Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\n\
+         Access-Control-Allow-Headers: Content-Type, Authorization\r\n\
+         Access-Control-Expose-Headers: Link, X-Total-Count\r\n\
+         Connection: close\r\n\
+         \r\n",
+        body.len(),
+    );
+
+    stream
+        .write_all(header.as_bytes())
+        .await
+        .map_err(|e| AgentError::ConnectionError(e.to_string()))?;
+    stream
+        .write_all(body)
+        .await
+        .map_err(|e| AgentError::ConnectionError(e.to_string()))?;
+    stream
+        .flush()
+        .await
+        .map_err(|e| AgentError::ConnectionError(e.to_string()))?;
+
+    Ok(())
+}
+
+// ─── V4.0 Activity REST API handlers ─────────────────────
+
+/// GET /api/activities — Paginated activity list.
+/// Query params: ?offset=N&limit=N&importance=N&project=X&agent=X&type=X&since=ISO&until=ISO
+async fn handle_activities_list(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    raw_request: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let offset = parse_query_param(raw_request, "offset")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(0);
+    let limit = parse_query_param(raw_request, "limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(50)
+        .min(500);
+
+    let min_imp = parse_query_param(raw_request, "importance").and_then(|v| v.parse::<u8>().ok());
+    let project_filter = parse_query_param(raw_request, "project");
+    let agent_filter = parse_query_param(raw_request, "agent");
+    let type_filter = parse_query_param(raw_request, "type");
+    let since_filter = parse_query_param(raw_request, "since")
+        .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
+    let until_filter = parse_query_param(raw_request, "until")
+        .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
+
+    // Fetch a large window to filter from
+    let fetch_count = (offset + limit) * 2 + 1000;
+    let all_entries = if let Some(imp) = min_imp {
+        engine.activity_manager().filter_by_importance(imp, fetch_count)
+    } else {
+        engine.recent_activities(fetch_count)
+    };
+
+    // Apply additional filters
+    let filtered: Vec<&crate::activity_log::ActivityEntry> = all_entries
+        .iter()
+        .filter(|e| {
+            if let Some(p) = &project_filter {
+                if !e.project.eq_ignore_ascii_case(p) {
+                    return false;
+                }
+            }
+            if let Some(a) = &agent_filter {
+                if !e.agent_id.eq_ignore_ascii_case(a) {
+                    return false;
+                }
+            }
+            if let Some(t) = &type_filter {
+                if e.activity_type.type_tag() != &**t {
+                    return false;
+                }
+            }
+            if let Some(s) = &since_filter {
+                if e.timestamp < *s {
+                    return false;
+                }
+            }
+            if let Some(u) = &until_filter {
+                if e.timestamp > *u {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect();
+
+    let total = filtered.len();
+    let page: Vec<&&crate::activity_log::ActivityEntry> =
+        filtered.iter().skip(offset).take(limit).collect();
+
+    let body = serde_json::json!({
+        "count": page.len(),
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "entries": page,
+    });
+    let json = serde_json::to_vec(&body).unwrap_or_default();
+    send_paginated_response(stream, &json, cors_origin, total, offset, limit, "/api/activities")
+        .await
+}
+
+/// POST /api/activities/search — Full-text search.
+async fn handle_activities_search(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    #[derive(serde::Deserialize)]
+    struct SearchReq {
+        query: String,
+        #[serde(default = "default_limit")]
+        limit: usize,
+    }
+    fn default_limit() -> usize {
+        50
+    }
+
+    let req: SearchReq = match serde_json::from_str(body) {
+        Ok(r) => r,
+        Err(e) => {
+            let err = serde_json::json!({"error": format!("invalid JSON: {}", e)});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    let results = engine.search_activities(&req.query, req.limit.min(500));
+    let resp = serde_json::json!({
+        "query": req.query,
+        "count": results.len(),
+        "entries": results,
+    });
+    let json = serde_json::to_vec(&resp).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// GET /api/activities/stats — Aggregate activity statistics.
+async fn handle_activities_stats(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let stats = engine.activity_stats();
+    let json = serde_json::to_vec(&stats).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// GET /api/activities/:id — Single activity entry by UUID.
+async fn handle_activity_detail(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    entry_id: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let uuid = match uuid::Uuid::parse_str(entry_id) {
+        Ok(u) => u,
+        Err(_) => {
+            let err = serde_json::json!({"error": "invalid UUID"});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    // Search through recent entries
+    let entries = engine.recent_activities(10000);
+    let found = entries.iter().find(|e| e.id == uuid);
+
+    match found {
+        Some(entry) => {
+            let json = serde_json::to_vec(entry).unwrap_or_default();
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+        None => {
+            let err = serde_json::json!({"error": "entry not found"});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            send_response(stream, 404, "application/json", &json, cors_origin).await
+        }
+    }
+}
+
+/// GET /api/sessions — List all sessions (active + completed).
+/// Query params: ?offset=N&limit=N&agent=X&status=X
+async fn handle_sessions_list(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    raw_request: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let offset = parse_query_param(raw_request, "offset")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(0);
+    let limit = parse_query_param(raw_request, "limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(50)
+        .min(200);
+    let agent_filter = parse_query_param(raw_request, "agent");
+    let status_filter = parse_query_param(raw_request, "status");
+
+    let mgr = engine.activity_manager();
+    let all_sessions = mgr.all_sessions();
+
+    let filtered: Vec<&crate::activity_log::AgentSession> = all_sessions
+        .iter()
+        .filter(|s| {
+            if let Some(a) = &agent_filter {
+                if !s.agent_id.eq_ignore_ascii_case(a) {
+                    return false;
+                }
+            }
+            if let Some(st) = &status_filter {
+                let status_str = format!("{:?}", s.status).to_lowercase();
+                if status_str != st.to_lowercase() {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect();
+
+    let total = filtered.len();
+    let page: Vec<&&crate::activity_log::AgentSession> =
+        filtered.iter().skip(offset).take(limit).collect();
+
+    let stats = mgr.stats();
+    let resp = serde_json::json!({
+        "count": page.len(),
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "total_cost_usd": stats.total_cost_usd,
+        "total_tokens": stats.total_tokens,
+        "sessions": page,
+    });
+    let json = serde_json::to_vec(&resp).unwrap_or_default();
+    send_paginated_response(stream, &json, cors_origin, total, offset, limit, "/api/sessions")
+        .await
+}
+
+/// GET /api/sessions/:id — Session detail.
+async fn handle_session_detail(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    session_id: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let uuid = match uuid::Uuid::parse_str(session_id) {
+        Ok(u) => u,
+        Err(_) => {
+            let err = serde_json::json!({"error": "invalid UUID"});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    let mgr = engine.activity_manager();
+    match mgr.get_session(uuid) {
+        Some(session) => {
+            // Count entries belonging to this session
+            let entries = engine.recent_activities(10000);
+            let entry_count = entries.iter().filter(|e| e.session_id == uuid).count();
+
+            let resp = serde_json::json!({
+                "session": session,
+                "entry_count": entry_count,
+            });
+            let json = serde_json::to_vec(&resp).unwrap_or_default();
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+        None => {
+            let err = serde_json::json!({"error": "session not found"});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            send_response(stream, 404, "application/json", &json, cors_origin).await
+        }
+    }
+}
+
+/// GET /api/sessions/:id/timeline — Activity timeline for a session.
+async fn handle_session_timeline(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    session_id: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let uuid = match uuid::Uuid::parse_str(session_id) {
+        Ok(u) => u,
+        Err(_) => {
+            let err = serde_json::json!({"error": "invalid UUID"});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    // Filter entries belonging to this session
+    let entries = engine.recent_activities(10000);
+    let timeline: Vec<&crate::activity_log::ActivityEntry> =
+        entries.iter().filter(|e| e.session_id == uuid).collect();
+
+    let resp = serde_json::json!({
+        "session_id": session_id,
+        "count": timeline.len(),
+        "entries": timeline,
+    });
+    let json = serde_json::to_vec(&resp).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// GET /api/sessions/:id/context — Session context injection data.
+///
+/// Returns the context payload that would be injected into a new agent session,
+/// including recent summaries, important activities, recent errors, and decisions.
+async fn handle_session_context(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    session_id: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let uuid = match uuid::Uuid::parse_str(session_id) {
+        Ok(u) => u,
+        Err(_) => {
+            let err = serde_json::json!({"error": "invalid UUID"});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    let mgr = engine.activity_manager();
+    // Find the session to get its project
+    let project = mgr
+        .get_session(uuid)
+        .map(|s| s.project.clone())
+        .unwrap_or_default();
+
+    let context = mgr.build_context_injection(&project);
+    let resp = serde_json::json!({
+        "session_id": session_id,
+        "project": project,
+        "context": context,
+    });
+    let json = serde_json::to_vec(&resp).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
 }
 
 #[cfg(test)]
@@ -1027,6 +1579,50 @@ mod tests {
         assert!(!DASHBOARD_HTML.is_empty());
         assert!(DASHBOARD_HTML.contains("EdgeClaw"));
         assert!(DASHBOARD_HTML.contains("Dashboard"));
+    }
+
+    #[test]
+    fn test_activity_feed_html_embedded() {
+        assert!(!ACTIVITY_FEED_HTML.is_empty());
+        assert!(ACTIVITY_FEED_HTML.contains("EdgeClaw"));
+        assert!(ACTIVITY_FEED_HTML.contains("Activity"));
+        assert!(ACTIVITY_FEED_HTML.contains("WebSocket"));
+    }
+
+    #[test]
+    fn test_sessions_html_embedded() {
+        assert!(!SESSIONS_HTML.is_empty());
+        assert!(SESSIONS_HTML.contains("EdgeClaw"));
+        assert!(SESSIONS_HTML.contains("Sessions"));
+    }
+
+    #[test]
+    fn test_session_detail_html_embedded() {
+        assert!(!SESSION_DETAIL_HTML.is_empty());
+        assert!(SESSION_DETAIL_HTML.contains("EdgeClaw"));
+        assert!(SESSION_DETAIL_HTML.contains("Session Detail"));
+    }
+
+    #[test]
+    fn test_search_html_embedded() {
+        assert!(!SEARCH_HTML.is_empty());
+        assert!(SEARCH_HTML.contains("EdgeClaw"));
+        assert!(SEARCH_HTML.contains("Search"));
+    }
+
+    #[test]
+    fn test_stats_html_embedded() {
+        assert!(!STATS_HTML.is_empty());
+        assert!(STATS_HTML.contains("EdgeClaw"));
+        assert!(STATS_HTML.contains("Statistics"));
+    }
+
+    #[test]
+    fn test_team_map_html_embedded() {
+        assert!(!TEAM_MAP_HTML.is_empty());
+        assert!(TEAM_MAP_HTML.contains("EdgeClaw"));
+        assert!(TEAM_MAP_HTML.contains("Team"));
+        assert!(TEAM_MAP_HTML.contains("canvas"));
     }
 
     #[test]
@@ -1457,5 +2053,204 @@ mod tests {
         let resp = http_request(&addr, &req).await;
         assert!(resp.contains("HTTP/1.1 400"));
         assert!(resp.contains("invalid TOML"));
+    }
+
+    // ─── V4.0 Activity REST API tests ────────────────────
+
+    #[tokio::test]
+    async fn test_activities_list_empty() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "GET /api/activities HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("\"count\":0"));
+        assert!(resp.contains("\"total\":0"));
+        assert!(resp.contains("X-Total-Count: 0"));
+    }
+
+    #[tokio::test]
+    async fn test_activities_list_with_params() {
+        let (addr, engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Record some activities
+        let sid = uuid::Uuid::new_v4();
+        for i in 0..5 {
+            engine.activity_manager().record(
+                crate::activity_log::ActivityType::CommandExec {
+                    command: format!("cmd {i}"),
+                    exit_code: 0,
+                    duration_ms: 10,
+                    output_summary: None,
+                },
+                &format!("test activity {i}"),
+                sid,
+                (i % 3) as u8 + 1,
+                &["test"],
+                None,
+                "test-project",
+            );
+        }
+
+        let resp = http_request(
+            &addr,
+            "GET /api/activities?limit=3&offset=1 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("\"limit\":3"));
+        assert!(resp.contains("\"offset\":1"));
+    }
+
+    #[tokio::test]
+    async fn test_activities_search() {
+        let (addr, engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let sid = uuid::Uuid::new_v4();
+        engine.activity_manager().record(
+            crate::activity_log::ActivityType::CommandExec {
+                command: "cargo test".into(),
+                exit_code: 0,
+                duration_ms: 100,
+                output_summary: None,
+            },
+            "Running cargo test suite",
+            sid,
+            2,
+            &["rust", "test"],
+            None,
+            "edgeclaw",
+        );
+
+        let body = r#"{"query":"cargo","limit":10}"#;
+        let req = format!(
+            "POST /api/activities/search HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(), body
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("\"query\":\"cargo\""));
+    }
+
+    #[tokio::test]
+    async fn test_activities_stats() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "GET /api/activities/stats HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("total_entries"));
+    }
+
+    #[tokio::test]
+    async fn test_activity_detail_not_found() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let fake_id = uuid::Uuid::new_v4();
+        let req = format!(
+            "GET /api/activities/{fake_id} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 404"));
+        assert!(resp.contains("entry not found"));
+    }
+
+    #[tokio::test]
+    async fn test_sessions_list_empty() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "GET /api/sessions HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("\"total\":0"));
+        assert!(resp.contains("X-Total-Count: 0"));
+    }
+
+    #[tokio::test]
+    async fn test_session_detail_not_found() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let fake_id = uuid::Uuid::new_v4();
+        let req = format!(
+            "GET /api/sessions/{fake_id} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 404"));
+        assert!(resp.contains("session not found"));
+    }
+
+    #[tokio::test]
+    async fn test_session_timeline() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let fake_id = uuid::Uuid::new_v4();
+        let req = format!(
+            "GET /api/sessions/{fake_id}/timeline HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("\"count\":0"));
+    }
+
+    #[tokio::test]
+    async fn test_session_context() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let fake_id = uuid::Uuid::new_v4();
+        let req = format!(
+            "GET /api/sessions/{fake_id}/context HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("context"));
+    }
+
+    #[test]
+    fn test_rbac_access_levels() {
+        assert_eq!(
+            required_access_level("GET", "/api/activities"),
+            ApiAccessLevel::Viewer
+        );
+        assert_eq!(
+            required_access_level("GET", "/api/sessions"),
+            ApiAccessLevel::Viewer
+        );
+        assert_eq!(
+            required_access_level("POST", "/api/activities/search"),
+            ApiAccessLevel::Operator
+        );
+        assert_eq!(
+            required_access_level("PUT", "/api/config"),
+            ApiAccessLevel::Admin
+        );
+        assert_eq!(
+            required_access_level("POST", "/api/agents/abc/execute"),
+            ApiAccessLevel::Admin
+        );
+    }
+
+    #[test]
+    fn test_rbac_ordering() {
+        assert!(ApiAccessLevel::Viewer < ApiAccessLevel::Operator);
+        assert!(ApiAccessLevel::Operator < ApiAccessLevel::Admin);
+        assert!(ApiAccessLevel::Admin < ApiAccessLevel::Owner);
     }
 }

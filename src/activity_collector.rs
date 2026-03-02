@@ -319,7 +319,8 @@ impl ActivityCollector {
             AgentEvent::StatusChange { .. }
             | AgentEvent::Heartbeat { .. }
             | AgentEvent::MetricUpdate { .. }
-            | AgentEvent::CommandOutput { .. } => None,
+            | AgentEvent::CommandOutput { .. }
+            | AgentEvent::ActivityRecorded { .. } => None,
         }
     }
 }

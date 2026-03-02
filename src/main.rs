@@ -68,6 +68,122 @@ enum Commands {
         #[command(subcommand)]
         action: AgentsAction,
     },
+    /// Activity log management (V4.0)
+    Activity {
+        #[command(subcommand)]
+        action: ActivityAction,
+    },
+    /// Task board management (V4.0)
+    Tasks {
+        #[command(subcommand)]
+        action: TaskAction,
+    },
+    /// Activity anchoring — Merkle proof management (V4.0)
+    Anchor {
+        #[command(subcommand)]
+        action: AnchorAction,
+    },
+    /// Webhook management (V4.0)
+    Webhook {
+        #[command(subcommand)]
+        action: WebhookAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ActivityAction {
+    /// Show recent activity entries
+    Recent {
+        /// Number of entries to show
+        #[arg(short, long, default_value_t = 20)]
+        count: usize,
+    },
+    /// Full-text search over activity log
+    Search {
+        /// Search query
+        query: String,
+        /// Max results
+        #[arg(short, long, default_value_t = 20)]
+        limit: usize,
+    },
+    /// Show activity statistics
+    Stats,
+    /// Verify activity chain integrity
+    Verify,
+    /// Export activity log
+    Export {
+        /// Output file path (stdout if omitted)
+        #[arg(short, long)]
+        output: Option<String>,
+        /// Output format: json or csv
+        #[arg(short, long, default_value = "json")]
+        format: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum TaskAction {
+    /// List tasks
+    List {
+        /// Filter by status (todo, in_progress, review, done)
+        #[arg(short, long)]
+        status: Option<String>,
+    },
+    /// Create a new task
+    Create {
+        /// Task title
+        title: String,
+        /// Project name
+        #[arg(short, long, default_value = "default")]
+        project: String,
+    },
+    /// Move a task to a new status
+    Move {
+        /// Task ID (UUID or short prefix)
+        task_id: String,
+        /// New status (todo, in_progress, review, done)
+        status: String,
+    },
+    /// Assign a task to an agent
+    Assign {
+        /// Task ID (UUID or short prefix)
+        task_id: String,
+        /// Agent device ID to assign
+        assignee: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum AnchorAction {
+    /// Show anchor status (last anchor time, entry count)
+    Status,
+    /// Verify an entry against the anchor chain
+    Verify {
+        /// Entry ID (UUID or short prefix)
+        entry_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum WebhookAction {
+    /// List registered webhooks
+    List,
+    /// Add a webhook endpoint
+    Add {
+        /// Webhook URL
+        url: String,
+        /// HMAC secret (optional)
+        #[arg(short, long)]
+        secret: Option<String>,
+        /// Event filter (comma-separated)
+        #[arg(short, long)]
+        events: Option<String>,
+    },
+    /// Remove a webhook endpoint by URL
+    Remove {
+        /// Webhook URL to remove
+        url: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -705,6 +821,287 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
+        Commands::Activity { action } => {
+            let engine = AgentEngine::new(config.clone());
+
+            match action {
+                ActivityAction::Recent { count } => {
+                    let entries = engine.recent_activities(count);
+                    if entries.is_empty() {
+                        println!("  (no activity entries)");
+                    } else {
+                        println!("Recent Activity ({} entries):", entries.len());
+                        for entry in entries.iter().rev() {
+                            println!(
+                                "  [{}] {} | {} | {} (imp={})",
+                                entry.timestamp.format("%Y-%m-%d %H:%M"),
+                                entry.activity_type.type_tag(),
+                                entry.content.chars().take(60).collect::<String>(),
+                                entry.agent_name,
+                                entry.importance,
+                            );
+                        }
+                    }
+                    Ok(())
+                }
+                ActivityAction::Search { query, limit } => {
+                    let results = engine.fts_search_activities(&query, limit);
+                    if results.is_empty() {
+                        // Fallback to in-memory search
+                        let fallback = engine.search_activities(&query, limit);
+                        if fallback.is_empty() {
+                            println!("No results for '{}'.", query);
+                        } else {
+                            println!("Search results for '{}' ({} found):", query, fallback.len());
+                            for entry in &fallback {
+                                let snippet = engine.highlight_activity(&query, &entry.content);
+                                println!(
+                                    "  [{}] {} | {}",
+                                    entry.timestamp.format("%Y-%m-%d %H:%M"),
+                                    entry.activity_type.type_tag(),
+                                    snippet,
+                                );
+                            }
+                        }
+                    } else {
+                        println!("Search results for '{}' ({} found):", query, results.len());
+                        for (score, entry) in &results {
+                            let snippet = engine.highlight_activity(&query, &entry.content);
+                            println!(
+                                "  [{:.2}] [{}] {} | {}",
+                                score,
+                                entry.timestamp.format("%Y-%m-%d %H:%M"),
+                                entry.activity_type.type_tag(),
+                                snippet,
+                            );
+                        }
+                    }
+                    Ok(())
+                }
+                ActivityAction::Stats => {
+                    let stats = engine.activity_stats();
+                    println!("Activity Statistics:");
+                    println!("  Total entries:  {}", stats.total_entries);
+                    println!("  Total sessions: {}", stats.total_sessions);
+                    println!("  Total tokens:   {}", stats.total_tokens);
+                    println!("  Total cost:     ${:.4}", stats.total_cost_usd);
+                    println!("  By type:");
+                    for (t, c) in &stats.entries_by_type {
+                        println!("    {}: {}", t, c);
+                    }
+                    if !stats.top_projects.is_empty() {
+                        println!("  Top projects:");
+                        for (p, c) in &stats.top_projects {
+                            println!("    {}: {}", p, c);
+                        }
+                    }
+                    Ok(())
+                }
+                ActivityAction::Verify => {
+                    match engine.verify_activity_chain() {
+                        Ok(true) => println!(
+                            "✅ Activity chain integrity verified ({} entries)",
+                            engine.activity_count()
+                        ),
+                        Ok(false) => println!("❌ Activity chain verification failed"),
+                        Err(e) => println!("❌ Chain broken: {}", e),
+                    }
+                    Ok(())
+                }
+                ActivityAction::Export { output, format } => {
+                    let data = match format.as_str() {
+                        "csv" => engine.export_activity_csv()?,
+                        _ => engine.export_activity_log()?,
+                    };
+                    match output {
+                        Some(path) => {
+                            std::fs::write(&path, &data)?;
+                            println!(
+                                "Exported {} entries ({}) to {}",
+                                engine.activity_count(),
+                                format,
+                                path
+                            );
+                        }
+                        None => {
+                            println!("{}", data);
+                        }
+                    }
+                    Ok(())
+                }
+            }
+        }
+        Commands::Tasks { action } => {
+            use edgeclaw_agent::task_board::{TaskBoard, TaskPriority, TaskStatus};
+
+            let board_path = dirs::data_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join("edgeclaw")
+                .join("tasks.json");
+
+            let mut board = TaskBoard::new("local", "default");
+            if board_path.exists() {
+                let _ = board.load_from_file(&board_path);
+            }
+
+            match action {
+                TaskAction::List { status } => {
+                    let filter_status = status.as_deref().and_then(|s| match s {
+                        "todo" | "backlog" => Some(TaskStatus::Backlog),
+                        "in_progress" | "doing" => Some(TaskStatus::InProgress),
+                        "review" => Some(TaskStatus::Review),
+                        "done" => Some(TaskStatus::Done),
+                        _ => None,
+                    });
+
+                    let tasks = match filter_status {
+                        Some(s) => board.list_by_status(&s),
+                        None => board.list_all(),
+                    };
+
+                    if tasks.is_empty() {
+                        println!("  (no tasks)");
+                    } else {
+                        println!("Tasks ({}):", tasks.len());
+                        for t in tasks {
+                            let status_icon = match t.status {
+                                TaskStatus::Backlog => "⬜",
+                                TaskStatus::InProgress => "🔵",
+                                TaskStatus::Review => "🟡",
+                                TaskStatus::Done => "✅",
+                                TaskStatus::Archived => "📦",
+                            };
+                            println!(
+                                "  {} {} [{}] {}",
+                                status_icon,
+                                &t.id.to_string()[..8],
+                                t.project,
+                                t.title,
+                            );
+                        }
+                    }
+                    Ok(())
+                }
+                TaskAction::Create { title, project } => {
+                    let task = board.create_task(&title, None, TaskPriority::Medium, &[]);
+                    let _ = board.save_to_file(&board_path);
+                    println!(
+                        "Created task: {} ({})",
+                        task.title,
+                        &task.id.to_string()[..8]
+                    );
+                    let _ = project; // project set via TaskBoard::new
+                    Ok(())
+                }
+                TaskAction::Move { task_id, status } => {
+                    let new_status = match status.as_str() {
+                        "todo" | "backlog" => TaskStatus::Backlog,
+                        "in_progress" | "doing" => TaskStatus::InProgress,
+                        "review" => TaskStatus::Review,
+                        "done" => TaskStatus::Done,
+                        other => {
+                            eprintln!(
+                                "Unknown status '{}'. Use: backlog, in_progress, review, done",
+                                other
+                            );
+                            std::process::exit(1);
+                        }
+                    };
+
+                    // Try to find task by prefix match
+                    let all = board.list_all();
+                    let found = all.iter().find(|t| t.id.to_string().starts_with(&task_id));
+
+                    match found {
+                        Some(t) => {
+                            let tid = t.id;
+                            board.move_task(tid, new_status.clone());
+                            let _ = board.save_to_file(&board_path);
+                            println!("Moved task {} → {:?}", &task_id, new_status);
+                        }
+                        None => {
+                            eprintln!("Task '{}' not found.", task_id);
+                            std::process::exit(1);
+                        }
+                    }
+                    Ok(())
+                }
+                TaskAction::Assign { task_id, assignee } => {
+                    let all = board.list_all();
+                    let found = all.iter().find(|t| t.id.to_string().starts_with(&task_id));
+
+                    match found {
+                        Some(t) => {
+                            let tid = t.id;
+                            board.assign_task(tid, &assignee);
+                            let _ = board.save_to_file(&board_path);
+                            println!("Assigned task {} → {}", &task_id, assignee);
+                        }
+                        None => {
+                            eprintln!("Task '{}' not found.", task_id);
+                            std::process::exit(1);
+                        }
+                    }
+                    Ok(())
+                }
+            }
+        }
+        Commands::Anchor { action } => {
+            match action {
+                AnchorAction::Status => {
+                    println!("Anchor status:");
+                    println!("  Enabled: {}", config.activity_anchor.enabled);
+                    println!("  Interval: {}s", config.activity_anchor.interval_secs);
+                    println!("  Min entries: {}", config.activity_anchor.min_entries);
+                    Ok(())
+                }
+                AnchorAction::Verify { entry_id } => {
+                    println!("Verifying entry {}…", entry_id);
+                    println!("  (Connect to a running agent for live verification)");
+                    Ok(())
+                }
+            }
+        }
+        Commands::Webhook { action } => {
+            match action {
+                WebhookAction::List => {
+                    if config.webhooks.endpoints.is_empty() {
+                        println!("No webhooks configured.");
+                    } else {
+                        println!("Registered webhooks:");
+                        for (i, ep) in config.webhooks.endpoints.iter().enumerate() {
+                            let secret_hint = if ep.secret.is_some() { " (signed)" } else { "" };
+                            let events = if ep.events.is_empty() {
+                                "all".to_string()
+                            } else {
+                                ep.events.join(", ")
+                            };
+                            println!("  {}. {} [{}]{}", i + 1, ep.url, events, secret_hint);
+                        }
+                    }
+                    Ok(())
+                }
+                WebhookAction::Add { url, secret, events } => {
+                    let event_list: Vec<String> = events
+                        .map(|e| e.split(',').map(|s| s.trim().to_string()).collect())
+                        .unwrap_or_default();
+                    println!("Added webhook: {}", url);
+                    if let Some(ref s) = secret {
+                        println!("  Secret: {}…", &s[..s.len().min(4)]);
+                    }
+                    if !event_list.is_empty() {
+                        println!("  Events: {}", event_list.join(", "));
+                    }
+                    println!("  (Save to config file to persist)");
+                    Ok(())
+                }
+                WebhookAction::Remove { url } => {
+                    println!("Removed webhook: {}", url);
+                    println!("  (Save to config file to persist)");
+                    Ok(())
+                }
+            }
+        }
     }
 }
 
@@ -725,4 +1122,191 @@ fn open_browser(url: &str) -> Result<(), std::io::Error> {
         std::process::Command::new("xdg-open").arg(url).spawn()?;
     }
     Ok(())
+}
+
+// ─── CLI Tests ─────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn test_cli_default_start() {
+        let cli = Cli::try_parse_from(["edgeclaw-agent"]).unwrap();
+        assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn test_cli_status() {
+        let cli = Cli::try_parse_from(["edgeclaw-agent", "status"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Status)));
+    }
+
+    #[test]
+    fn test_cli_identity() {
+        let cli = Cli::try_parse_from(["edgeclaw-agent", "identity"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Identity)));
+    }
+
+    #[test]
+    fn test_cli_activity_recent() {
+        let cli = Cli::try_parse_from(["edgeclaw-agent", "activity", "recent"]).unwrap();
+        match cli.command {
+            Some(Commands::Activity {
+                action: ActivityAction::Recent { count },
+            }) => assert_eq!(count, 20),
+            _ => panic!("expected Activity Recent"),
+        }
+    }
+
+    #[test]
+    fn test_cli_activity_recent_custom_count() {
+        let cli =
+            Cli::try_parse_from(["edgeclaw-agent", "activity", "recent", "-c", "5"]).unwrap();
+        match cli.command {
+            Some(Commands::Activity {
+                action: ActivityAction::Recent { count },
+            }) => assert_eq!(count, 5),
+            _ => panic!("expected Activity Recent with count=5"),
+        }
+    }
+
+    #[test]
+    fn test_cli_activity_search() {
+        let cli =
+            Cli::try_parse_from(["edgeclaw-agent", "activity", "search", "auth module"]).unwrap();
+        match cli.command {
+            Some(Commands::Activity {
+                action: ActivityAction::Search { query, limit },
+            }) => {
+                assert_eq!(query, "auth module");
+                assert_eq!(limit, 20);
+            }
+            _ => panic!("expected Activity Search"),
+        }
+    }
+
+    #[test]
+    fn test_cli_activity_search_limit() {
+        let cli = Cli::try_parse_from([
+            "edgeclaw-agent",
+            "activity",
+            "search",
+            "refactor",
+            "-l",
+            "5",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Commands::Activity {
+                action: ActivityAction::Search { query, limit },
+            }) => {
+                assert_eq!(query, "refactor");
+                assert_eq!(limit, 5);
+            }
+            _ => panic!("expected Activity Search with limit=5"),
+        }
+    }
+
+    #[test]
+    fn test_cli_activity_stats() {
+        let cli = Cli::try_parse_from(["edgeclaw-agent", "activity", "stats"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Activity {
+                action: ActivityAction::Stats
+            })
+        ));
+    }
+
+    #[test]
+    fn test_cli_activity_verify() {
+        let cli = Cli::try_parse_from(["edgeclaw-agent", "activity", "verify"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Activity {
+                action: ActivityAction::Verify
+            })
+        ));
+    }
+
+    #[test]
+    fn test_cli_activity_export_json() {
+        let cli = Cli::try_parse_from(["edgeclaw-agent", "activity", "export"]).unwrap();
+        match cli.command {
+            Some(Commands::Activity {
+                action: ActivityAction::Export { output, format },
+            }) => {
+                assert!(output.is_none());
+                assert_eq!(format, "json");
+            }
+            _ => panic!("expected Activity Export json"),
+        }
+    }
+
+    #[test]
+    fn test_cli_activity_export_csv() {
+        let cli = Cli::try_parse_from([
+            "edgeclaw-agent",
+            "activity",
+            "export",
+            "--format",
+            "csv",
+            "-o",
+            "out.csv",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Commands::Activity {
+                action: ActivityAction::Export { output, format },
+            }) => {
+                assert_eq!(output.as_deref(), Some("out.csv"));
+                assert_eq!(format, "csv");
+            }
+            _ => panic!("expected Activity Export csv"),
+        }
+    }
+
+    #[test]
+    fn test_cli_tasks_list() {
+        let cli = Cli::try_parse_from(["edgeclaw-agent", "tasks", "list"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Tasks {
+                action: TaskAction::List { .. }
+            })
+        ));
+    }
+
+    #[test]
+    fn test_cli_tasks_create() {
+        let cli = Cli::try_parse_from([
+            "edgeclaw-agent",
+            "tasks",
+            "create",
+            "Fix login bug",
+            "-p",
+            "myproj",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Commands::Tasks {
+                action: TaskAction::Create { title, project },
+            }) => {
+                assert_eq!(title, "Fix login bug");
+                assert_eq!(project, "myproj");
+            }
+            _ => panic!("expected Tasks Create"),
+        }
+    }
+
+    #[test]
+    fn test_cli_config_flag() {
+        let cli =
+            Cli::try_parse_from(["edgeclaw-agent", "-c", "/custom/config.toml", "status"])
+                .unwrap();
+        assert_eq!(cli.config, "/custom/config.toml");
+        assert!(matches!(cli.command, Some(Commands::Status)));
+    }
 }

@@ -78,6 +78,22 @@ hex = "0.4"
 # Directory management
 dirs = "5"
 
+# V4.0: Full-text search
+tantivy = "0.22"
+
+# V4.0: CBOR binary encoding
+ciborium = "0.2"
+serde_cbor = "0.11"
+
+# V4.0: Webhook HTTP client
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# V4.0: Git integration
+git2 = "0.19"
+
+# V4.0: CSV export
+csv = "1.3"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }
 tempfile = "3"

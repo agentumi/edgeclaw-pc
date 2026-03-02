@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EdgeClaw — Search</title>
+<style>
+:root { --bg: #1a1a2e; --surface: #16213e; --card: #0f3460; --accent: #e94560; --text: #eee; --muted: #999; --border: #2a2a4a; --highlight: rgba(233,69,96,0.25); }
+[data-theme="light"] { --bg: #f5f5f5; --surface: #fff; --card: #e8e8e8; --accent: #e94560; --text: #222; --muted: #666; --border: #ddd; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+nav .logo { font-weight: 700; font-size: 1.1rem; color: var(--accent); }
+nav .links a { color: var(--muted); text-decoration: none; margin-left: 1rem; font-size: 0.9rem; }
+nav .links a:hover, nav .links a.active { color: var(--accent); }
+.theme-toggle { cursor: pointer; background: none; border: 1px solid var(--border); color: var(--text); padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.8rem; }
+.container { max-width: 900px; margin: 0 auto; padding: 1rem; }
+h1 { font-size: 1.3rem; margin-bottom: 1rem; }
+.search-box { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.search-box input[type="text"] { flex: 1; min-width: 200px; padding: 0.6rem 0.8rem; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font-size: 0.95rem; }
+.search-box input:focus { outline: none; border-color: var(--accent); }
+.search-box button { padding: 0.6rem 1.2rem; background: var(--accent); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
+.filters { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.filters select, .filters input { padding: 0.4rem; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font-size: 0.85rem; }
+.result-count { color: var(--muted); font-size: 0.85rem; margin-bottom: 0.75rem; }
+.result { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.8rem; margin-bottom: 0.5rem; }
+.result .r-header { display: flex; justify-content: space-between; margin-bottom: 0.3rem; }
+.result .r-type { font-size: 0.7rem; text-transform: uppercase; padding: 0.15rem 0.4rem; border-radius: 3px; background: var(--card); font-weight: 600; }
+.result .r-time { font-size: 0.75rem; color: var(--muted); }
+.result .r-content { font-size: 0.9rem; line-height: 1.5; }
+.result .r-content mark { background: var(--highlight); color: var(--accent); padding: 0 2px; border-radius: 2px; }
+.result .r-meta { font-size: 0.75rem; color: var(--muted); margin-top: 0.3rem; }
+.empty { text-align: center; padding: 3rem; color: var(--muted); }
+@media (max-width: 600px) { .search-box { flex-direction: column; } .filters { flex-direction: column; } }
+</style>
+</head>
+<body>
+<nav>
+  <span class="logo">🔷 EdgeClaw</span>
+  <div class="links">
+    <a href="/">Chat</a>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/activity">Activity</a>
+    <a href="/sessions">Sessions</a>
+    <a href="/search" class="active">Search</a>
+    <a href="/stats">Stats</a>
+  </div>
+  <button class="theme-toggle" onclick="toggleTheme()">🌓</button>
+</nav>
+<div class="container">
+  <h1>🔍 Full-Text Search</h1>
+  <div class="search-box">
+    <input type="text" id="q" placeholder="Search activities…" autofocus>
+    <button onclick="doSearch()">Search</button>
+  </div>
+  <div class="filters">
+    <select id="filterType">
+      <option value="">All Types</option>
+      <option value="code_edit">Code Edit</option>
+      <option value="file_create">File Create</option>
+      <option value="command">Command</option>
+      <option value="conversation">Conversation</option>
+      <option value="error">Error</option>
+      <option value="decision">Decision</option>
+      <option value="test">Test</option>
+      <option value="review">Review</option>
+    </select>
+    <input type="text" id="filterProject" placeholder="Project…" style="width:120px">
+    <select id="filterImportance">
+      <option value="">Any Importance</option>
+      <option value="1">≥ 1</option>
+      <option value="2">≥ 2</option>
+      <option value="3">≥ 3</option>
+      <option value="4">≥ 4</option>
+      <option value="5">5 (Critical)</option>
+    </select>
+  </div>
+  <div class="result-count" id="count"></div>
+  <div id="results"><div class="empty">Enter a search query to begin</div></div>
+</div>
+<script>
+function toggleTheme() { const t = document.documentElement.dataset.theme; document.documentElement.dataset.theme = t === 'dark' ? 'light' : 'dark'; }
+
+document.getElementById('q').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+async function doSearch() {
+  const q = document.getElementById('q').value.trim();
+  if (!q) return;
+  const type = document.getElementById('filterType').value;
+  const project = document.getElementById('filterProject').value.trim();
+  const importance = document.getElementById('filterImportance').value;
+
+  const body = { query: q, limit: 50 };
+  if (type) body.activity_type = type;
+  if (project) body.project = project;
+  if (importance) body.min_importance = parseInt(importance);
+
+  const countDiv = document.getElementById('count');
+  const resultsDiv = document.getElementById('results');
+  countDiv.textContent = 'Searching…';
+  resultsDiv.innerHTML = '';
+
+  try {
+    const res = await fetch('/api/activities/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    const entries = data.results || data.entries || [];
+    countDiv.textContent = `${entries.length} result${entries.length !== 1 ? 's' : ''} for "${q}"`;
+
+    if (entries.length === 0) {
+      resultsDiv.innerHTML = '<div class="empty">No results found</div>';
+      return;
+    }
+
+    entries.forEach(e => {
+      const div = document.createElement('div');
+      div.className = 'result';
+      const time = e.timestamp ? new Date(e.timestamp).toLocaleString() : '';
+      const type = e.activity_type?.type || 'unknown';
+      const content = highlightSearchTerm(e.content || '', q);
+      const project = e.project || '';
+      div.innerHTML = `
+        <div class="r-header"><span class="r-type">${type}</span><span class="r-time">${time}</span></div>
+        <div class="r-content">${content}</div>
+        <div class="r-meta">${project ? 'Project: ' + project + ' | ' : ''}Importance: ${e.importance || 0}</div>`;
+      resultsDiv.appendChild(div);
+    });
+  } catch(e) {
+    countDiv.textContent = 'Search failed';
+    console.error(e);
+  }
+}
+
+function highlightSearchTerm(text, term) {
+  if (!term) return escapeHtml(text);
+  const escaped = escapeHtml(text);
+  const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  return escaped.replace(regex, '<mark>$1</mark>');
+}
+
+function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+</script>
+</body>
+</html>

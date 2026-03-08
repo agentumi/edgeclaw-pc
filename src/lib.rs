@@ -72,6 +72,7 @@ pub mod webhook;
 pub mod websocket;
 pub mod webui;
 pub mod workflows;
+pub mod memory_engine;
 
 use std::sync::{Arc, Mutex};
 

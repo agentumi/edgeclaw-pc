@@ -73,6 +73,8 @@ pub mod websocket;
 pub mod webui;
 pub mod workflows;
 pub mod memory_engine;
+pub mod memory_distiller;
+pub mod memory_search;
 
 use std::sync::{Arc, Mutex};
 

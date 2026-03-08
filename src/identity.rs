@@ -117,9 +117,9 @@ impl IdentityManager {
 
     /// Get a clone of the Ed25519 signing key.
     pub fn get_signing_key(&self) -> Result<SigningKey, AgentError> {
-        self.signing_key
-            .clone()
-            .ok_or(AgentError::InternalError("signing key not available".into()))
+        self.signing_key.clone().ok_or(AgentError::InternalError(
+            "signing key not available".into(),
+        ))
     }
 
     /// Get the Ed25519 verifying (public) key.

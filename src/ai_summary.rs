@@ -456,7 +456,10 @@ impl SessionSummarizer {
             "ollama" => {
                 if !api_key.is_empty() {
                     chain.push(Box::new(OpenAiProvider::new(api_key, "gpt-4o-mini")));
-                    chain.push(Box::new(ClaudeProvider::new(api_key, "claude-3-haiku-20240307")));
+                    chain.push(Box::new(ClaudeProvider::new(
+                        api_key,
+                        "claude-3-haiku-20240307",
+                    )));
                 }
             }
             "openai" => {
@@ -465,7 +468,10 @@ impl SessionSummarizer {
                     "llama3",
                 )));
                 if !api_key.is_empty() {
-                    chain.push(Box::new(ClaudeProvider::new(api_key, "claude-3-haiku-20240307")));
+                    chain.push(Box::new(ClaudeProvider::new(
+                        api_key,
+                        "claude-3-haiku-20240307",
+                    )));
                 }
             }
             "claude" => {

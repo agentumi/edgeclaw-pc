@@ -31,6 +31,31 @@ pub enum MessageType {
     ContextResponse = 0x25,
     /// Activity acknowledgement (team sync)
     ActivityAck = 0x26,
+    
+    // ─── Phase 5: V2 Protocol Extensions ───
+
+    // Identity & Economy (0x30-0x35)
+    PassportQuery = 0x30,
+    PassportResponse = 0x31,
+    TaskDelegate = 0x32,
+    TaskResult = 0x33,
+    ReputationUpdate = 0x34,
+    AgentChat = 0x35,
+
+    // Memory Sync (0x40-0x44)
+    MemorySyncRequest = 0x40,
+    MemorySyncResponse = 0x41,
+    DistillReport = 0x42,
+    BootRitualRequest = 0x43,
+    BootRitualResponse = 0x44,
+
+    // Task Management V2 (0x50-0x55)
+    TaskCreateV2 = 0x50,
+    TaskStatusUpdate = 0x51,
+    TaskAssign = 0x52,
+    TaskProgress = 0x53,
+    TaskComplete = 0x54,
+    TaskSchedule = 0x55,
 }
 
 impl TryFrom<u8> for MessageType {
@@ -52,6 +77,30 @@ impl TryFrom<u8> for MessageType {
             0x24 => Ok(MessageType::ContextRequest),
             0x25 => Ok(MessageType::ContextResponse),
             0x26 => Ok(MessageType::ActivityAck),
+
+            // Identity & Economy
+            0x30 => Ok(MessageType::PassportQuery),
+            0x31 => Ok(MessageType::PassportResponse),
+            0x32 => Ok(MessageType::TaskDelegate),
+            0x33 => Ok(MessageType::TaskResult),
+            0x34 => Ok(MessageType::ReputationUpdate),
+            0x35 => Ok(MessageType::AgentChat),
+
+            // Memory Sync
+            0x40 => Ok(MessageType::MemorySyncRequest),
+            0x41 => Ok(MessageType::MemorySyncResponse),
+            0x42 => Ok(MessageType::DistillReport),
+            0x43 => Ok(MessageType::BootRitualRequest),
+            0x44 => Ok(MessageType::BootRitualResponse),
+
+            // Task Management V2
+            0x50 => Ok(MessageType::TaskCreateV2),
+            0x51 => Ok(MessageType::TaskStatusUpdate),
+            0x52 => Ok(MessageType::TaskAssign),
+            0x53 => Ok(MessageType::TaskProgress),
+            0x54 => Ok(MessageType::TaskComplete),
+            0x55 => Ok(MessageType::TaskSchedule),
+
             _ => Err(AgentError::InvalidParameter(format!(
                 "unknown message type: 0x{value:02x}"
             ))),
@@ -251,6 +300,15 @@ mod tests {
             MessageType::try_from(0x26).unwrap(),
             MessageType::ActivityAck
         );
+        
+        // V2 Tests
+        assert_eq!(MessageType::try_from(0x30).unwrap(), MessageType::PassportQuery);
+        assert_eq!(MessageType::try_from(0x35).unwrap(), MessageType::AgentChat);
+        assert_eq!(MessageType::try_from(0x40).unwrap(), MessageType::MemorySyncRequest);
+        assert_eq!(MessageType::try_from(0x44).unwrap(), MessageType::BootRitualResponse);
+        assert_eq!(MessageType::try_from(0x50).unwrap(), MessageType::TaskCreateV2);
+        assert_eq!(MessageType::try_from(0x55).unwrap(), MessageType::TaskSchedule);
+
         assert!(MessageType::try_from(0xFF).is_err());
     }
 

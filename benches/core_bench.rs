@@ -153,15 +153,11 @@ fn bench_cbor_vs_json(c: &mut Criterion) {
     let msg_cbor = msg.encode(PayloadEncoding::Cbor).unwrap();
 
     c.bench_function("team_sync_json_decode", |b| {
-        b.iter(|| {
-            TeamSyncMessage::decode(black_box(&msg_json), PayloadEncoding::Json).unwrap()
-        })
+        b.iter(|| TeamSyncMessage::decode(black_box(&msg_json), PayloadEncoding::Json).unwrap())
     });
 
     c.bench_function("team_sync_cbor_decode", |b| {
-        b.iter(|| {
-            TeamSyncMessage::decode(black_box(&msg_cbor), PayloadEncoding::Cbor).unwrap()
-        })
+        b.iter(|| TeamSyncMessage::decode(black_box(&msg_cbor), PayloadEncoding::Cbor).unwrap())
     });
 
     // ── Size comparison (printed once) ──────────────────

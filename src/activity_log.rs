@@ -223,8 +223,7 @@ pub struct ActivityBrief {
     pub importance: u8,
 }
 
-
-//  Free Helpers 
+//  Free Helpers
 
 /// Normalize an error message for pattern grouping.
 ///
@@ -369,16 +368,18 @@ impl SearchIndex {
             .as_ref()
             .ok_or_else(|| AgentError::ConfigError("Index writer not available".to_string()))?;
         let ts = tantivy::DateTime::from_timestamp_secs(entry.timestamp.timestamp());
-        writer.add_document(doc!(
-            self.f_id => entry.id.to_string(),
-            self.f_content => entry.content.clone(),
-            self.f_tags => entry.tags.join(" "),
-            self.f_file_path => entry.file_path.clone().unwrap_or_default(),
-            self.f_project => entry.project.clone(),
-            self.f_agent_name => entry.agent_name.clone(),
-            self.f_timestamp => ts,
-            self.f_importance => entry.importance as u64,
-        )).map_err(|e| AgentError::ConfigError(format!("Failed to index entry: {}", e)))?;
+        writer
+            .add_document(doc!(
+                self.f_id => entry.id.to_string(),
+                self.f_content => entry.content.clone(),
+                self.f_tags => entry.tags.join(" "),
+                self.f_file_path => entry.file_path.clone().unwrap_or_default(),
+                self.f_project => entry.project.clone(),
+                self.f_agent_name => entry.agent_name.clone(),
+                self.f_timestamp => ts,
+                self.f_importance => entry.importance as u64,
+            ))
+            .map_err(|e| AgentError::ConfigError(format!("Failed to index entry: {}", e)))?;
         Ok(())
     }
 
@@ -398,8 +399,16 @@ impl SearchIndex {
     /// Full-text search returning (score, entry_id) pairs.
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<(f32, Uuid)>, AgentError> {
         let searcher = self.reader.searcher();
-        let query_parser =
-            QueryParser::for_index(&self.index, vec![self.f_content, self.f_tags, self.f_file_path, self.f_project, self.f_agent_name]);
+        let query_parser = QueryParser::for_index(
+            &self.index,
+            vec![
+                self.f_content,
+                self.f_tags,
+                self.f_file_path,
+                self.f_project,
+                self.f_agent_name,
+            ],
+        );
         let parsed = query_parser
             .parse_query(query)
             .map_err(|e| AgentError::ConfigError(format!("Failed to parse query: {}", e)))?;
@@ -587,12 +596,7 @@ impl ActivityLog {
         };
         results
             .into_iter()
-            .filter_map(|(score, id)| {
-                self.entries
-                    .iter()
-                    .find(|e| e.id == id)
-                    .map(|e| (score, e))
-            })
+            .filter_map(|(score, id)| self.entries.iter().find(|e| e.id == id).map(|e| (score, e)))
             .collect()
     }
 
@@ -1023,10 +1027,7 @@ impl ActivityLog {
     }
 
     /// Extract cross-session insights: decision summaries from last 5 sessions.
-    fn extract_cross_session_insights(
-        sessions: &[AgentSession],
-        project: &str,
-    ) -> Vec<String> {
+    fn extract_cross_session_insights(sessions: &[AgentSession], project: &str) -> Vec<String> {
         sessions
             .iter()
             .rev()
@@ -1077,10 +1078,7 @@ impl ActivityLog {
     ///
     /// Returns a list of entry IDs with invalid signatures.
     /// Unsigned entries (`signature == ""`) are skipped.
-    pub fn verify_signatures(
-        &self,
-        verifying_key: &ed25519_dalek::VerifyingKey,
-    ) -> Vec<Uuid> {
+    pub fn verify_signatures(&self, verifying_key: &ed25519_dalek::VerifyingKey) -> Vec<Uuid> {
         let pairs: Vec<_> = self
             .entries
             .iter()
@@ -1482,11 +1480,7 @@ impl ActivityManager {
     /// List all sessions (active + completed).
     pub fn all_sessions(&self) -> Vec<AgentSession> {
         let log = self.log.lock().unwrap_or_else(|e| e.into_inner());
-        let mut sessions: Vec<AgentSession> = log
-            .active_sessions()
-            .into_iter()
-            .cloned()
-            .collect();
+        let mut sessions: Vec<AgentSession> = log.active_sessions().into_iter().cloned().collect();
         // Add completed sessions from the completed list
         for s in &log.completed_sessions {
             sessions.push(s.clone());
@@ -2317,9 +2311,18 @@ mod tests {
         let csv = log.export_csv().unwrap();
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines.len(), 2, "header + 1 data row");
-        assert!(lines[0].contains("id,timestamp,agent_id"), "CSV header present");
-        assert!(lines[1].contains("Ran tests successfully"), "content in row");
-        assert!(lines[1].contains("rust;testing"), "tags semicolon-separated");
+        assert!(
+            lines[0].contains("id,timestamp,agent_id"),
+            "CSV header present"
+        );
+        assert!(
+            lines[1].contains("Ran tests successfully"),
+            "content in row"
+        );
+        assert!(
+            lines[1].contains("rust;testing"),
+            "tags semicolon-separated"
+        );
     }
 
     #[test]
@@ -2403,10 +2406,18 @@ mod tests {
 
         // First verify basic search works
         let basic = log.full_text_search("review", 10);
-        assert!(basic.len() >= 2, "basic search should find both entries, found {}", basic.len());
+        assert!(
+            basic.len() >= 2,
+            "basic search should find both entries, found {}",
+            basic.len()
+        );
 
         let results = log.full_text_search_with_tags("review", &["security"], 10);
-        assert!(!results.is_empty(), "should find tagged entry, basic found {}", basic.len());
+        assert!(
+            !results.is_empty(),
+            "should find tagged entry, basic found {}",
+            basic.len()
+        );
         assert!(
             results[0].1.tags.contains(&"security".to_string()),
             "result should have security tag"
@@ -2518,7 +2529,10 @@ mod tests {
         assert!(!results.is_empty(), "should find network entries");
         // Results should be sorted by score (highest first)
         for w in results.windows(2) {
-            assert!(w[0].0 >= w[1].0, "results should be sorted by descending score");
+            assert!(
+                w[0].0 >= w[1].0,
+                "results should be sorted by descending score"
+            );
         }
     }
 
@@ -2561,7 +2575,15 @@ mod tests {
     fn test_record_auto_signs_entry() {
         let mut log = signed_log();
         let s = log.start_session("agent-1", "proj");
-        let entry = log.record(note_type(), "signed entry", s.id, 2, &["test"], None, "proj");
+        let entry = log.record(
+            note_type(),
+            "signed entry",
+            s.id,
+            2,
+            &["test"],
+            None,
+            "proj",
+        );
         assert!(
             !entry.signature.is_empty(),
             "entry must be signed when key is available"
@@ -2584,11 +2606,18 @@ mod tests {
     fn test_verify_signatures_all_valid() {
         let signing_key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
         let verifying_key = signing_key.verifying_key();
-        let mut log =
-            ActivityLog::new_with_signing_key("dev-1", "agent-1", "admin", signing_key);
+        let mut log = ActivityLog::new_with_signing_key("dev-1", "agent-1", "admin", signing_key);
         let s = log.start_session("agent-1", "proj");
         for i in 0..5 {
-            log.record(note_type(), &format!("entry {}", i), s.id, 1, &[], None, "proj");
+            log.record(
+                note_type(),
+                &format!("entry {}", i),
+                s.id,
+                1,
+                &[],
+                None,
+                "proj",
+            );
         }
         let invalid = log.verify_signatures(&verifying_key);
         assert!(invalid.is_empty(), "all signatures should be valid");
@@ -2598,8 +2627,7 @@ mod tests {
     fn test_verify_signatures_tampered_entry() {
         let signing_key = ed25519_dalek::SigningKey::generate(&mut rand::rngs::OsRng);
         let verifying_key = signing_key.verifying_key();
-        let mut log =
-            ActivityLog::new_with_signing_key("dev-1", "agent-1", "admin", signing_key);
+        let mut log = ActivityLog::new_with_signing_key("dev-1", "agent-1", "admin", signing_key);
         let s = log.start_session("agent-1", "proj");
         log.record(note_type(), "entry 1", s.id, 1, &[], None, "proj");
         log.record(note_type(), "entry 2", s.id, 2, &[], None, "proj");
@@ -2672,11 +2700,27 @@ mod tests {
 
         // A records 3 entries → lamport 1,2,3
         for i in 0..3 {
-            log_a.record(note_type(), &format!("a-{}", i), sa.id, 1, &[], None, "proj");
+            log_a.record(
+                note_type(),
+                &format!("a-{}", i),
+                sa.id,
+                1,
+                &[],
+                None,
+                "proj",
+            );
         }
         // B records 5 entries → lamport 1,2,3,4,5
         for i in 0..5 {
-            log_b.record(note_type(), &format!("b-{}", i), sb.id, 1, &[], None, "proj");
+            log_b.record(
+                note_type(),
+                &format!("b-{}", i),
+                sb.id,
+                1,
+                &[],
+                None,
+                "proj",
+            );
         }
 
         // Merge B into A: max(A=3, B=5) → A.clock should be > 5
@@ -2698,7 +2742,15 @@ mod tests {
         // Create entries that could have same timestamp but differ in lamport
         let mut entries = Vec::new();
         for i in 0..10 {
-            let e = log.record(note_type(), &format!("entry-{}", i), s.id, 1, &[], None, "proj");
+            let e = log.record(
+                note_type(),
+                &format!("entry-{}", i),
+                s.id,
+                1,
+                &[],
+                None,
+                "proj",
+            );
             entries.push(e);
         }
 
@@ -2746,7 +2798,7 @@ mod tests {
         // New fields must exist (even if empty)
         assert!(ctx.cross_session_insights.is_empty() || !ctx.cross_session_insights.is_empty());
         assert!(ctx.repeated_errors.is_empty()); // no errors recorded
-        // memory_md may or may not exist depending on filesystem
+                                                 // memory_md may or may not exist depending on filesystem
     }
 
     #[test]

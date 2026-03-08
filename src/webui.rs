@@ -322,7 +322,8 @@ async fn handle_http(
     }
 
     let method = parts[0];
-    let path = parts[1];
+    let full_uri = parts[1];
+    let path = full_uri.split('?').next().unwrap_or(full_uri);
 
     // Public endpoints (no auth needed)
     match (method, path) {
@@ -1197,7 +1198,9 @@ async fn handle_activities_list(
     // Fetch a large window to filter from
     let fetch_count = (offset + limit) * 2 + 1000;
     let all_entries = if let Some(imp) = min_imp {
-        engine.activity_manager().filter_by_importance(imp, fetch_count)
+        engine
+            .activity_manager()
+            .filter_by_importance(imp, fetch_count)
     } else {
         engine.recent_activities(fetch_count)
     };
@@ -1247,8 +1250,16 @@ async fn handle_activities_list(
         "entries": page,
     });
     let json = serde_json::to_vec(&body).unwrap_or_default();
-    send_paginated_response(stream, &json, cors_origin, total, offset, limit, "/api/activities")
-        .await
+    send_paginated_response(
+        stream,
+        &json,
+        cors_origin,
+        total,
+        offset,
+        limit,
+        "/api/activities",
+    )
+    .await
 }
 
 /// POST /api/activities/search — Full-text search.
@@ -1385,8 +1396,16 @@ async fn handle_sessions_list(
         "sessions": page,
     });
     let json = serde_json::to_vec(&resp).unwrap_or_default();
-    send_paginated_response(stream, &json, cors_origin, total, offset, limit, "/api/sessions")
-        .await
+    send_paginated_response(
+        stream,
+        &json,
+        cors_origin,
+        total,
+        offset,
+        limit,
+        "/api/sessions",
+    )
+    .await
 }
 
 /// GET /api/sessions/:id — Session detail.

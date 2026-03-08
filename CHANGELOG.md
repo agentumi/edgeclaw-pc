@@ -5,9 +5,33 @@ All notable changes to EdgeClaw Desktop Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-03-08
 
 ### Added
+- **Agent Memory System (V2 Phase 1)**:
+  - `memory_engine.rs`: Multi-tiered memory (M0, M30, M90, M365) with retention policy.
+  - `memory_distiller.rs`: Nightly distillation logic for lesson extraction.
+  - `memory_search.rs`: Hybrid search (FTS + Mock Vector Similarity) and BootRitual context injection.
+- **Identity & Economy (V2 Phase 2 & 5)**:
+  - `identity_passport.rs`: Agent Passport NFT metadata and reputation scoring.
+  - `reputation.rs`: PoP-based reputation calculation with Sybil defense (Diversity bonus).
+  - SUI Move Contracts: `agent_passport.move`, `reputation.move`, `micro_escrow.move`.
+- **ECNP v2.0 Protocol Extensions (Phase 5)**:
+  - 17 new message types (0x30-0x55) for Memory Sync, Identity, and Task Delegation.
+  - Loop prevention with `is_crossview` flag in `AgentChat`.
+- **Mobile UI & Desktop Dashboards (Phase 4)**:
+  - React/TS Desktop Mission Control, Agent Board (Kanban), and Memory Explorer.
+  - Android (Kotlin/Compose) & iOS (SwiftUI) companion apps with UniFFI bridge.
+- **Integration & Testing (Phase 6)**:
+  - `tests/flywheel_e2e.rs`: Full-cycle integration test (Activity -> Memory -> Lesson -> Reputation -> Passport).
+
+### Changed
+- Total tests: 686 → 1,036+ (including new E2E and protocol tests).
+- ECNP codec updated to version 2.0.
+
+---
+
+## [1.1.0] - 2026-03-01
 - **Team Activity Log System** — Real-time agent activity tracking inspired by Tower:
   - `activity_log.rs` — Core hash-chained activity log with SHA-256 integrity:
     - `ActivityEntry` with Lamport clock, 7 `ActivityType` variants (FileEdit, CommandExec, AiChat, Decision, Error, PeerActivity, Custom)

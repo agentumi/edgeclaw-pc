@@ -39,7 +39,10 @@ impl NightlyDistiller {
         today_activities: &[ActivityEntry],
         now: DateTime<Utc>,
     ) {
-        info!("Starting nightly distillation for {} activities", today_activities.len());
+        info!(
+            "Starting nightly distillation for {} activities",
+            today_activities.len()
+        );
 
         // 1. 오래된/만료된 메모리 정리
         engine.tiers.clean_expired(now);
@@ -52,7 +55,7 @@ impl NightlyDistiller {
 
         // 4. 교훈(Lesson) 추출 (반복된 에러 패턴)
         self.extract_lessons(engine, today_activities);
-        
+
         info!("Nightly distillation completed.");
     }
 
@@ -63,7 +66,7 @@ impl NightlyDistiller {
             if activity.importance >= 2 {
                 engine.ingest_activity(activity);
                 count += 1;
-                
+
                 if count >= self.config.max_daily_memories {
                     break;
                 }
@@ -95,8 +98,12 @@ impl NightlyDistiller {
         for (pattern, (count, ids)) in error_counts {
             if count >= self.config.repeat_error_threshold {
                 // 이미 동일 패턴의 레슨이 있는지 확인 (간단하게 포함 여부만 확인)
-                let exists = engine.lessons.lessons.iter().any(|l| l.pattern.contains(&pattern));
-                
+                let exists = engine
+                    .lessons
+                    .lessons
+                    .iter()
+                    .any(|l| l.pattern.contains(&pattern));
+
                 if !exists {
                     let new_lesson = Lesson {
                         id: Uuid::new_v4(),
@@ -123,7 +130,7 @@ mod tests {
     fn test_distill_cleans_and_promotes() {
         let mut engine = MemoryEngine::default();
         let now = Utc::now();
-        
+
         engine.tiers.add_memory(TimedMemory {
             id: Uuid::new_v4(),
             content: "expired data".into(),
@@ -171,7 +178,7 @@ mod tests {
                     severity: 3,
                     message: "Connection Timeout to DB".into(),
                     stack_trace: None,
-                    resolved: false
+                    resolved: false,
                 },
                 project: "proj".into(),
                 file_path: None,
@@ -190,7 +197,9 @@ mod tests {
         distiller.extract_lessons(&mut engine, &activities);
 
         assert_eq!(engine.lessons.lessons.len(), 1);
-        assert!(engine.lessons.lessons[0].pattern.contains("Connection Timeout"));
+        assert!(engine.lessons.lessons[0]
+            .pattern
+            .contains("Connection Timeout"));
         assert_eq!(engine.lessons.lessons[0].source_errors.len(), 3);
     }
 }

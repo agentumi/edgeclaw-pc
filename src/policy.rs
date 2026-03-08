@@ -46,6 +46,26 @@ impl Role {
     }
 }
 
+/// Security Verification Tiers (Phase 2)
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+pub enum VerificationTier {
+    Reputation = 0,
+    Staking = 1,
+    TEE = 2,
+}
+
+impl VerificationTier {
+    pub fn for_risk(risk: RiskLevel) -> Self {
+        match risk {
+            RiskLevel::None => VerificationTier::Reputation,
+            RiskLevel::Low | RiskLevel::Medium => VerificationTier::Staking,
+            RiskLevel::High => VerificationTier::TEE,
+        }
+    }
+}
+
 /// Policy evaluation result
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PolicyDecision {
@@ -54,6 +74,7 @@ pub struct PolicyDecision {
     pub risk_level: u8,
     pub capability: String,
     pub role: String,
+    pub required_tier: VerificationTier,
 }
 
 /// A registered capability
@@ -63,6 +84,7 @@ pub struct Capability {
     pub risk_level: RiskLevel,
     pub description: String,
     pub requires_sandbox: bool,
+    pub verification_tier: VerificationTier,
 }
 
 /// Policy Engine — evaluates capability requests against RBAC policies
@@ -169,6 +191,7 @@ impl PolicyEngine {
                 risk_level: risk,
                 description: desc.to_string(),
                 requires_sandbox: sandbox,
+                verification_tier: VerificationTier::for_risk(risk),
             });
         }
     }
@@ -201,6 +224,7 @@ impl PolicyEngine {
                     risk_level: capability.risk_level as u8,
                     capability: capability_name.to_string(),
                     role: role_str.to_string(),
+                    required_tier: capability.verification_tier,
                 })
             }
             None => {
@@ -211,6 +235,7 @@ impl PolicyEngine {
                         risk_level: 255,
                         capability: capability_name.to_string(),
                         role: role_str.to_string(),
+                        required_tier: VerificationTier::TEE, // Default to highest isolation
                     })
                 } else {
                     Ok(PolicyDecision {
@@ -219,6 +244,7 @@ impl PolicyEngine {
                         risk_level: 0,
                         capability: capability_name.to_string(),
                         role: role_str.to_string(),
+                        required_tier: VerificationTier::Reputation,
                     })
                 }
             }
@@ -240,6 +266,51 @@ impl PolicyEngine {
             .iter()
             .map(|c| (c.name.clone(), c.risk_level as u8, c.description.clone()))
             .collect()
+    }
+}
+
+/// Staking Verifier for Level 1-2 capabilities
+pub struct StakingVerifier {
+    pub min_stake_amount: f64,
+    pub staked_validators: std::collections::HashMap<String, f64>,
+}
+
+impl Default for StakingVerifier {
+    fn default() -> Self {
+        Self::new(100.0) // default 100 SUI required
+    }
+}
+
+impl StakingVerifier {
+    pub fn new(min_stake: f64) -> Self {
+        Self {
+            min_stake_amount: min_stake,
+            staked_validators: std::collections::HashMap::new(),
+        }
+    }
+
+    /// 예치
+    pub fn deposit_stake(&mut self, validator_id: &str, amount: f64) {
+        *self.staked_validators.entry(validator_id.to_string()).or_insert(0.0) += amount;
+    }
+
+    /// 검증 권한 확인
+    pub fn can_verify(&self, validator_id: &str) -> bool {
+        self.staked_validators
+            .get(validator_id)
+            .copied()
+            .unwrap_or(0.0)
+            >= self.min_stake_amount
+    }
+
+    /// 오류 및 악의적 행위 시 Slashing (예: 50% 차감)
+    pub fn slash_validator(&mut self, validator_id: &str, penalty_ratio: f64) -> Result<(), AgentError> {
+        if let Some(stake) = self.staked_validators.get_mut(validator_id) {
+            *stake *= 1.0 - penalty_ratio.clamp(0.0, 1.0);
+            Ok(())
+        } else {
+            Err(AgentError::NotFound("Validator not found in staking pool".into()))
+        }
     }
 }
 
@@ -318,5 +389,48 @@ mod tests {
         let engine = PolicyEngine::new();
         let caps = engine.list_capabilities();
         assert!(caps.len() >= 17);
+    }
+
+    #[test]
+    fn test_staking_deposit() {
+        let mut staking = StakingVerifier::new(100.0);
+        staking.deposit_stake("val_1", 150.0);
+        assert!(staking.can_verify("val_1"));
+    }
+
+    #[test]
+    fn test_staking_insufficient_deposit() {
+        let mut staking = StakingVerifier::new(100.0);
+        staking.deposit_stake("val_2", 50.0);
+        assert!(!staking.can_verify("val_2"));
+    }
+
+    #[test]
+    fn test_staking_slashing() {
+        let mut staking = StakingVerifier::new(100.0);
+        staking.deposit_stake("val_3", 200.0);
+        
+        assert!(staking.can_verify("val_3"));
+        
+        // slash 60%
+        let _ = staking.slash_validator("val_3", 0.6);
+        // remaining: 200 * 0.4 = 80 < 100
+        assert!(!staking.can_verify("val_3"));
+    }
+
+    #[test]
+    fn test_staking_not_found() {
+        let mut staking = StakingVerifier::default();
+        let result = staking.slash_validator("unknown", 0.5);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_staking_cumulative_deposit() {
+        let mut staking = StakingVerifier::new(100.0);
+        staking.deposit_stake("val_4", 60.0);
+        assert!(!staking.can_verify("val_4"));
+        staking.deposit_stake("val_4", 50.0); // total 110.0
+        assert!(staking.can_verify("val_4"));
     }
 }

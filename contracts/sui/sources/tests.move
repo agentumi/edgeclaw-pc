@@ -282,3 +282,156 @@ module edgeclaw::audit_anchor_tests {
         ts::end(scenario);
     }
 }
+
+#[test_only]
+module edgeclaw::agent_passport_tests {
+    use sui::test_scenario::{Self as ts};
+    use edgeclaw::agent_passport::{Self, AgentPassport, AuthorityCap};
+    use std::string;
+
+    #[test]
+    fun test_mint_and_verify() {
+        let admin = @0xAD;
+        let user = @0x1;
+        let mut scenario = ts::begin(admin);
+
+        // Init authority
+        ts::next_tx(&mut scenario, admin);
+        {
+            agent_passport::init_for_testing(ts::ctx(&mut scenario));
+        };
+
+        // User mints passport
+        ts::next_tx(&mut scenario, user);
+        {
+            agent_passport::mint(b"Alpha Agent", b"pk_001", ts::ctx(&mut scenario));
+        };
+
+        // Admin verifies
+        ts::next_tx(&mut scenario, admin);
+        {
+            let mut passport = ts::take_from_address<AgentPassport>(&scenario, user);
+            let cap = ts::take_from_sender<AuthorityCap>(&scenario);
+            
+            assert!(!agent_passport::is_verified(&passport), 0);
+            agent_passport::verify(&cap, &mut passport, ts::ctx(&mut scenario));
+            assert!(agent_passport::is_verified(&passport), 1);
+            assert!(agent_passport::tier(&passport) == string::utf8(b"L2"), 2);
+
+            ts::return_to_sender(&scenario, cap);
+            ts::return_to_address(user, passport);
+        };
+        ts::end(scenario);
+    }
+}
+
+#[test_only]
+module edgeclaw::reputation_tests {
+    use sui::test_scenario::{Self as ts};
+    use edgeclaw::reputation::{Self, ReputationRegistry, ValidatorCap};
+    use std::string;
+
+    #[test]
+    fun test_reputation_flow() {
+        let admin = @0xAD;
+        let mut scenario = ts::begin(admin);
+
+        ts::next_tx(&mut scenario, admin);
+        {
+            reputation::init_for_testing(ts::ctx(&mut scenario));
+        };
+
+        ts::next_tx(&mut scenario, admin);
+        {
+            let mut reg = ts::take_shared<ReputationRegistry>(&scenario);
+            let cap = ts::take_from_sender<ValidatorCap>(&scenario);
+            let key = string::utf8(b"agent_1");
+
+            assert!(reputation::get_score(&reg, key) == 100, 0);
+            
+            reputation::update_score(&cap, &mut reg, key, 10, ts::ctx(&mut scenario));
+            assert!(reputation::get_score(&reg, key) == 110, 1);
+
+            reputation::update_score(&cap, &mut reg, key, -50, ts::ctx(&mut scenario));
+            assert!(reputation::get_score(&reg, key) == 60, 2);
+
+            ts::return_shared(reg);
+            ts::return_to_sender(&scenario, cap);
+        };
+        ts::end(scenario);
+    }
+}
+
+#[test_only]
+module edgeclaw::micro_escrow_tests {
+    use sui::test_scenario::{Self as ts};
+    use edgeclaw::micro_escrow::{Self, Escrow};
+    use edgeclaw::task_token::{Self, TASK_TOKEN};
+    use edgeclaw::reputation::{Self, ReputationRegistry, ValidatorCap};
+    use sui::coin::{TreasuryCap};
+    use std::string;
+
+    #[test]
+    fun test_escrow_success_flow() {
+        let admin = @0xAD;
+        let client = @0x10;
+        let agent = @0xA1;
+        let mut scenario = ts::begin(admin);
+
+        // 1. Setup Token and Reputation
+        ts::next_tx(&mut scenario, admin);
+        {
+            task_token::init_for_testing(ts::ctx(&mut scenario));
+            reputation::init_for_testing(ts::ctx(&mut scenario));
+        };
+
+        // 2. Mint tokens to client
+        ts::next_tx(&mut scenario, admin);
+        {
+            let mut treasury_cap = ts::take_from_sender<TreasuryCap<TASK_TOKEN>>(&scenario);
+            task_token::mint(&mut treasury_cap, 100, client, ts::ctx(&mut scenario));
+            ts::return_to_sender(&scenario, treasury_cap);
+        };
+
+        // 3. Client opens escrow
+        ts::next_tx(&mut scenario, client);
+        {
+            let coin = ts::take_from_sender<sui::coin::Coin<TASK_TOKEN>>(&scenario);
+            micro_escrow::open_escrow(
+                string::utf8(b"task_123"),
+                string::utf8(b"agent_pk_123"),
+                coin,
+                ts::ctx(&mut scenario)
+            );
+        };
+
+        // 4. Admin settles success
+        ts::next_tx(&mut scenario, admin);
+        {
+            let mut escrow = ts::take_shared<Escrow>(&scenario);
+            let mut reg = ts::take_shared<ReputationRegistry>(&scenario);
+            let val_cap = ts::take_from_sender<ValidatorCap>(&scenario);
+
+            assert!(micro_escrow::amount(&escrow) == 100, 0);
+            
+            micro_escrow::settle_success(&mut escrow, &val_cap, &mut reg, agent, ts::ctx(&mut scenario));
+            
+            // Check reputation boost in reputation registry
+            assert!(reputation::get_score(&reg, string::utf8(b"agent_pk_123")) == 105, 1);
+
+            ts::return_shared(escrow);
+            ts::return_shared(reg);
+            ts::return_to_sender(&scenario, val_cap);
+        };
+
+        // 5. Check agent got paid
+        ts::next_tx(&mut scenario, agent);
+        {
+            let coin = ts::take_from_sender<sui::coin::Coin<TASK_TOKEN>>(&scenario);
+            assert!(sui::coin::value(&coin) == 100, 2);
+            ts::return_to_sender(&scenario, coin);
+        };
+
+        ts::end(scenario);
+    }
+}

@@ -23,6 +23,58 @@ pub const CONTEXT_REQUEST: u8 = 0x24;
 pub const CONTEXT_RESPONSE: u8 = 0x25;
 pub const ACTIVITY_ACK: u8 = 0x26;
 
+/// ECNP 0x35 — Agent-to-Agent real-time chat (P3-4)
+pub const AGENT_CHAT: u8 = 0x35;
+
+/// A single agent chat message payload
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentChatMessage {
+    pub id: Uuid,
+    pub from_agent: String,
+    pub to_agent: Option<String>,   // None = broadcast
+    pub content: String,
+    pub timestamp: DateTime<Utc>,
+    pub thread_id: Option<Uuid>,    // Optional thread grouping
+    pub is_crossview: bool,         // True → do not re-broadcast (loop prevention)
+}
+
+impl AgentChatMessage {
+    pub fn new(from_agent: &str, content: &str) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            from_agent: from_agent.to_string(),
+            to_agent: None,
+            content: content.to_string(),
+            timestamp: Utc::now(),
+            thread_id: None,
+            is_crossview: false,
+        }
+    }
+
+    pub fn direct(from_agent: &str, to_agent: &str, content: &str) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            from_agent: from_agent.to_string(),
+            to_agent: Some(to_agent.to_string()),
+            content: content.to_string(),
+            timestamp: Utc::now(),
+            thread_id: None,
+            is_crossview: false,
+        }
+    }
+
+    /// Mark this message as a crossview relay — prevents re-broadcast loop
+    pub fn as_crossview(mut self) -> Self {
+        self.is_crossview = true;
+        self
+    }
+
+    /// Returns true if this message should be forwarded to other peers.
+    pub fn should_broadcast(&self) -> bool {
+        !self.is_crossview
+    }
+}
+
 /// Messages exchanged between peers for activity synchronization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -71,6 +123,10 @@ pub enum TeamSyncMessage {
         entry_ids: Vec<Uuid>,
         received_by: String,
     },
+
+    /// Agent-to-Agent real-time chat (ECNP 0x35) — P3-4
+    #[serde(rename = "agent_chat")]
+    AgentChat { message: AgentChatMessage },
 }
 
 impl TeamSyncMessage {
@@ -94,6 +150,7 @@ impl TeamSyncMessage {
             TeamSyncMessage::ContextRequest { .. } => CONTEXT_REQUEST,
             TeamSyncMessage::ContextResponse { .. } => CONTEXT_RESPONSE,
             TeamSyncMessage::ActivityAck { .. } => ACTIVITY_ACK,
+            TeamSyncMessage::AgentChat { .. } => AGENT_CHAT,
         }
     }
 
@@ -107,6 +164,7 @@ impl TeamSyncMessage {
             TeamSyncMessage::ContextRequest { .. } => "context_request",
             TeamSyncMessage::ContextResponse { .. } => "context_response",
             TeamSyncMessage::ActivityAck { .. } => "activity_ack",
+            TeamSyncMessage::AgentChat { .. } => "agent_chat",
         }
     }
 }
@@ -155,6 +213,7 @@ pub fn filter_for_role(
 pub fn is_activity_sync_type(msg_type: u8) -> bool {
     (ACTIVITY_BROADCAST..=ACTIVITY_ACK).contains(&msg_type)
         || (TASK_CREATE..=TASK_RESPONSE).contains(&msg_type)
+        || msg_type == AGENT_CHAT
 }
 
 /// Get description of an activity/task sync message type.
@@ -171,6 +230,7 @@ pub fn sync_type_name(msg_type: u8) -> &'static str {
         0x28 => "TaskUpdate",
         0x29 => "TaskQuery",
         0x2A => "TaskResponse",
+        AGENT_CHAT => "AgentChat",
         _ => "Unknown",
     }
 }
@@ -680,5 +740,63 @@ mod tests {
         assert!(can_mutate_tasks("operator"));
         assert!(!can_mutate_tasks("viewer"));
         assert!(!can_mutate_tasks("guest"));
+    }
+
+    // ─── AgentChat ────────────────────────────────────
+
+    #[test]
+    fn test_agent_chat_broadcast_roundtrip() {
+        let chat = AgentChatMessage::new("agent_alpha", "Hello everyone!");
+        let msg = TeamSyncMessage::AgentChat { message: chat.clone() };
+        let bytes = msg.to_bytes().unwrap();
+        let decoded = TeamSyncMessage::from_bytes(&bytes).unwrap();
+        match decoded {
+            TeamSyncMessage::AgentChat { message } => {
+                assert_eq!(message.from_agent, "agent_alpha");
+                assert_eq!(message.content, "Hello everyone!");
+                assert!(message.to_agent.is_none());
+                assert!(!message.is_crossview);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_agent_chat_direct_message() {
+        let chat = AgentChatMessage::direct("alpha", "beta", "Hey beta!");
+        assert_eq!(chat.from_agent, "alpha");
+        assert_eq!(chat.to_agent.as_deref(), Some("beta"));
+        assert_eq!(chat.content, "Hey beta!");
+    }
+
+    #[test]
+    fn test_agent_chat_crossview_flag() {
+        let chat = AgentChatMessage::new("alpha", "msg").as_crossview();
+        assert!(chat.is_crossview);
+        assert!(!chat.should_broadcast());
+    }
+
+    #[test]
+    fn test_agent_chat_should_broadcast() {
+        let chat = AgentChatMessage::new("alpha", "msg");
+        assert!(chat.should_broadcast());
+    }
+
+    #[test]
+    fn test_agent_chat_type_code() {
+        let chat = AgentChatMessage::new("alpha", "hi");
+        let msg = TeamSyncMessage::AgentChat { message: chat };
+        assert_eq!(msg.sync_type_code(), AGENT_CHAT);
+        assert_eq!(msg.kind(), "agent_chat");
+    }
+
+    #[test]
+    fn test_is_activity_sync_type_includes_chat() {
+        assert!(is_activity_sync_type(AGENT_CHAT));
+    }
+
+    #[test]
+    fn test_sync_type_name_agent_chat() {
+        assert_eq!(sync_type_name(AGENT_CHAT), "AgentChat");
     }
 }

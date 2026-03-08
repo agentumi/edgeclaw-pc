@@ -315,6 +315,59 @@ impl GitManager {
         &self.config
     }
 
+    /// Auto-commit memory tracking changes like nightly distillation.
+    pub fn auto_commit_memory(&self, commit_msg: &str) -> Result<String, AgentError> {
+        if !self.config.auto_commit {
+            return Err(AgentError::InternalError("Auto-commit disabled".into()));
+        }
+
+        let path = self
+            .repo_path
+            .as_ref()
+            .ok_or_else(|| AgentError::NotFound("No repo path set".into()))?;
+
+        let repo = git2::Repository::open(path)
+            .map_err(|e| AgentError::InternalError(format!("Git open error: {}", e)))?;
+
+        let mut index = repo
+            .index()
+            .map_err(|e| AgentError::InternalError(format!("Git index error: {}", e)))?;
+
+        let memory_file = std::path::Path::new("MEMORY.md");
+
+        // Add MEMORY.md to index
+        index
+            .add_path(memory_file)
+            .map_err(|e| AgentError::InternalError(format!("Git add error: {}", e)))?;
+
+        index
+            .write()
+            .map_err(|e| AgentError::InternalError(format!("Git index write error: {}", e)))?;
+
+        let oid = index
+            .write_tree()
+            .map_err(|e| AgentError::InternalError(format!("Git write tree error: {}", e)))?;
+
+        let tree = repo
+            .find_tree(oid)
+            .map_err(|e| AgentError::InternalError(format!("Git find tree error: {}", e)))?;
+
+        let parent = repo.head().ok().and_then(|h| h.peel_to_commit().ok());
+        let parents: Vec<&git2::Commit> = parent.as_ref().map(|p| vec![p]).unwrap_or_default();
+
+        let sig = repo
+            .signature()
+            .map_err(|e| AgentError::InternalError(format!("Git signature error: {}", e)))?;
+
+        let commit_oid = repo
+            .commit(Some("HEAD"), &sig, &sig, commit_msg, &tree, &parents)
+            .map_err(|e| AgentError::InternalError(format!("Git commit error: {}", e)))?;
+
+        let commit_hash = commit_oid.to_string();
+        info!(hash = %commit_hash, "Auto-committed memory update");
+        Ok(commit_hash)
+    }
+
     /// Extract attribution from a commit message (convenience method).
     ///
     /// Wraps [`parse_attribution`] for use on the `GitManager` instance.

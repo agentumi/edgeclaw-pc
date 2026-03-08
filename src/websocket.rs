@@ -799,7 +799,10 @@ mod tests {
 
         if let Some(Ok(Message::Text(text))) = read.next().await {
             let event: AgentEvent = serde_json::from_str(&text).unwrap();
-            assert!(matches!(event, AgentEvent::ActivityRecorded { importance: 2, .. }));
+            assert!(matches!(
+                event,
+                AgentEvent::ActivityRecorded { importance: 2, .. }
+            ));
         } else {
             panic!("expected ActivityRecorded text message");
         }

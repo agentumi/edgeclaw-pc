@@ -159,6 +159,7 @@ pub struct BlockchainClient {
     policy_nfts: std::sync::Arc<std::sync::Mutex<Vec<PolicyNft>>>,
     anchors: std::sync::Arc<std::sync::Mutex<Vec<AuditAnchor>>>,
     offline_cache: std::sync::Arc<std::sync::Mutex<Vec<CacheEntry>>>,
+    agent_passports: std::sync::Arc<std::sync::Mutex<HashMap<String, crate::identity_passport::AgentPassport>>>,
     connected: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -171,6 +172,7 @@ impl BlockchainClient {
             policy_nfts: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             anchors: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             offline_cache: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            agent_passports: std::sync::Arc::new(std::sync::Mutex::new(HashMap::new())),
             connected: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
@@ -241,6 +243,31 @@ impl BlockchainClient {
         }
 
         Ok(nft)
+    }
+
+    /// Mint an Agent Passport NFT.
+    pub fn mint_agent_passport(
+        &self,
+        passport: &mut crate::identity_passport::AgentPassport,
+    ) -> Result<(), AgentError> {
+        let object_id = format!("0x{}", hex::encode(&uuid::Uuid::new_v4().as_bytes()[..8]));
+        passport.link_nft(object_id);
+
+        if self.is_connected() {
+            self.agent_passports
+                .lock()
+                .unwrap()
+                .insert(passport.device_pubkey.clone(), passport.clone());
+        } else if self.config.offline_cache {
+            self.cache_operation("mint_agent_passport", passport)?;
+        }
+
+        Ok(())
+    }
+
+    /// Lookup an Agent Passport by public key.
+    pub fn lookup_agent_passport(&self, public_key: &str) -> Option<crate::identity_passport::AgentPassport> {
+        self.agent_passports.lock().unwrap().get(public_key).cloned()
     }
 
     /// Anchor audit batch on-chain.

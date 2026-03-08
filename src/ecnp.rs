@@ -138,6 +138,26 @@ mod tests {
             MessageType::ContextRequest,
             MessageType::ContextResponse,
             MessageType::ActivityAck,
+            // Identity & Economy
+            MessageType::PassportQuery,
+            MessageType::PassportResponse,
+            MessageType::TaskDelegate,
+            MessageType::TaskResult,
+            MessageType::ReputationUpdate,
+            MessageType::AgentChat,
+            // Memory Sync
+            MessageType::MemorySyncRequest,
+            MessageType::MemorySyncResponse,
+            MessageType::DistillReport,
+            MessageType::BootRitualRequest,
+            MessageType::BootRitualResponse,
+            // Task Management V2
+            MessageType::TaskCreateV2,
+            MessageType::TaskStatusUpdate,
+            MessageType::TaskAssign,
+            MessageType::TaskProgress,
+            MessageType::TaskComplete,
+            MessageType::TaskSchedule,
         ];
         for mt in types {
             let encoded = EcnpCodec::encode(mt, b"ok").unwrap();

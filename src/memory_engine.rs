@@ -1,8 +1,8 @@
+use crate::activity_log::{ActivityEntry, ActivityType};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
-use crate::activity_log::{ActivityEntry, ActivityType};
 
 /// 에이전트의 성향 및 자아 (M0 CoreMemory)
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -184,7 +184,9 @@ impl MemoryEngine {
 
         match &entry.activity_type {
             ActivityType::FileEdit { .. } => {
-                if importance == 0 { importance = 1; }
+                if importance == 0 {
+                    importance = 1;
+                }
             }
             ActivityType::Decision { rationale, .. } => {
                 importance = importance.max(2);
@@ -200,7 +202,9 @@ impl MemoryEngine {
         }
 
         if importance >= 2 {
-            let expiration = if importance == 3 || matches!(entry.activity_type, ActivityType::Decision { .. }) {
+            let expiration = if importance == 3
+                || matches!(entry.activity_type, ActivityType::Decision { .. })
+            {
                 MemoryTier::M90
             } else {
                 MemoryTier::M30
@@ -233,7 +237,7 @@ impl MemoryEngine {
         md.push_str("# EdgeClaw Agent Memory\n\n");
         md.push_str("## [M0] Core Soul\n");
         md.push_str(&format!("{}\n\n", self.core.soul.content));
-        
+
         md.push_str("## [M0] Absolute Rules\n");
         for rule in &self.core.absolute_rules {
             md.push_str(&format!("- {}\n", rule));
@@ -242,7 +246,10 @@ impl MemoryEngine {
 
         md.push_str("## Lessons\n");
         for lesson in &self.lessons.lessons {
-            md.push_str(&format!("- Pattern: {} (eff: {})\n", lesson.pattern, lesson.effectiveness));
+            md.push_str(&format!(
+                "- Pattern: {} (eff: {})\n",
+                lesson.pattern, lesson.effectiveness
+            ));
         }
         md.push('\n');
 

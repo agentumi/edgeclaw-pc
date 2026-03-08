@@ -88,6 +88,11 @@ enum Commands {
         #[command(subcommand)]
         action: WebhookAction,
     },
+    /// Agent Passport management (V4.0/Phase2)
+    Passport {
+        #[command(subcommand)]
+        action: PassportAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -184,6 +189,18 @@ enum WebhookAction {
         /// Webhook URL to remove
         url: String,
     },
+}
+
+#[derive(Subcommand)]
+enum PassportAction {
+    /// Create new SUI NFT Passport
+    Create {
+        /// Platform (e.g. desktop, linux)
+        #[arg(short, long, default_value = "desktop")]
+        platform: String,
+    },
+    /// Show current passport
+    Show,
 }
 
 #[derive(Subcommand)]
@@ -691,6 +708,52 @@ async fn main() -> anyhow::Result<()> {
             }
             Ok(())
         }
+        Commands::Passport { action } => {
+            let engine = AgentEngine::new(config.clone());
+            let identity = engine.generate_identity()?;
+
+            match action {
+                PassportAction::Create { platform } => {
+                    println!("Creating Agent Passport NFT for {}...", identity.device_id);
+                    let mut passport = edgeclaw_agent::identity_passport::AgentPassport::new(
+                        identity.public_key_hex.clone(),
+                        identity.device_name.clone(),
+                        platform.clone(),
+                        engine.get_capabilities().into_iter().map(|s| s.to_string()).collect(),
+                        true,
+                        true,
+                    );
+                    
+                    match engine.blockchain_client().mint_agent_passport(&mut passport) {
+                        Ok(_) => {
+                            println!("✅ Passport NFT Minted Successfully!");
+                            println!("  NFT Object ID:  {}", passport.nft_object_id.unwrap_or_default());
+                            println!("  Reputation:     {:.1}", passport.reputation_score);
+                            println!("  Capabilities:   {} registered", passport.capabilities.capabilities.len());
+                        }
+                        Err(e) => {
+                            println!("❌ Failed to mint Passport: {}", e);
+                        }
+                    }
+                }
+                PassportAction::Show => {
+                    match engine.blockchain_client().lookup_agent_passport(&identity.public_key_hex) {
+                        Some(passport) => {
+                            println!("Agent Passport (NFT ID: {})", passport.nft_object_id.unwrap_or_default());
+                            println!("  Name:       {}", passport.metadata.name);
+                            println!("  Device:     {}", passport.capabilities.device_id);
+                            println!("  Platform:   {}", passport.capabilities.platform);
+                            println!("  Reputation: {:.1}", passport.reputation_score);
+                            println!("  Protocols:  {}", passport.metadata.protocols.join(", "));
+                        }
+                        None => {
+                            println!("No Passport found for this device. Use `edgeclaw-agent passport create` to mint one.");
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }
         Commands::Agents { action } => {
             let engine = AgentEngine::new(config.clone());
             engine.generate_identity()?;
@@ -1046,62 +1109,62 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Commands::Anchor { action } => {
-            match action {
-                AnchorAction::Status => {
-                    println!("Anchor status:");
-                    println!("  Enabled: {}", config.activity_anchor.enabled);
-                    println!("  Interval: {}s", config.activity_anchor.interval_secs);
-                    println!("  Min entries: {}", config.activity_anchor.min_entries);
-                    Ok(())
-                }
-                AnchorAction::Verify { entry_id } => {
-                    println!("Verifying entry {}…", entry_id);
-                    println!("  (Connect to a running agent for live verification)");
-                    Ok(())
-                }
+        Commands::Anchor { action } => match action {
+            AnchorAction::Status => {
+                println!("Anchor status:");
+                println!("  Enabled: {}", config.activity_anchor.enabled);
+                println!("  Interval: {}s", config.activity_anchor.interval_secs);
+                println!("  Min entries: {}", config.activity_anchor.min_entries);
+                Ok(())
             }
-        }
-        Commands::Webhook { action } => {
-            match action {
-                WebhookAction::List => {
-                    if config.webhooks.endpoints.is_empty() {
-                        println!("No webhooks configured.");
-                    } else {
-                        println!("Registered webhooks:");
-                        for (i, ep) in config.webhooks.endpoints.iter().enumerate() {
-                            let secret_hint = if ep.secret.is_some() { " (signed)" } else { "" };
-                            let events = if ep.events.is_empty() {
-                                "all".to_string()
-                            } else {
-                                ep.events.join(", ")
-                            };
-                            println!("  {}. {} [{}]{}", i + 1, ep.url, events, secret_hint);
-                        }
-                    }
-                    Ok(())
-                }
-                WebhookAction::Add { url, secret, events } => {
-                    let event_list: Vec<String> = events
-                        .map(|e| e.split(',').map(|s| s.trim().to_string()).collect())
-                        .unwrap_or_default();
-                    println!("Added webhook: {}", url);
-                    if let Some(ref s) = secret {
-                        println!("  Secret: {}…", &s[..s.len().min(4)]);
-                    }
-                    if !event_list.is_empty() {
-                        println!("  Events: {}", event_list.join(", "));
-                    }
-                    println!("  (Save to config file to persist)");
-                    Ok(())
-                }
-                WebhookAction::Remove { url } => {
-                    println!("Removed webhook: {}", url);
-                    println!("  (Save to config file to persist)");
-                    Ok(())
-                }
+            AnchorAction::Verify { entry_id } => {
+                println!("Verifying entry {}…", entry_id);
+                println!("  (Connect to a running agent for live verification)");
+                Ok(())
             }
-        }
+        },
+        Commands::Webhook { action } => match action {
+            WebhookAction::List => {
+                if config.webhooks.endpoints.is_empty() {
+                    println!("No webhooks configured.");
+                } else {
+                    println!("Registered webhooks:");
+                    for (i, ep) in config.webhooks.endpoints.iter().enumerate() {
+                        let secret_hint = if ep.secret.is_some() { " (signed)" } else { "" };
+                        let events = if ep.events.is_empty() {
+                            "all".to_string()
+                        } else {
+                            ep.events.join(", ")
+                        };
+                        println!("  {}. {} [{}]{}", i + 1, ep.url, events, secret_hint);
+                    }
+                }
+                Ok(())
+            }
+            WebhookAction::Add {
+                url,
+                secret,
+                events,
+            } => {
+                let event_list: Vec<String> = events
+                    .map(|e| e.split(',').map(|s| s.trim().to_string()).collect())
+                    .unwrap_or_default();
+                println!("Added webhook: {}", url);
+                if let Some(ref s) = secret {
+                    println!("  Secret: {}…", &s[..s.len().min(4)]);
+                }
+                if !event_list.is_empty() {
+                    println!("  Events: {}", event_list.join(", "));
+                }
+                println!("  (Save to config file to persist)");
+                Ok(())
+            }
+            WebhookAction::Remove { url } => {
+                println!("Removed webhook: {}", url);
+                println!("  (Save to config file to persist)");
+                Ok(())
+            }
+        },
     }
 }
 
@@ -1162,8 +1225,7 @@ mod tests {
 
     #[test]
     fn test_cli_activity_recent_custom_count() {
-        let cli =
-            Cli::try_parse_from(["edgeclaw-agent", "activity", "recent", "-c", "5"]).unwrap();
+        let cli = Cli::try_parse_from(["edgeclaw-agent", "activity", "recent", "-c", "5"]).unwrap();
         match cli.command {
             Some(Commands::Activity {
                 action: ActivityAction::Recent { count },
@@ -1304,8 +1366,7 @@ mod tests {
     #[test]
     fn test_cli_config_flag() {
         let cli =
-            Cli::try_parse_from(["edgeclaw-agent", "-c", "/custom/config.toml", "status"])
-                .unwrap();
+            Cli::try_parse_from(["edgeclaw-agent", "-c", "/custom/config.toml", "status"]).unwrap();
         assert_eq!(cli.config, "/custom/config.toml");
         assert!(matches!(cli.command, Some(Commands::Status)));
     }

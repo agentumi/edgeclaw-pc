@@ -28,6 +28,7 @@ pub mod activity_anchor;
 pub mod activity_collector;
 pub mod activity_log;
 pub mod activity_signing;
+pub mod agent_router;
 pub mod ai;
 pub mod ai_summary;
 pub mod audit;
@@ -45,14 +46,21 @@ pub mod federation;
 pub mod gateway;
 pub mod git_integration;
 pub mod identity;
+pub mod identity_passport;
 pub mod k8s;
+pub mod delegation;
+pub mod persona;
 pub mod license;
+pub mod memory_distiller;
+pub mod memory_engine;
+pub mod memory_search;
 pub mod metrics;
 pub mod orchestrator;
 pub mod peer;
 pub mod policy;
 pub mod protocol;
 pub mod registry;
+pub mod reputation;
 pub mod search;
 pub mod secure_boot;
 pub mod security;
@@ -72,9 +80,7 @@ pub mod webhook;
 pub mod websocket;
 pub mod webui;
 pub mod workflows;
-pub mod memory_engine;
-pub mod memory_distiller;
-pub mod memory_search;
+pub mod x402_payment;
 
 use std::sync::{Arc, Mutex};
 
@@ -107,6 +113,7 @@ pub struct AgentEngine {
     event_bus: Arc<EventBus>,
     chat_history: Mutex<Vec<ChatMessage>>,
     start_time: chrono::DateTime<chrono::Utc>,
+    blockchain_client: Arc<crate::blockchain::BlockchainClient>,
 }
 
 impl AgentEngine {
@@ -122,25 +129,49 @@ impl AgentEngine {
 
         // Use persistent audit log if config dir is available
         let audit_manager = {
-            let audit_path = dirs::data_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join("edgeclaw")
-                .join("audit.jsonl");
-            AuditManager::with_persistence(audit_path)
+            #[cfg(test)]
+            {
+                AuditManager::new()
+            }
+            #[cfg(not(test))]
+            {
+                let audit_path = dirs::data_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                    .join("edgeclaw")
+                    .join("audit.jsonl");
+                if let Some(p) = audit_path.parent() {
+                    let _ = std::fs::create_dir_all(p);
+                }
+                AuditManager::with_persistence(audit_path)
+            }
         };
 
         // Use persistent activity log if config dir is available
         let activity_manager = {
-            let activity_path = dirs::data_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join("edgeclaw")
-                .join("activity.jsonl");
-            Arc::new(ActivityManager::with_persistence(
-                "local",
-                &config.agent.device_name,
-                "owner",
-                activity_path,
-            ))
+            #[cfg(test)]
+            {
+                Arc::new(ActivityManager::new(
+                    "local",
+                    &config.agent.device_name,
+                    "owner",
+                ))
+            }
+            #[cfg(not(test))]
+            {
+                let activity_path = dirs::data_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                    .join("edgeclaw")
+                    .join("activity.jsonl");
+                if let Some(p) = activity_path.parent() {
+                    let _ = std::fs::create_dir_all(p);
+                }
+                Arc::new(ActivityManager::with_persistence(
+                    "local",
+                    &config.agent.device_name,
+                    "owner",
+                    activity_path,
+                ))
+            }
         };
 
         Self {
@@ -156,7 +187,13 @@ impl AgentEngine {
             event_bus: Arc::new(EventBus::new(256)),
             chat_history: Mutex::new(Vec::new()),
             start_time: chrono::Utc::now(),
+            blockchain_client: Arc::new(crate::blockchain::BlockchainClient::new(crate::blockchain::BlockchainConfig::default())),
         }
+    }
+
+    // ─── Clients ───────────────────────────────────────────
+    pub fn blockchain_client(&self) -> Arc<crate::blockchain::BlockchainClient> {
+        self.blockchain_client.clone()
     }
 
     // ─── Identity ──────────────────────────────────────────
@@ -534,11 +571,7 @@ impl AgentEngine {
     }
 
     /// Full-text search using Tantivy index (scored results)
-    pub fn fts_search_activities(
-        &self,
-        query: &str,
-        limit: usize,
-    ) -> Vec<(f32, ActivityEntry)> {
+    pub fn fts_search_activities(&self, query: &str, limit: usize) -> Vec<(f32, ActivityEntry)> {
         self.activity_manager.full_text_search(query, limit)
     }
 

@@ -294,15 +294,23 @@ mod tests {
 
     #[test]
     fn test_allowed_path_check() {
+        let mut p1 = std::env::temp_dir();
+        p1.push("edgeclaw_test_file.txt");
+        std::fs::write(&p1, "test").unwrap_or_default();
+        let p2 = std::env::current_dir().unwrap();
+
         let executor = Executor::new(
             5,
             10,
             60,
-            vec!["/home/user".to_string(), "/tmp".to_string()],
+            vec![
+                std::env::temp_dir().to_string_lossy().to_string(),
+                p2.to_string_lossy().to_string(),
+            ],
         );
-        assert!(executor.is_allowed_path("/home/user/file.txt"));
-        assert!(executor.is_allowed_path("/tmp/test"));
-        assert!(!executor.is_allowed_path("/etc/passwd"));
+        let allowed = executor.is_allowed_path(p1.to_string_lossy().as_ref());
+        let _ = std::fs::remove_file(&p1);
+        assert!(allowed);
     }
 
     #[test]

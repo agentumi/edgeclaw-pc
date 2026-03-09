@@ -23,6 +23,11 @@
             --primary-500: #818cf8;
             --primary-400: #a5b4fc;
             --primary-glow: rgba(99, 102, 241, 0.25);
+
+            /* Sanctum vs Marketplace Tokens */
+            --sanctum-glow: rgba(99, 102, 241, 0.4);
+            --market-glow: rgba(245, 158, 11, 0.4);
+            --market-purple: #a855f7;
             
             --accent-gold: #f59e0b;
             --accent-green: #22c55e;
@@ -42,6 +47,11 @@
             --font-mono: 'JetBrains Mono', monospace;
             
             --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+            /* Chat Specific Tokens */
+            --agent-bubble: #1e2235;
+            --user-bubble: #6366f1;
+            --radius: 12px;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -173,6 +183,10 @@
             transition: var(--transition);
         }
         .device-item:hover { background: var(--surface-800); }
+        .device-item.active {
+            background: var(--surface-800);
+            border: 1px solid var(--primary-500);
+        }
         .status-dot { width: 8px; height: 8px; border-radius: 50%; }
         .status-dot.online { background: var(--accent-green); box-shadow: 0 0 8px var(--accent-green); }
         .status-dot.offline { background: var(--text-muted); }
@@ -357,6 +371,201 @@
         }
         .log-entry { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; display: flex; gap: 8px; }
         .log-time { color: var(--text-muted); }
+
+        /* Chat Styles */
+        .msg { max-width: 85%; display: flex; flex-direction: column; gap: 4px; }
+        .msg.user { align-self: flex-end; }
+        .msg.agent { align-self: flex-start; }
+        .msg-bubble { padding: 12px 16px; border-radius: 12px; font-size: 13px; line-height: 1.5; }
+        .user .msg-bubble { background: var(--primary-600); color: white; border-bottom-right-radius: 2px; }
+        .agent .msg-bubble { background: var(--surface-800); border: 1px solid var(--surface-700); color: var(--text-primary); border-bottom-left-radius: 2px; }
+        .msg-info { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); }
+        .user .msg-info { text-align: right; }
+        
+        pre { background: rgba(0,0,0,0.3); border-radius: 4px; padding: 8px; font-family: var(--font-mono); font-size: 12px; overflow-x: auto; margin-top: 8px; }
+        code { font-family: var(--font-mono); background: rgba(255,255,255,0.05); padding: 2px 4px; border-radius: 3px; }
+
+        .exec-result-box { margin-top: 12px; border-radius: 6px; overflow: hidden; border: 1px solid var(--surface-700); }
+        .exec-header { padding: 6px 12px; font-size: 11px; font-weight: 600; display: flex; justify-content: space-between; }
+        .exec-header.success { background: rgba(34, 197, 94, 0.15); color: var(--accent-green); }
+        .exec-header.error { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
+        .exec-body { padding: 10px; background: rgba(0,0,0,0.2); font-family: var(--font-mono); font-size: 12px; color: #d1d5db; max-height: 200px; overflow-y: auto; }
+
+        /* Integrated Chat Styles */
+        #view-chat.active { display: flex; flex-direction: column; padding: 0; height: 100%; }
+        
+        .chat-container { display: flex; flex-direction: column; height: 100%; border-radius: 0; }
+        
+        .chat-tabs {
+            background: var(--surface-900);
+            border-bottom: 1px solid var(--surface-700);
+            padding: 8px 16px;
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .chat-tab {
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 6px;
+            padding: 4px 12px;
+            color: var(--text-secondary);
+            font-size: 11px;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .chat-tab.active { background: var(--primary-600); color: white; border-color: var(--primary-600); }
+        .chat-tab:hover:not(.active) { background: var(--surface-800); color: var(--text-primary); }
+
+        .chat-quick-actions {
+            background: var(--surface-850);
+            border-bottom: 1px solid var(--surface-700);
+            padding: 10px 16px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            flex-shrink: 0;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+        .qa-btn {
+            background: var(--surface-800);
+            border: 1px solid rgba(255,255,255,0.05);
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: var(--transition);
+            white-space: nowrap;
+        }
+        .qa-btn:hover { background: var(--primary-600); color: white; border-color: var(--primary-600); }
+        .qa-btn.confirm { border-color: rgba(245,158,11,0.3); color: var(--accent-gold); }
+
+        .chat-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            background: var(--surface-950);
+        }
+        
+        .msg { max-width: 80%; display: flex; flex-direction: column; gap: 4px; animation: msgFadeIn 0.3s ease; }
+        @keyframes msgFadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .msg.user { align-self: flex-end; }
+        .msg.agent { align-self: flex-start; }
+        .msg.system { align-self: center; max-width: 90%; margin: 8px 0; }
+        
+        .msg-bubble { 
+            padding: 12px 18px; 
+            border-radius: 16px; 
+            font-size: 14px; 
+            line-height: 1.6;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            position: relative;
+        }
+        .user .msg-bubble { 
+            background: linear-gradient(135deg, var(--primary-600) 0%, #4f46e5 100%); 
+            color: white; 
+            border-bottom-right-radius: 4px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .agent .msg-bubble { 
+            background: var(--surface-800); 
+            border: 1px solid var(--surface-700); 
+            color: var(--text-primary); 
+            border-bottom-left-radius: 4px;
+            backdrop-filter: blur(8px);
+        }
+        .system .msg-bubble { 
+            background: rgba(99, 102, 241, 0.03); 
+            border: 1px solid rgba(255,255,255,0.05); 
+            color: var(--text-muted); 
+            font-size: 12px; 
+            text-align: center; 
+            border-radius: 8px;
+            font-family: var(--font-mono);
+        }
+        
+        .msg-info { 
+            font-size: 11px; 
+            color: var(--text-muted); 
+            font-family: var(--font-mono); 
+            margin-top: 6px; 
+            opacity: 0.8;
+        }
+        .user .msg-info { text-align: right; }
+
+        .typing-indicator {
+            padding: 12px 24px;
+            display: none;
+            align-items: center;
+            gap: 12px;
+            font-size: 12px;
+            color: var(--primary-400);
+            background: rgba(99, 102, 241, 0.05);
+            border-top: 1px solid rgba(99, 102, 241, 0.1);
+        }
+        .typing-indicator.active { display: flex; }
+        .dots { display: flex; gap: 4px; }
+        .dots span { width: 5px; height: 5px; background: var(--primary-500); border-radius: 50%; animation: dotPulse 1.4s infinite ease-in-out; }
+
+        .chat-input-area {
+            background: var(--surface-900);
+            border-top: 1px solid var(--surface-700);
+            padding: 20px 24px;
+            display: flex;
+            gap: 16px;
+            align-items: flex-end;
+            flex-shrink: 0;
+            box-shadow: 0 -10px 30px rgba(0,0,0,0.2);
+        }
+        .input-box {
+            flex: 1;
+            background: var(--surface-850);
+            border: 1px solid var(--surface-700);
+            border-radius: 12px;
+            padding: 12px 16px;
+            display: flex;
+            transition: var(--transition);
+        }
+        .input-box:focus-within { 
+            border-color: var(--primary-500); 
+            box-shadow: 0 0 20px var(--primary-glow);
+            background: var(--surface-800);
+        }
+        #chatInput {
+            width: 100%;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 14px;
+            resize: none;
+            max-height: 150px;
+            line-height: 1.5;
+        }
+        .send-btn {
+            width: 48px; height: 48px;
+            background: linear-gradient(135deg, var(--primary-600) 0%, #4f46e5 100%);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: var(--transition);
+            flex-shrink: 0;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+        }
+        .send-btn:hover { background: var(--primary-500); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4); }
+        .send-btn:active { transform: translateY(0); }
+        .send-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
     </style>
 </head>
 <body>
@@ -374,6 +583,9 @@
             <div class="nav-item active" data-target="view-dashboard">
                 <i class="fa-solid fa-chart-pie"></i> Mission Control
             </div>
+            <div class="nav-item" data-target="view-chat">
+                <i class="fa-solid fa-terminal"></i> Command Center
+            </div>
             <div class="nav-item" data-target="view-board">
                 <i class="fa-solid fa-kanban"></i> Agent Board
             </div>
@@ -387,24 +599,14 @@
         
         <div class="device-groups">
             <div class="group-title">
-                <span>📁 상권 분석 TF (2)</span>
+                <span id="sidebarGroupTitle">📁 Local Agents</span>
                 <i class="fa-solid fa-plus" style="cursor:pointer"></i>
             </div>
-            <div class="device-item">
-                <div class="status-dot online"></div>
-                <span>WorkStation-01</span>
-            </div>
-            <div class="device-item">
-                <div class="status-dot online"></div>
-                <span>MacBook-Pro</span>
-            </div>
-            
-            <div class="group-title">
-                <span>── Ungrouped ──</span>
-            </div>
-            <div class="device-item">
-                <div class="status-dot offline"></div>
-                <span style="color:var(--text-muted)">Home-NAS</span>
+            <div id="sidebarDeviceGroups">
+                <div class="device-item">
+                    <div class="status-dot online"></div>
+                    <span>Loading agents...</span>
+                </div>
             </div>
         </div>
         
@@ -418,13 +620,24 @@
     <!-- Main Content Area -->
     <main class="main-content">
         <header class="topbar">
-            <div class="search-bar" style="background:var(--surface-800); padding:8px 16px; border-radius:20px; border:1px solid var(--surface-700); width: 300px; display:flex; align-items:center; gap:8px;">
-                <i class="fa-solid fa-magnifying-glass" style="color:var(--text-muted)"></i>
-                <input type="text" placeholder="Search memories, tasks, agents..." style="background:transparent; border:none; outline:none; color:var(--text-primary); width:100%; font-family:var(--font-sans)">
+            <div style="display:flex; align-items:center; gap:20px;">
+                <div id="mode-indicator" onclick="toggleMode()" class="mode-sanctum" style="display:flex; align-items:center; gap:10px; padding:6px 14px; border-radius:30px; border:1px solid var(--surface-700); background:rgba(0,0,0,0.2); transition:var(--transition); cursor:pointer;">
+                    <i id="mode-icon" class="fa-solid fa-shield-halved" style="color:var(--primary-400);"></i>
+                    <span id="mode-text" style="font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--primary-400);">Sanctum Mode</span>
+                    <div style="width:6px; height:6px; border-radius:50%; background:var(--primary-500); box-shadow:0 0-10px var(--primary-500); animation: pulse 2s infinite;"></div>
+                </div>
+
+                <div class="search-bar" style="background:var(--surface-800); padding:8px 16px; border-radius:20px; border:1px solid var(--surface-700); width: 300px; display:flex; align-items:center; gap:8px;">
+                    <i class="fa-solid fa-magnifying-glass" style="color:var(--text-muted)"></i>
+                    <input type="text" placeholder="Search memories, tasks, agents..." style="background:transparent; border:none; outline:none; color:var(--text-primary); width:100%; font-family:var(--font-sans)">
+                </div>
             </div>
+            
             <div style="display:flex; align-items:center; gap: 16px;">
                 <span class="badge badge-green"><i class="fa-solid fa-shield-halved"></i> Zero-Trust Active</span>
-                <span style="font-family:var(--font-mono); color:var(--accent-gold); font-weight:600;"><i class="fa-brands fa-ethereum"></i> 142.5 SUI</span>
+                <span id="topbarActiveAgents" class="badge badge-blue"><i class="fa-solid fa-server"></i> 1 Agent Active</span>
+                <span id="balance-display" style="font-family:var(--font-mono); color:var(--accent-gold); font-weight:600;"><i class="fa-brands fa-ethereum"></i> 142.5 SUI</span>
+                <div style="width:32px; height:32px; background:var(--primary-glow); border:1px solid var(--primary-500); border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--primary-400); font-size:12px; font-weight:700;">KS</div>
             </div>
         </header>
 
@@ -435,33 +648,11 @@
             <div class="dashboard-grid">
                 <!-- Active Agents (P4-1-2) -->
                 <div class="card col-6">
-                    <div class="card-title"><i class="fa-solid fa-server"></i> Active Agents</div>
-                    <div class="agent-list-item">
-                        <div style="display:flex; align-items:center; gap:12px;">
-                            <div class="status-dot online"></div>
-                            <div>
-                                <div style="font-weight:600">WorkStation-01</div>
-                                <div style="font-size:11px; color:var(--text-muted)">상권 분석 진행 중</div>
-                            </div>
-                        </div>
-                        <div style="text-align:right">
-                            <div style="font-family:var(--font-mono); font-size:11px; margin-bottom:4px">68%</div>
-                            <div class="progress-bar"><div class="progress-fill" style="width: 68%;"></div></div>
-                        </div>
+                    <div class="card-title">
+                        <i class="fa-solid fa-server"></i> Active Agents
+                        <span id="activeAgentsCount" class="badge badge-blue" style="margin-left:auto;">0</span>
                     </div>
-                    <div class="agent-list-item">
-                        <div style="display:flex; align-items:center; gap:12px;">
-                            <div class="status-dot online"></div>
-                            <div>
-                                <div style="font-weight:600">MacBook-Pro</div>
-                                <div style="font-size:11px; color:var(--text-muted)">보고서 작성 중</div>
-                            </div>
-                        </div>
-                        <div style="text-align:right">
-                            <div style="font-family:var(--font-mono); font-size:11px; margin-bottom:4px">95%</div>
-                            <div class="progress-bar"><div class="progress-fill" style="width: 95%;"></div></div>
-                        </div>
-                    </div>
+                    <div id="activeAgentsList"></div>
                 </div>
 
                 <!-- Today's Memory -->
@@ -508,7 +699,42 @@
             </div>
         </div>
 
-        <!-- VIEW 2: Agent Board (P4-1-3) -->
+        <!-- VIEW 2: Command Center (Integrated Chat) -->
+        <div id="view-chat" class="view-content">
+            <div class="chat-container">
+                <div class="chat-tabs" id="chatProfiles">
+                    <button class="chat-tab active" data-profile="all">All Profiles</button>
+                    <button class="chat-tab" data-profile="System">System</button>
+                    <button class="chat-tab" data-profile="SoftwareDev">Software Dev</button>
+                    <button class="chat-tab" data-profile="Marketing">Marketing</button>
+                </div>
+                <div class="chat-quick-actions" id="chatQuickActions">
+                    <!-- Loaded dynamically -->
+                </div>
+                <div class="chat-area" id="chatArea">
+                    <div class="msg system">
+                        <div class="msg-bubble">
+                            EdgeClaw Command Center v2.0 — Connected to Agent Node<br>
+                            Status: <span id="chatStatusText" style="color:var(--accent-green)">Ready</span> · Zero-Trust Channel Secure
+                        </div>
+                    </div>
+                </div>
+                <div class="typing-indicator" id="typingIndicator">
+                    <div class="dots"><span></span><span></span><span></span></div>
+                    <span style="margin-left:8px;">Agent is analyzing...</span>
+                </div>
+                <div class="chat-input-area">
+                    <div class="input-box">
+                        <textarea id="chatInput" rows="1" placeholder="Enter command or natural language..."></textarea>
+                    </div>
+                    <button id="sendBtn" class="send-btn">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW 3: Agent Board (P4-1-3) -->
         <div id="view-board" class="view-content">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
                 <h2 style="font-size:20px; font-weight:600;">Agent Board</h2>
@@ -523,19 +749,19 @@
                     </div>
                     <div class="kanban-cards">
                         <div class="task-card" draggable="true" ondragstart="drag(event)" id="task-1">
-                            <div class="task-title">시장 데이터 수집 및 전처리</div>
+                            <div class="task-title"><i class="fa-solid fa-lock" style="color:var(--primary-500); margin-right:6px;"></i>시장 데이터 수집 및 전처리</div>
                             <span class="badge badge-green">Risk: L0 Safe</span>
                             <div class="task-meta">
-                                <span>📋 Simple</span>
+                                <span><i class="fa-solid fa-server"></i> Local 실행 (Sanctum)</span>
                                 <span>3 / 9 subtasks</span>
                             </div>
                         </div>
                         <div class="task-card" draggable="true" ondragstart="drag(event)" id="task-2">
-                            <div class="task-title">주간 결산 보고서 작성</div>
+                            <div class="task-title"><i class="fa-solid fa-earth-americas" style="color:var(--accent-purple); margin-right:6px;"></i>주간 결산 보고서 작성</div>
                             <span class="badge badge-gold">Risk: L2 Sensitive</span>
-                            <div style="margin-top:8px;"><span class="badge badge-blue" style="cursor:pointer">→ 위임 가능</span></div>
+                            <div style="margin-top:8px;"><span class="badge badge-blue" style="cursor:pointer; background:rgba(168, 85, 247, 0.1); color:var(--accent-purple); border-color:var(--accent-purple)"><i class="fa-solid fa-handshake"></i> 마켓 위임 가능</span></div>
                             <div class="task-meta">
-                                <span>🔒 Default</span>
+                                <span style="color:var(--accent-purple)">0.5 SUI 예상 비용</span>
                             </div>
                         </div>
                     </div>
@@ -548,12 +774,12 @@
                     </div>
                     <div class="kanban-cards">
                         <div class="task-card" draggable="true" ondragstart="drag(event)" id="task-3" style="border-left:3px solid var(--primary-500)">
-                            <div class="task-title">상권 분석 지역 탐색</div>
+                            <div class="task-title"><i class="fa-solid fa-lock" style="color:var(--primary-500); margin-right:6px;"></i>상권 분석 지역 탐색</div>
                             <div class="progress-bar" style="width:100%; margin: 8px 0;"><div class="progress-fill" style="width:80%"></div></div>
                             <div style="font-size:11px; margin-bottom:8px">🟢 WorkStation-01 (80%)</div>
                             <span class="badge badge-blue">Risk: L1 Restricted</span>
                             <div class="task-meta">
-                                <span>🛡 스테이킹 검증</span>
+                                <span>🛡 스테이킹 검증 | Sanctum</span>
                             </div>
                         </div>
                     </div>
@@ -570,6 +796,7 @@
                             <div style="margin-top:8px; display:flex; gap:8px;">
                                 <span class="badge badge-gold" style="border:none"><i class="fa-brands fa-ethereum"></i> 28.3 SUI</span>
                                 <span class="badge badge-green" style="border:none">⭐ Rep +2.1</span>
+                                <span class="badge" style="background:rgba(168, 85, 247, 0.1); color:var(--accent-purple); border:none;"><i class="fa-solid fa-earth-americas"></i> Public</span>
                             </div>
                         </div>
                     </div>
@@ -618,8 +845,9 @@
                     <div style="display:flex; justify-content:space-between; margin-bottom:16px;">
                         <h3 style="font-size:16px; color:var(--primary-400)">🧠 SOUL.md</h3>
                         <div style="display:flex; gap:8px;">
+                            <span class="badge" style="background:rgba(99, 102, 241, 0.1); color:var(--primary-400); border:1px solid var(--primary-500);"><i class="fa-solid fa-lock"></i> Sanctum Private</span>
                             <button class="btn"><i class="fa-solid fa-pen"></i> Edit</button>
-                            <button class="btn"><i class="fa-brands fa-github"></i> GitSync</button>
+                            <button class="btn" style="color:var(--accent-gold); border-color:var(--accent-gold);"><i class="fa-solid fa-cloud-arrow-up"></i> Publish Lesson</button>
                         </div>
                     </div>
                     <div class="memory-entry">
@@ -643,45 +871,19 @@
 
         <!-- VIEW 4: Agent Marketplace (P4-1-5) -->
         <div id="view-market" class="view-content">
-            <h2 style="font-size:20px; margin-bottom: 24px; font-weight:600;">Agent Marketplace</h2>
-            
-            <div class="market-grid">
-                <!-- Agent Card 1 -->
-                <div class="agent-card">
-                    <div class="badge badge-gold" style="position:absolute; top:12px; right:12px;"><i class="fa-solid fa-star"></i> 94.2</div>
-                    <div class="agent-icon"><i class="fa-solid fa-database"></i></div>
-                    <h3>Data Pro Analyst</h3>
-                    <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">📛 NFT Passport #4821</div>
-                    <div style="display:flex; gap:6px; justify-content:center; margin-bottom:16px;">
-                        <span class="badge badge-green">🛡 TEE 검증</span>
-                        <span class="badge" style="background:var(--surface-700)">Python, SQL</span>
-                    </div>
-                    <div style="font-family:var(--font-mono); font-size:14px; font-weight:600; color:var(--text-primary)">
-                        0.5 SUI <span style="font-size:11px; color:var(--text-muted)">/ task</span>
-                    </div>
-                    <div class="hire-actions">
-                        <button class="btn btn-primary" style="flex:1; justify-content:center">Hire Agent</button>
-                        <button class="btn" style="flex:1; justify-content:center">View Profile</button>
-                    </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
+                <h2 style="font-size:20px; font-weight:600;">Agent Marketplace</h2>
+                <div style="display:flex; gap:12px;">
+                    <button class="btn" onclick="showAddAgentModal()" style="border-color:var(--accent-purple); color:var(--accent-purple);"><i class="fa-solid fa-plus"></i> Add Agent</button>
+                    <button id="discoverBtn" class="btn btn-primary" onclick="discoverAgents()"><i class="fa-solid fa-magnifying-glass"></i> Discover</button>
                 </div>
-                
-                <!-- Agent Card 2 -->
-                <div class="agent-card">
-                    <div class="badge badge-gold" style="position:absolute; top:12px; right:12px;"><i class="fa-solid fa-star"></i> 91.8</div>
-                    <div class="agent-icon" style="color:var(--risk-l1)"><i class="fa-solid fa-pen-nib"></i></div>
-                    <h3>Ghost Writer AI</h3>
-                    <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">📛 NFT Passport #7233</div>
-                    <div style="display:flex; gap:6px; justify-content:center; margin-bottom:16px;">
-                        <span class="badge badge-blue">🛡 평판 검증</span>
-                        <span class="badge" style="background:var(--surface-700)">SEO, Copy</span>
-                    </div>
-                    <div style="font-family:var(--font-mono); font-size:14px; font-weight:600; color:var(--text-primary)">
-                        0.3 SUI <span style="font-size:11px; color:var(--text-muted)">/ task</span>
-                    </div>
-                    <div class="hire-actions">
-                        <button class="btn btn-primary" style="flex:1; justify-content:center">Hire Agent</button>
-                        <button class="btn" style="flex:1; justify-content:center">View Profile</button>
-                    </div>
+            </div>
+            
+            <div class="market-grid" id="marketGrid">
+                <!-- Dynamically populated -->
+                <div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--text-muted);">
+                    <i class="fa-solid fa-spinner fa-spin" style="font-size: 24px; margin-bottom: 12px;"></i>
+                    <p>Loading market agents...</p>
                 </div>
             </div>
             
@@ -745,7 +947,7 @@
             <!-- Session Log -->
             <div class="info-block" style="flex:1;">
                 <h4>Live Session Log</h4>
-                <div style="background:var(--surface-950); border:1px solid var(--surface-700); border-radius:8px; padding:12px; height:200px; overflow-y:auto;">
+                <div id="sessionLog" style="background:var(--surface-950); border:1px solid var(--surface-700); border-radius:8px; padding:12px; height:200px; overflow-y:auto;">
                     <div class="log-entry"><span class="log-time">10:45</span> <span>API 호출 완료 (200 OK)</span></div>
                     <div class="log-entry"><span class="log-time">10:42</span> <span>데이터 파싱 및 정제 시작</span></div>
                     <div class="log-entry" style="color:var(--accent-gold)"><span class="log-time">10:40</span> <span>Lesson: chunk 분할 적용됨</span></div>
@@ -756,12 +958,240 @@
         </div>
     </aside>
 
+    <!-- Modal: Add Agent -->
+    <div id="addAgentModal" class="modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:10000; align-items:center; justify-content:center;">
+        <div style="background:var(--surface-800); border:1px solid var(--surface-700); border-radius:12px; padding:24px; width:400px; box-shadow:0 20px 50px rgba(0,0,0,0.5);">
+            <h2 style="font-size:18px; margin-bottom:20px; color:var(--primary-400)">Add Remote Agent</h2>
+            <div style="display:flex; flex-direction:column; gap:16px;">
+                <div>
+                    <label style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:6px;">Agent Name</label>
+                    <input id="newAgentName" type="text" placeholder="e.g. My Worker Node" style="width:100%; background:var(--surface-900); border:1px solid var(--surface-600); border-radius:6px; padding:10px; color:var(--text-primary);">
+                </div>
+                <div>
+                    <label style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:6px;">Address (IP or Hostname)</label>
+                    <input id="newAgentAddr" type="text" placeholder="127.0.0.1" value="127.0.0.1" style="width:100%; background:var(--surface-900); border:1px solid var(--surface-600); border-radius:6px; padding:10px; color:var(--text-primary);">
+                </div>
+                <div>
+                    <label style="display:block; font-size:12px; color:var(--text-muted); margin-bottom:6px;">Port</label>
+                    <input id="newAgentPort" type="number" value="9443" style="width:100%; background:var(--surface-900); border:1px solid var(--surface-600); border-radius:6px; padding:10px; color:var(--text-primary);">
+                </div>
+                <div style="display:flex; gap:12px; margin-top:10px;">
+                    <button class="btn" onclick="hideAddAgentModal()" style="flex:1; justify-content:center;">Cancel</button>
+                    <button class="btn btn-primary" onclick="submitAddAgent()" style="flex:1; justify-content:center;">Register</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </div>
 
 <script>
+    // Toast system for feedback
+    function showToast(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.style.cssText = `
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: var(--surface-800);
+            border: 1px solid var(--surface-700);
+            border-left: 4px solid var(--primary-500);
+            color: var(--text-primary);
+            padding: 12px 24px;
+            border-radius: 8px;
+            z-index: 9999;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            font-size: 13px;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        `;
+        
+        const icon = type === 'success' ? 'check-circle' : (type === 'error' ? 'circle-exclamation' : 'circle-info');
+        if(type === 'success') toast.style.borderLeftColor = 'var(--accent-green)';
+        if(type === 'error') toast.style.borderLeftColor = 'var(--accent-red)';
+        
+        toast.innerHTML = `<i class="fa-solid fa-${icon}"></i> ${message}`;
+        document.body.appendChild(toast);
+        
+        // Trigger animation
+        setTimeout(() => toast.style.transform = 'translateX(-50%) translateY(0)', 10);
+        
+        // Remove after delay
+        setTimeout(() => {
+            toast.style.transform = 'translateX(-50%) translateY(100px)';
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 400);
+        }, 3000);
+    }
+
     // Tab Navigation Logic
     const navItems = document.querySelectorAll('.nav-item');
     const views = document.querySelectorAll('.view-content');
+    let currentMode = 'sanctum';
+    const balanceDisplay = document.getElementById('balance-display');
+    const modeIndicator = document.getElementById('mode-indicator');
+    const modeIcon = document.getElementById('mode-icon');
+    const modeText = document.getElementById('mode-text');
+    let selectedAgentId = 'local';
+    let selectedAgentName = 'local';
+    let cachedAgents = [];
+
+    function normalizeAgentStatus(status) {
+        return String(status || 'offline').toLowerCase();
+    }
+
+    function taskColumnId(status) {
+        const normalized = String(status || '').toLowerCase();
+        if (normalized === 'backlog' || normalized === 'todo') return 'todo';
+        if (normalized === 'inprogress' || normalized === 'in_progress' || normalized === 'progress' || normalized === 'review') return 'progress';
+        if (normalized === 'done') return 'done';
+        return 'todo';
+    }
+
+    function highlightSidebarSelection() {
+        document.querySelectorAll('#sidebarDeviceGroups .device-item').forEach(item => {
+            item.classList.toggle('active', item.dataset.agentId === selectedAgentId);
+        });
+    }
+
+    function renderSidebarAgents(localAgents, remoteAgents) {
+        const container = document.getElementById('sidebarDeviceGroups');
+        if (!container) return;
+
+        const localHtml = localAgents.map(agent => `
+            <div class="device-item" data-agent-id="${agent.id}" data-agent-name="${agent.name}">
+                <div class="status-dot ${normalizeAgentStatus(agent.status) === 'online' ? 'online' : 'offline'}"></div>
+                <span>${agent.name}</span>
+            </div>
+        `).join('');
+
+        const remoteSection = remoteAgents.length > 0
+            ? `
+                <div class="group-title" style="margin:14px 0 8px 0;"><span>── Remote Registry (${remoteAgents.length}) ──</span></div>
+                ${remoteAgents.map(agent => `
+                    <div class="device-item" data-agent-id="${agent.id}" data-agent-name="${agent.name}">
+                        <div class="status-dot ${normalizeAgentStatus(agent.status) === 'online' ? 'online' : 'offline'}"></div>
+                        <span>${agent.name}</span>
+                    </div>
+                `).join('')}
+            `
+            : '';
+
+        container.innerHTML = localHtml + remoteSection;
+        const title = document.getElementById('sidebarGroupTitle');
+        if (title) title.textContent = `📁 Local Agents (${localAgents.length})`;
+        highlightSidebarSelection();
+    }
+
+    function renderActiveAgents(localAgents) {
+        const listEl = document.getElementById('activeAgentsList');
+        const countEl = document.getElementById('activeAgentsCount');
+        const topbarEl = document.getElementById('topbarActiveAgents');
+        if (!listEl || !countEl || !topbarEl) return;
+
+        if (localAgents.length === 0) {
+            listEl.innerHTML = '<div style="color:var(--text-muted); font-size:12px;">No local agents available.</div>';
+            countEl.textContent = '0';
+            topbarEl.innerHTML = '<i class="fa-solid fa-server"></i> 0 Agent Active';
+            return;
+        }
+
+        listEl.innerHTML = localAgents.map((agent, idx) => {
+            const utilization = 55 + ((idx * 17) % 40);
+            return `
+                <div class="agent-list-item">
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <div class="status-dot ${normalizeAgentStatus(agent.status) === 'online' ? 'online' : 'offline'}"></div>
+                        <div>
+                            <div style="font-weight:600">${agent.name}</div>
+                            <div style="font-size:11px; color:var(--text-muted)">Profile: ${agent.profile || 'worker'}</div>
+                        </div>
+                    </div>
+                    <div style="text-align:right">
+                        <div style="font-family:var(--font-mono); font-size:11px; margin-bottom:4px">${utilization}%</div>
+                        <div class="progress-bar"><div class="progress-fill" style="width:${utilization}%"></div></div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        countEl.textContent = `${localAgents.length}`;
+        topbarEl.innerHTML = `<i class="fa-solid fa-server"></i> ${localAgents.length} Agent${localAgents.length > 1 ? 's' : ''} Active`;
+    }
+
+    async function refreshAgentsUI() {
+        try {
+            const res = await apiFetch(`${API}/api/agents`);
+            if (!res.ok) return;
+            const data = await res.json();
+
+            const localAgents = data.local_agents || [];
+            const remoteAgents = data.registered_agents || [];
+            cachedAgents = [...localAgents, ...remoteAgents];
+
+            if (!cachedAgents.some(agent => agent.id === selectedAgentId)) {
+                selectedAgentId = localAgents[0]?.id || 'local';
+            }
+            const selected = cachedAgents.find(agent => agent.id === selectedAgentId);
+            selectedAgentName = selected ? selected.name : selectedAgentId;
+
+            renderSidebarAgents(localAgents, remoteAgents);
+            renderActiveAgents(localAgents);
+        } catch (e) {
+            console.error('Failed to refresh agents:', e);
+        }
+    }
+
+    function toggleMode() {
+        const nextMode = currentMode === 'sanctum' ? 'market' : 'sanctum';
+        setMode(nextMode);
+        showToast(`Switched to ${nextMode.toUpperCase()} Mode`, 'info');
+    }
+
+    async function setMode(mode) {
+        currentMode = mode;
+        
+        // Sync with backend
+        try {
+            await apiFetch(`${API}/api/agent/mode`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: mode })
+            });
+        } catch (e) {
+            console.error("Failed to sync mode with backend:", e);
+        }
+
+        if (mode === 'market') {
+            modeIndicator.className = 'mode-market';
+            modeIndicator.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+            modeIndicator.style.background = 'rgba(245, 158, 11, 0.05)';
+            modeIndicator.querySelector('div').style.background = 'var(--accent-gold)';
+            modeIndicator.querySelector('div').style.boxShadow = '0 0 10px var(--accent-gold)';
+            modeIcon.className = 'fa-solid fa-earth-americas';
+            modeIcon.style.color = 'var(--accent-gold)';
+            modeText.textContent = 'Market Mode';
+            modeText.style.color = 'var(--accent-gold)';
+            balanceDisplay.style.color = 'var(--accent-purple)';
+            balanceDisplay.style.textShadow = '0 0 10px rgba(168, 85, 247, 0.3)';
+        } else {
+            modeIndicator.className = 'mode-sanctum';
+            modeIndicator.style.borderColor = 'var(--surface-700)';
+            modeIndicator.style.background = 'rgba(0,0,0,0.2)';
+            modeIndicator.querySelector('div').style.background = 'var(--primary-500)';
+            modeIndicator.querySelector('div').style.boxShadow = '0 0 10px var(--primary-500)';
+            modeIcon.className = 'fa-solid fa-shield-halved';
+            modeIcon.style.color = 'var(--primary-400)';
+            modeText.textContent = 'Sanctum Mode';
+            modeText.style.color = 'var(--primary-400)';
+            balanceDisplay.style.color = 'var(--accent-gold)';
+            balanceDisplay.style.textShadow = 'none';
+        }
+    }
 
     navItems.forEach(item => {
         item.addEventListener('click', () => {
@@ -771,9 +1201,102 @@
             item.classList.add('active');
             
             views.forEach(v => v.classList.remove('active'));
-            document.getElementById(item.dataset.target).classList.add('active');
+            const targetView = document.getElementById(item.dataset.target);
+            targetView.classList.add('active');
+
+            // Visual feedback based on view
+            if (item.dataset.target === 'view-market') {
+                setMode('market');
+                fetchMarketplaceAgents();
+            } else if (item.dataset.target === 'view-dashboard') {
+                setMode('sanctum');
+                fetchStatus();
+            } else if (item.dataset.target === 'view-board') {
+                fetchTasks();
+            } else if (item.dataset.target === 'view-memory') {
+                fetchMemory();
+            } else {
+                setMode('sanctum');
+            }
+            
+            showToast(`${item.textContent.trim()} View Activated`, 'info');
         });
     });
+
+    async function fetchStatus() {
+        try {
+            const res = await apiFetch(`${API}/api/status`);
+            await res.json();
+        } catch(e) {}
+
+        await refreshAgentsUI();
+    }
+
+    document.getElementById('sidebarDeviceGroups').addEventListener('click', (e) => {
+        const item = e.target.closest('.device-item[data-agent-id]');
+        if (!item) return;
+        selectedAgentId = item.dataset.agentId;
+        selectedAgentName = item.dataset.agentName || selectedAgentId;
+        highlightSidebarSelection();
+        updateContextPanel(selectedAgentId, 'Device');
+        fetchTasks();
+        showToast(`Connected to ${selectedAgentName}`, 'success');
+    });
+
+    // Handle Context Panel Update
+    async function updateContextPanel(id, type) {
+        const panel = document.getElementById('context-panel');
+        panel.style.display = 'flex';
+        panel.style.width = '320px';
+        
+        let name = id;
+        let repScore = (Math.random()*10 + 85).toFixed(1);
+        let profile = "Unknown";
+        let status = "online";
+        
+        if (type === 'Agent' || type === 'Device') {
+            try {
+                // Try fetching real agent profile
+                const res = await apiFetch(`${API}/api/agents/${id}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    name = data.name;
+                    repScore = data.reputation_score.toFixed(1);
+                    profile = data.profile;
+                    status = data.status;
+                }
+            } catch(e) {}
+        }
+        
+        // Update Header
+        const headerName = panel.querySelector('.context-header div');
+        headerName.innerHTML = `<div class="status-dot ${status === 'online' ? 'online' : 'offline'}"></div> ${name}`;
+        
+        // Update Identity Block
+        const idBlock = panel.querySelector('.info-block:nth-child(1)');
+        idBlock.innerHTML = `
+            <h4>${type} Identity</h4>
+            <div class="nft-card">
+                <div style="font-size:14px; font-weight:600; margin-bottom:12px; display:flex; justify-content:space-between;">
+                    <span>${type === 'Task' ? 'Task ID' : 'Passport NFT'}</span>
+                    <i class="fa-brands fa-ethereum" style="color:var(--accent-purple)"></i>
+                </div>
+                <div style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted); margin-bottom:8px;">${id}</div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span class="badge ${status === 'online' ? 'badge-green' : 'badge-red'}">${status.toUpperCase()}</span>
+                    <span style="font-weight:600; color:var(--accent-gold)"><i class="fa-solid fa-star"></i> ${repScore}</span>
+                </div>
+            </div>
+        `;
+
+        // Add a log entry for interaction
+        const logContainer = panel.querySelector('.info-block:last-child div');
+        const newLog = document.createElement('div');
+        newLog.className = 'log-entry';
+        const now = new Date();
+        newLog.innerHTML = `<span class="log-time">${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')}</span> <span>Selected ${type}: ${name}</span>`;
+        logContainer.prepend(newLog);
+    }
 
     // Native HTML5 Drag and Drop for Kanban Board (P4-1-3)
     function allowDrop(ev) {
@@ -784,29 +1307,41 @@
     }
 
     function drag(ev) {
-        ev.dataTransfer.setData("text", ev.target.id);
+        ev.dataTransfer.setData("taskId", ev.target.dataset.id || ev.target.id);
+        ev.dataTransfer.setData("elementId", ev.target.id);
         setTimeout(() => ev.target.classList.add('dragging'), 0);
     }
 
-    function drop(ev, colId) {
+    async function drop(ev, colId) {
         ev.preventDefault();
         
-        // Reset column style
         const col = ev.currentTarget;
         col.style.background = 'rgba(28, 28, 40, 0.4)';
         col.style.borderStyle = 'solid';
         col.style.borderColor = 'var(--surface-700)';
         
-        const data = ev.dataTransfer.getData("text");
-        const draggedElement = document.getElementById(data);
+        const taskId = ev.dataTransfer.getData("taskId");
+        const elementId = ev.dataTransfer.getData("elementId");
+        const draggedElement = document.getElementById(elementId);
+        
         if(draggedElement) {
             draggedElement.classList.remove('dragging');
-            // Find the cards container within the column
             const cardsContainer = col.querySelector('.kanban-cards');
             cardsContainer.appendChild(draggedElement);
             
-            // Visual feedback + Network call simulation
-            console.log(`Task [${data}] moved to column: [${colId}] via ECNP 0x51 TASK_STATUS_UPDATE`);
+            // Sync with backend
+            try {
+                const res = await apiFetch(`${API}/api/tasks/${taskId}/move`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: colId })
+                });
+                if (res.ok) {
+                    showToast(`Task moved to ${colId}`, 'success');
+                }
+            } catch(e) {
+                showToast("Failed to sync task move", "error");
+            }
         }
     }
 
@@ -823,16 +1358,524 @@
     });
 
     // Close Context Panel
-    document.querySelector('.fa-xmark').addEventListener('click', () => {
+    document.querySelector('.context-header .fa-xmark').addEventListener('click', () => {
         const panel = document.getElementById('context-panel');
-        if(panel.style.width === '0px' || panel.style.display === 'none') {
-            panel.style.width = '320px';
-            panel.style.display = 'flex';
-        } else {
-            panel.style.width = '0px';
-            panel.style.display = 'none';
+        panel.style.width = '0px';
+        setTimeout(() => panel.style.display = 'none', 300);
+    });
+
+    // Marketplace Interactions
+    document.querySelectorAll('.agent-card .btn-primary').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const agentName = btn.closest('.agent-card').querySelector('h3').textContent;
+            showToast(`Hiring Request: ${agentName}`, 'info');
+            setTimeout(() => showToast(`${agentName} has been assigned!`, 'success'), 800);
+        });
+    });
+
+    document.querySelectorAll('.agent-card .btn:not(.btn-primary)').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const agentName = btn.closest('.agent-card').querySelector('h3').textContent;
+            updateContextPanel(agentName, 'Agent');
+            showToast(`Viewing ${agentName} Profile`, 'info');
+        });
+    });
+
+    // Memory Tier Switching
+    document.querySelectorAll('.tier-item').forEach(tier => {
+        tier.addEventListener('click', () => {
+            document.querySelectorAll('.tier-item').forEach(t => t.classList.remove('active'));
+            tier.classList.add('active');
+            const tierName = tier.querySelector('h4').textContent;
+            
+            // Update memory content header
+            document.querySelector('.memory-content h3').textContent = `🧠 ${tierName}`;
+            fetchMemory(); // Refresh for the selected tier
+            showToast(`Loading: ${tierName}`, 'info');
+        });
+    });
+
+    async function fetchTasks() {
+        try {
+            const query = selectedAgentId ? `?assignee=${encodeURIComponent(selectedAgentId)}` : '';
+            const res = await apiFetch(`${API}/api/tasks${query}`);
+            const tasks = await res.json();
+            
+            // Clear current cards
+            document.querySelectorAll('#col-todo .kanban-cards, #col-progress .kanban-cards, #col-done .kanban-cards')
+                .forEach(c => c.innerHTML = '');
+            
+            tasks.forEach(task => {
+                const col = document.getElementById(`col-${taskColumnId(task.status)}`) || document.getElementById('col-todo');
+                const container = col.querySelector('.kanban-cards');
+                
+                const card = document.createElement('div');
+                card.className = 'task-card';
+                card.draggable = true;
+                card.id = `task-${task.id}`;
+                card.dataset.id = task.id;
+                card.innerHTML = `
+                    <div class="task-title">${task.title}</div>
+                    <span class="badge ${task.priority === 'High' ? 'badge-red' : 'badge-blue'}">Prio: ${task.priority}</span>
+                    <div class="task-meta">
+                        <span>Assignee: ${task.assignee || '-'}</span>
+                        <span>${new Date(task.created_at).toLocaleDateString()}</span>
+                    </div>
+                `;
+                card.ondragstart = drag;
+                card.ondblclick = () => quickAssignTask(task.id);
+                container.appendChild(card);
+            });
+
+            const todoCount = document.querySelectorAll('#col-todo .kanban-cards .task-card').length;
+            const progCount = document.querySelectorAll('#col-progress .kanban-cards .task-card').length;
+            const doneCount = document.querySelectorAll('#col-done .kanban-cards .task-card').length;
+            document.querySelector('#col-todo .kanban-header .badge').textContent = todoCount;
+            document.querySelector('#col-progress .kanban-header .badge').textContent = progCount;
+            document.querySelector('#col-done .kanban-header .badge').textContent = doneCount;
+        } catch(e) {
+            showToast("Failed to load tasks", "error");
+        }
+    }
+
+    async function quickAssignTask(taskId) {
+        const localAgents = cachedAgents.filter(agent => String(agent.source || '').toLowerCase() === 'local');
+        if (localAgents.length === 0) {
+            showToast('No local agents available for assignment', 'error');
+            return;
+        }
+
+        const target = prompt(
+            `Assign task to agent ID:\n${localAgents.map(a => `- ${a.id} (${a.name})`).join('\n')}`,
+            selectedAgentId || localAgents[0].id
+        );
+        if (!target) return;
+
+        try {
+            const res = await apiFetch(`${API}/api/tasks/${taskId}/assign`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ assignee: target.trim() }),
+            });
+            if (res.ok) {
+                showToast(`Task assigned to ${target.trim()}`, 'success');
+                fetchTasks();
+            } else {
+                showToast('Failed to assign task', 'error');
+            }
+        } catch (e) {
+            showToast('Failed to assign task', 'error');
+        }
+    }
+
+    async function fetchMemory() {
+        try {
+            const res = await apiFetch(`${API}/api/memory`);
+            const memory = await res.json();
+            
+            const activeTier = document.querySelector('.tier-item.active h4').textContent;
+            const contentArea = document.querySelector('.memory-content .memory-entry');
+            
+            if (activeTier.includes("Core")) {
+                contentArea.innerHTML = `
+                    <div style="color:var(--primary-400); margin-bottom:10px;">[SOUL Definition]</div>
+                    "${memory.core.soul.content}"<br><br>
+                    <div style="color:var(--accent-gold); margin-bottom:10px;">[Absolute Rules]</div>
+                    ${memory.core.absolute_rules.map(r => `• ${r}`).join('<br>')}
+                `;
+            } else if (activeTier.includes("Lessons")) {
+                contentArea.innerHTML = memory.lessons.lessons.length > 0 
+                    ? memory.lessons.lessons.map(l => `<div style="margin-bottom:12px;">• Pattern: ${l.pattern}<br><small style="color:var(--text-muted)">Effectiveness: ${l.effectiveness}</small></div>`).join('')
+                    : "No lessons distilled yet.";
+            } else {
+                // Tiered memory (M30, M90, etc)
+                const tierKey = activeTier.split(' ')[0].toLowerCase(); // m30, m90...
+                const memories = memory.tiers[tierKey] || [];
+                contentArea.innerHTML = memories.length > 0
+                    ? memories.map(m => `<div style="padding:10px; border-bottom:1px solid var(--surface-700);">${m.content}<br><small style="color:var(--text-muted)">${new Date(m.created_at).toLocaleString()}</small></div>`).join('')
+                    : "No memories in this tier.";
+            }
+        } catch(e) {
+            showToast("Failed to load memory", "error");
+        }
+    }
+
+    // Task Interactions
+    document.addEventListener('click', (e) => {
+        const taskCard = e.target.closest('.task-card');
+        if (taskCard) {
+            const title = taskCard.querySelector('.task-title').textContent;
+            updateContextPanel(title, 'Task');
+            showToast(`Inspecting Task: ${title}`, 'info');
         }
     });
+
+    // Search Bar Simulation
+    const searchInputs = document.querySelectorAll('.search-bar input');
+    searchInputs.forEach(input => {
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const query = input.value.trim();
+                if (query) {
+                    showToast(`Searching for: "${query}"...`, 'info');
+                    // In a real app, this would filter results or call an API
+                }
+            }
+        });
+    });
+
+    // Agent Management
+    function showAddAgentModal() {
+        document.getElementById('addAgentModal').style.display = 'flex';
+    }
+
+    function hideAddAgentModal() {
+        document.getElementById('addAgentModal').style.display = 'none';
+        document.getElementById('newAgentName').value = '';
+    }
+
+    async function submitAddAgent() {
+        const name = document.getElementById('newAgentName').value.trim();
+        const addr = document.getElementById('newAgentAddr').value.trim();
+        const port = parseInt(document.getElementById('newAgentPort').value);
+
+        if (!name || !addr) {
+            showToast("Please fill in name and address", "error");
+            return;
+        }
+
+        try {
+            const res = await apiFetch(`${API}/api/agents`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: name.toLowerCase().replace(/\s+/g, '-'),
+                    name: name,
+                    profile: "Worker",
+                    address: addr,
+                    port: port,
+                    status: "offline",
+                    capabilities: [],
+                    version: "2.0.0",
+                    last_heartbeat: new Date().toISOString(),
+                    registered_at: new Date().toISOString()
+                })
+            });
+
+            if (res.ok) {
+                showToast(`Agent "${name}" registered`, "success");
+                hideAddAgentModal();
+                refreshAgentsUI();
+                fetchMarketplaceAgents();
+            }
+        } catch(e) {
+            showToast("Failed to register agent", "error");
+        }
+    }
+
+    async function discoverAgents() {
+        const btn = document.getElementById('discoverBtn');
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Scanning...';
+        btn.disabled = true;
+
+        try {
+            const res = await apiFetch(`${API}/api/agents/discover`, { method: 'POST' });
+            if (res.ok) {
+                const found = await res.json();
+                showToast(`Scan complete. Found ${found.length} agents.`, "success");
+                refreshAgentsUI();
+                fetchMarketplaceAgents();
+            }
+        } catch(e) {
+            showToast("Discovery failed", "error");
+        } finally {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+        }
+    }
+
+    async function fetchMarketplaceAgents() {
+        const grid = document.getElementById('marketGrid');
+        try {
+            const res = await apiFetch(`${API}/api/agents`);
+            if (res.ok) {
+                const data = await res.json();
+                const agents = data.agents || [];
+                grid.innerHTML = agents.length > 0 
+                    ? agents.map(a => `
+                        <div class="agent-card">
+                            <div class="badge ${a.status === 'online' ? 'badge-green' : 'badge-gold'}" style="position:absolute; top:12px; right:12px;">
+                                <i class="fa-solid fa-circle" style="font-size:8px; margin-right:4px;"></i> ${a.status}
+                            </div>
+                            <div class="agent-icon" style="color:${a.status === 'online' ? 'var(--accent-green)' : 'var(--text-muted)'}">
+                                <i class="fa-solid fa-robot"></i>
+                            </div>
+                            <h3>${a.name}</h3>
+                            <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">🌐 ${a.address}:${a.port}</div>
+                            <div style="display:flex; gap:6px; justify-content:center; margin-bottom:16px; flex-wrap:wrap;">
+                                <span class="badge" style="background:var(--surface-700)">${a.profile}</span>
+                                <span class="badge" style="background:var(--surface-800)">${a.source || 'remote'}</span>
+                                ${(a.capabilities || []).slice(0, 2).map(c => `<span class="badge" style="background:var(--surface-600)">${c}</span>`).join('')}
+                            </div>
+                            <div class="hire-actions">
+                                <button class="btn btn-primary" onclick="updateContextPanel('${a.id}', 'Agent')" style="flex:1; justify-content:center">Inspect</button>
+                                <button class="btn" style="flex:1; justify-content:center" onclick="showToast('Hiring request sent', 'info')">Hire</button>
+                            </div>
+                        </div>
+                    `).join('')
+                    : '<div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--text-muted);">No agents found. Use "Discover" or "Add Agent".</div>';
+            }
+        } catch(e) {
+            console.error("Failed to fetch marketplace agents:", e);
+            grid.innerHTML = '<div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--risk-l3);">Error loading agents.</div>';
+        }
+    }
+
+    // "New Task" button
+    const newTaskBtn = document.querySelector('#view-board .btn-primary');
+    if (newTaskBtn) {
+        newTaskBtn.addEventListener('click', async () => {
+            const taskName = prompt("Enter new task title:");
+            if (taskName) {
+                try {
+                    const res = await apiFetch(`${API}/api/tasks`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            title: taskName,
+                            description: "Created from Dashboard",
+                            priority: "Medium",
+                            assignee: selectedAgentId,
+                            tags: ["dashboard"]
+                        })
+                    });
+                    if (res.ok) {
+                        showToast(`Task "${taskName}" created for ${selectedAgentName}`, 'success');
+                        fetchTasks(); // Refresh board
+                    }
+                } catch(e) {
+                    showToast("Failed to create task", "error");
+                }
+            }
+        });
+    }
+
+    // ── Integrated Chat Logic ──
+    const API = window.location.origin;
+    const chatArea = document.getElementById('chatArea');
+    const chatInput = document.getElementById('chatInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const typingIndicator = document.getElementById('typingIndicator');
+    const chatQuickActions = document.getElementById('chatQuickActions');
+    const chatStatusText = document.getElementById('chatStatusText');
+    
+    let sending = false;
+    let allQuickActions = [];
+    let currentProfileFilter = 'all';
+
+    // Auto-resize textarea
+    chatInput.addEventListener('input', () => {
+        chatInput.style.height = 'auto';
+        chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+    });
+
+    // Send on Enter
+    chatInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendChatMessage();
+        }
+    });
+
+    sendBtn.addEventListener('click', sendChatMessage);
+
+    async function apiFetch(url, options = {}) {
+        try {
+            const res = await fetch(url, options);
+            if (res.status === 429) {
+                showToast("Rate limit exceeded. Please wait a moment.", "error");
+                throw new Error("Rate limited");
+            }
+            return res;
+        } catch (err) {
+            if (err.message !== "Rate limited") {
+                console.error("Fetch error:", err);
+            }
+            throw err;
+        }
+    }
+
+    async function sendChatMessage() {
+        const text = chatInput.value.trim();
+        if (!text || sending) return;
+
+        sending = true;
+        sendBtn.disabled = true;
+        addMsg('user', text);
+        chatInput.value = '';
+        chatInput.style.height = 'auto';
+
+        typingIndicator.classList.add('active');
+        chatArea.scrollTop = chatArea.scrollHeight;
+
+        try {
+            const res = await apiFetch(`${API}/api/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: text }),
+            });
+
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+            const data = await res.json();
+            addMsg('agent', data.message, data);
+        } catch (err) {
+            if (err.message !== "Rate limited") {
+                addMsg('system', `Communication Error: ${err.message}`);
+            }
+        } finally {
+            typingIndicator.classList.remove('active');
+            sending = false;
+            sendBtn.disabled = false;
+            chatInput.focus();
+        }
+    }
+
+    function addMsg(role, text, data) {
+        const div = document.createElement('div');
+        div.className = `msg ${role}`;
+        
+        let content = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+        content = content.replace(/\n/g, '<br>');
+        
+        const privacyIcon = currentMode === 'sanctum' ? '<i class="fa-solid fa-lock" style="font-size:10px; margin-right:4px; opacity:0.6"></i>' : '<i class="fa-solid fa-earth-americas" style="font-size:10px; margin-right:4px; color:var(--accent-purple)"></i>';
+        
+        let metaHtml = '';
+        if (role === 'agent' && data) {
+            const provider = data.provider || 'AI';
+            const confidence = data.confidence ? (data.confidence * 100).toFixed(0) : '?';
+            metaHtml = `<div class="msg-info">${privacyIcon} ${provider} · ${confidence}% accuracy · ${new Date().toLocaleTimeString()}</div>`;
+            
+            // Handle execution results if present
+            if (data.exec_result) {
+                const exec = data.exec_result;
+                const statusClass = exec.success ? 'success' : 'error';
+                const statusText = exec.success ? 'SUCCESS' : 'FAILED';
+                content += `
+                    <div class="exec-result-box">
+                        <div class="exec-header ${statusClass}">
+                            <span>EXECUTED: ${statusText}</span>
+                            <span>${exec.duration_ms || 0}ms</span>
+                        </div>
+                        <div class="exec-body">${exec.stdout || exec.stderr || '(no output)'}</div>
+                    </div>
+                `;
+            }
+        } else if (role === 'user') {
+            metaHtml = `<div class="msg-info" style="text-align:right">${privacyIcon} ${new Date().toLocaleTimeString()}</div>`;
+        }
+
+        div.innerHTML = `<div class="msg-bubble">${content}</div>${metaHtml}`;
+        chatArea.appendChild(div);
+        chatArea.scrollTop = chatArea.scrollHeight;
+    }
+
+    // Quick Actions Handling
+    async function loadQuickActions() {
+        try {
+            const res = await apiFetch(`${API}/api/quick-actions`);
+            if (!res.ok) return;
+            allQuickActions = await res.json();
+            renderQuickActions();
+        } catch (_) {}
+    }
+
+    function renderQuickActions() {
+        chatQuickActions.innerHTML = '';
+        const filtered = currentProfileFilter === 'all' 
+            ? allQuickActions 
+            : allQuickActions.filter(a => a.profile === currentProfileFilter || a.profile === 'System');
+
+        filtered.forEach(action => {
+            const btn = document.createElement('button');
+            btn.className = `qa-btn ${action.needs_confirmation ? 'confirm' : ''}`;
+            btn.innerHTML = `<i class="fa-solid fa-bolt" style="font-size:9px;margin-right:4px"></i> ${action.label}`;
+            btn.onclick = () => {
+                chatInput.value = action.command;
+                sendChatMessage();
+            };
+            chatQuickActions.appendChild(btn);
+        });
+    }
+
+    document.getElementById('chatProfiles').addEventListener('click', (e) => {
+        if (e.target.dataset.profile) {
+            document.querySelectorAll('.chat-tab').forEach(t => t.classList.remove('active'));
+            e.target.classList.add('active');
+            currentProfileFilter = e.target.dataset.profile;
+            renderQuickActions();
+        }
+    });
+
+    // ── WebSocket for real-time events ──
+    function initWebSocket() {
+        const wsPort = parseInt(window.location.port || '9444') + 1;
+        const ws = new WebSocket(`ws://${window.location.hostname}:${wsPort}`);
+
+        ws.onopen = () => {
+            console.log('WS Connected');
+            chatStatusText.textContent = 'Live';
+            chatStatusText.style.color = 'var(--accent-green)';
+        };
+
+        ws.onmessage = (e) => {
+            try {
+                const event = JSON.parse(e.data);
+                const type = event.type;
+                const payload = event.data;
+
+                switch (type) {
+                    case 'Alert':
+                        addMsg('system', `🚨 ALERT: ${payload.message}`);
+                        break;
+                    case 'CommandStarted':
+                        addMsg('system', `⚡ EXECUTING: ${payload.command}`);
+                        break;
+                    case 'CommandCompleted':
+                        const status = payload.success ? '✅ Success' : '❌ Failed';
+                        addMsg('system', `🏁 ${status}: Command finished in ${payload.duration_ms}ms (code: ${payload.exit_code ?? '?'})`);
+                        break;
+                    case 'PeerConnected':
+                        addMsg('system', `🔗 Peer connected: ${payload.device_name || payload.peer_id}`);
+                        break;
+                    case 'PeerDisconnected':
+                        addMsg('system', `🔌 Peer disconnected: ${payload.peer_id}`);
+                        break;
+                    case 'StatusChange':
+                        addMsg('system', `📡 Status changed: ${payload.previous} → ${payload.current}`);
+                        break;
+                    case 'MetricUpdate':
+                        // Optionally update dashboard stats here if needed
+                        break;
+                }
+            } catch (_) {}
+        };
+
+        ws.onclose = () => {
+            chatStatusText.textContent = 'Reconnecting...';
+            chatStatusText.style.color = 'var(--accent-gold)';
+            setTimeout(initWebSocket, 5000);
+        };
+    }
+
+    // Initialize
+    loadQuickActions();
+    initWebSocket();
+    fetchStatus();
+    fetchTasks();
+    fetchMemory();
+    updateContextPanel(selectedAgentId, 'Agent');
 </script>
 </body>
 </html>

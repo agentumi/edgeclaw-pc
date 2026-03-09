@@ -156,7 +156,11 @@ impl X402Gateway {
 
     /// Execute a micro-payment for the given requirement.
     /// Returns a PaymentProof to include in the retried request.
-    pub fn pay(&mut self, requirement: &PaymentRequirement, endpoint: &str) -> Result<PaymentProof, AgentError> {
+    pub fn pay(
+        &mut self,
+        requirement: &PaymentRequirement,
+        endpoint: &str,
+    ) -> Result<PaymentProof, AgentError> {
         if requirement.amount_sui <= 0.0 {
             return Err(AgentError::InvalidParameter(
                 "Payment amount must be positive".into(),

@@ -123,11 +123,11 @@ impl PersonaTraits {
         }
 
         if self.autonomy >= 0.8 {
-            directives
-                .push("Execute tasks autonomously. Only escalate critical ambiguities.".to_string());
+            directives.push(
+                "Execute tasks autonomously. Only escalate critical ambiguities.".to_string(),
+            );
         } else if self.autonomy <= 0.3 {
-            directives
-                .push("Ask for confirmation before each significant step.".to_string());
+            directives.push("Ask for confirmation before each significant step.".to_string());
         }
 
         if self.verbosity >= 0.8 {
@@ -222,7 +222,10 @@ impl AgentPersona {
             self.name,
             self.preset.label()
         );
-        prompt.push_str(&format!("Communication Style: {}\n", self.communication_style));
+        prompt.push_str(&format!(
+            "Communication Style: {}\n",
+            self.communication_style
+        ));
         prompt.push_str("\nBehavioural Directives:\n");
 
         let directives = self.traits.to_prompt_directives();
@@ -382,7 +385,7 @@ mod tests {
     fn test_specialization_confidence_formula() {
         let mut spec = Specialization::new("rust");
         spec.completed_tasks = 10; // 10 * 0.05 = 0.5
-        spec.lessons_applied = 3;  // 3 * 0.1 = 0.3 → total 0.8
+        spec.lessons_applied = 3; // 3 * 0.1 = 0.3 → total 0.8
         spec.recalculate_confidence();
         assert!((spec.confidence - 0.8).abs() < 0.001);
     }

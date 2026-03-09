@@ -41,6 +41,37 @@ const STATS_HTML: &str = include_str!("../static/stats.html");
 /// Embedded HTML team network map page (compiled into the binary)
 const TEAM_MAP_HTML: &str = include_str!("../static/team_map.html");
 
+/// Pretty HTML for rate limiting
+const TOO_MANY_REQUESTS_HTML: &str = r#"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Slow Down — EdgeClaw</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #050508; color: #f8fafc; height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; }
+        .card { background: #12121a; border: 1px solid #2a2a3a; padding: 40px; border-radius: 16px; text-align: center; max-width: 400px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+        h1 { color: #6366f1; margin: 0 0 16px; font-size: 24px; }
+        p { color: #94a3b8; line-height: 1.6; margin-bottom: 24px; }
+        .btn { background: #6366f1; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; text-decoration: none; font-weight: 600; transition: 0.3s; }
+        .btn:hover { background: #818cf8; transform: translateY(-2px); }
+        .icon { font-size: 48px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon">⌛</div>
+        <h1>Too Many Requests</h1>
+        <p>Whoa there! You're refreshing a bit too fast. Please take a second to breathe while we cool down the engines.</p>
+        <a href="javascript:location.reload()" class="btn">Try Again</a>
+    </div>
+    <script>setTimeout(() => location.reload(), 5000);</script>
+</body>
+</html>
+"#;
+
 /// Session token validity duration (1 hour)
 const SESSION_TTL: Duration = Duration::from_secs(3600);
 
@@ -226,24 +257,6 @@ async fn handle_http(
     metrics: &MetricsRegistry,
     shutdown: &mut broadcast::Receiver<()>,
 ) -> Result<(), AgentError> {
-    // Rate-limit by peer IP
-    let peer_ip = stream
-        .peer_addr()
-        .map(|a| a.ip().to_string())
-        .unwrap_or_else(|_| "unknown".to_string());
-    let rate_result = rate_limiter.check(&peer_ip);
-    if !rate_result.is_allowed() {
-        send_response(
-            &mut stream,
-            429,
-            "application/json",
-            b"{\"error\":\"too many requests\"}",
-            cors_origin,
-        )
-        .await?;
-        return Ok(());
-    }
-
     let mut buf = Vec::with_capacity(65536);
     let mut tmp = [0u8; 8192];
 
@@ -264,49 +277,80 @@ async fn handle_http(
         // Check if we have the complete headers
         let s = String::from_utf8_lossy(&buf);
         if s.contains("\r\n\r\n") || s.contains("\n\n") {
-            // Check Content-Length and read remaining body if needed
-            let content_length = parse_content_length(&s);
-            let header_end = if let Some(idx) = s.find("\r\n\r\n") {
-                idx + 4
-            } else if let Some(idx) = s.find("\n\n") {
-                idx + 2
-            } else {
-                buf.len()
-            };
-
-            let body_received = buf.len() - header_end;
-            let body_remaining = content_length.saturating_sub(body_received);
-
-            if body_remaining > 0 {
-                let mut remaining = body_remaining;
-                while remaining > 0 {
-                    let n = tokio::select! {
-                        result = stream.read(&mut tmp) => {
-                            match result {
-                                Ok(0) => break,
-                                Ok(n) => n,
-                                Err(e) => return Err(AgentError::ConnectionError(e.to_string())),
-                            }
-                        }
-                        _ = shutdown.recv() => return Ok(()),
-                    };
-                    buf.extend_from_slice(&tmp[..n]);
-                    remaining = remaining.saturating_sub(n);
-                }
-            }
             break;
         }
-
         if buf.len() > 65536 {
-            send_response(
-                &mut stream,
-                413,
-                "text/plain",
-                b"Request too large",
-                cors_origin,
-            )
-            .await?;
+            break;
+        }
+    }
+
+    let request_header = String::from_utf8_lossy(&buf).to_string();
+    let is_api =
+        request_header.contains("/api/") || request_header.contains("Accept: application/json");
+
+    // Rate-limit by peer IP (exempt localhost)
+    let peer_ip = stream
+        .peer_addr()
+        .map(|a| a.ip().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    let is_localhost = peer_ip == "127.0.0.1" || peer_ip == "::1";
+
+    if !is_localhost {
+        let rate_result = rate_limiter.check(&peer_ip);
+        if !rate_result.is_allowed() {
+            if is_api {
+                send_response(
+                    &mut stream,
+                    429,
+                    "application/json",
+                    b"{\"error\":\"too many requests\"}",
+                    cors_origin,
+                )
+                .await?;
+            } else {
+                send_response(
+                    &mut stream,
+                    429,
+                    "text/html; charset=utf-8",
+                    TOO_MANY_REQUESTS_HTML.as_bytes(),
+                    cors_origin,
+                )
+                .await?;
+            }
             return Ok(());
+        }
+    }
+
+    // Now finish reading the body if necessary
+    let s = String::from_utf8_lossy(&buf);
+    let content_length = parse_content_length(&s);
+    let header_end = if let Some(idx) = s.find("\r\n\r\n") {
+        idx + 4
+    } else if let Some(idx) = s.find("\n\n") {
+        idx + 2
+    } else {
+        buf.len()
+    };
+
+    let body_received = buf.len() - header_end;
+    let body_remaining = content_length.saturating_sub(body_received);
+
+    if body_remaining > 0 {
+        let mut remaining = body_remaining;
+        while remaining > 0 {
+            let n = tokio::select! {
+                result = stream.read(&mut tmp) => {
+                    match result {
+                        Ok(0) => break,
+                        Ok(n) => n,
+                        Err(e) => return Err(AgentError::ConnectionError(e.to_string())),
+                    }
+                }
+                _ = shutdown.recv() => return Ok(()),
+            };
+            buf.extend_from_slice(&tmp[..n]);
+            remaining = remaining.saturating_sub(n);
         }
     }
 
@@ -328,6 +372,16 @@ async fn handle_http(
     // Public endpoints (no auth needed)
     match (method, path) {
         ("GET", "/") | ("GET", "/index.html") => {
+            return send_response(
+                &mut stream,
+                200,
+                "text/html; charset=utf-8",
+                DASHBOARD_HTML.as_bytes(),
+                cors_origin,
+            )
+            .await;
+        }
+        ("GET", "/chat") | ("GET", "/chat.html") => {
             return send_response(
                 &mut stream,
                 200,
@@ -470,17 +524,57 @@ async fn handle_http(
             let body = extract_body(&request);
             handle_chat(&mut stream, &engine, &body, cors_origin).await
         }
+        ("POST", "/api/agent/mode") => {
+            let body = extract_body(&request);
+            handle_agent_mode(&mut stream, &engine, &body, cors_origin).await
+        }
+        ("GET", "/api/memory") => handle_memory_info(&mut stream, &engine, cors_origin).await,
+        // ─── Task Board API ──────────────────────────────
+        ("GET", "/api/tasks") => {
+            handle_tasks_list(&mut stream, &engine, &request, cors_origin).await
+        }
+        ("POST", "/api/tasks") => {
+            let body = extract_body(&request);
+            handle_task_create(&mut stream, &engine, &body, cors_origin).await
+        }
+        _ if method == "POST" && path.starts_with("/api/tasks/") && path.ends_with("/move") => {
+            let task_id = path
+                .strip_prefix("/api/tasks/")
+                .and_then(|s| s.strip_suffix("/move"))
+                .unwrap_or("");
+            let body = extract_body(&request);
+            handle_task_move(&mut stream, &engine, task_id, &body, cors_origin).await
+        }
+        _ if method == "POST" && path.starts_with("/api/tasks/") && path.ends_with("/assign") => {
+            let task_id = path
+                .strip_prefix("/api/tasks/")
+                .and_then(|s| s.strip_suffix("/assign"))
+                .unwrap_or("");
+            let body = extract_body(&request);
+            handle_task_assign(&mut stream, &engine, task_id, &body, cors_origin).await
+        }
         _ if method == "POST" && path.starts_with("/api/agents/") && path.ends_with("/execute") => {
             let agent_id = path
                 .strip_prefix("/api/agents/")
                 .and_then(|s| s.strip_suffix("/execute"))
                 .unwrap_or("");
             let body = extract_body(&request);
-            handle_agent_execute(&mut stream, agent_id, &body, cors_origin).await
+            handle_agent_execute(&mut stream, &engine, agent_id, &body, cors_origin).await
+        }
+        ("POST", "/api/agents") => {
+            let body = extract_body(&request);
+            handle_agent_register(&mut stream, &engine, &body, cors_origin).await
+        }
+        ("POST", "/api/agents/discover") => {
+            handle_agents_discover(&mut stream, &engine, cors_origin).await
         }
         _ if method == "DELETE" && path.starts_with("/api/agents/") => {
             let agent_id = path.strip_prefix("/api/agents/").unwrap_or("");
-            handle_agent_delete(&mut stream, agent_id, cors_origin).await
+            handle_agent_delete(&mut stream, &engine, agent_id, cors_origin).await
+        }
+        _ if method == "GET" && path.starts_with("/api/agents/") => {
+            let agent_id = path.strip_prefix("/api/agents/").unwrap_or("");
+            handle_agent_profile(&mut stream, &engine, agent_id, cors_origin).await
         }
         // ─── V4.0 Activity REST API ──────────────────────
         ("GET", "/api/activities") => {
@@ -649,6 +743,48 @@ async fn handle_quick_actions(
     send_response(stream, 200, "application/json", &json, cors_origin).await
 }
 
+fn parse_local_agent_index(agent_id: &str, max_agents: u16) -> Option<u16> {
+    let idx = if agent_id == "local" || agent_id == "web-client" {
+        Some(0)
+    } else if let Some(rest) = agent_id.strip_prefix("local-") {
+        rest.parse::<u16>().ok()
+    } else if let Some(rest) = agent_id.strip_prefix("web-client-") {
+        rest.parse::<u16>().ok()
+    } else {
+        None
+    }?;
+
+    if idx < max_agents {
+        Some(idx)
+    } else {
+        None
+    }
+}
+
+fn local_agent_peer_id(index: u16) -> String {
+    if index == 0 {
+        "web-client".to_string()
+    } else {
+        format!("web-client-{}", index)
+    }
+}
+
+fn local_agent_id(index: u16) -> String {
+    if index == 0 {
+        "local".to_string()
+    } else {
+        format!("local-{}", index)
+    }
+}
+
+fn local_agent_name(base_name: &str, index: u16) -> String {
+    if index == 0 {
+        base_name.to_string()
+    } else {
+        format!("{}-{}", base_name, index + 1)
+    }
+}
+
 /// GET /api/agents — Multi-agent instance info + remote agent registry
 async fn handle_agents_info(
     stream: &mut TcpStream,
@@ -657,20 +793,39 @@ async fn handle_agents_info(
 ) -> Result<(), AgentError> {
     let config = engine.config();
     let max = config.webui.effective_max_agents();
+    let online_agents = engine.agent_registry().count_online();
     let mut instances = Vec::new();
+    let mut local_agents = Vec::new();
     for i in 0..max {
         let port = config.webui.agent_port(i);
+        let id = local_agent_id(i);
+        let peer_id = local_agent_peer_id(i);
+        let name = local_agent_name(&config.agent.device_name, i);
+
         instances.push(serde_json::json!({
             "index": i,
             "port": port,
             "url": format!("http://{}:{}", config.webui.bind, port),
-            "peer_id": if i == 0 { "web-client".to_string() } else { format!("web-client-{}", i) },
+            "peer_id": peer_id,
+        }));
+
+        local_agents.push(serde_json::json!({
+            "id": id,
+            "name": name,
+            "profile": config.webui.work_profile,
+            "address": config.webui.bind,
+            "port": port,
+            "status": "online",
+            "source": "local",
+            "capabilities": engine.get_capabilities(),
+            "peer_id": peer_id,
+            "instance_index": i,
         }));
     }
 
-    // Include agents from the registry
-    let registry = crate::registry::AgentRegistry::new();
-    let registered: Vec<serde_json::Value> = registry
+    // Include remote agents from the persistent registry
+    let registered: Vec<serde_json::Value> = engine
+        .agent_registry()
         .list_all()
         .iter()
         .map(|a| {
@@ -683,9 +838,14 @@ async fn handle_agents_info(
                 "status": a.status.to_string(),
                 "version": a.version,
                 "capabilities": a.capabilities,
+                "source": "remote",
             })
         })
         .collect();
+
+    let mut all_agents = local_agents.clone();
+    all_agents.extend(registered.clone());
+    let registered_count = registered.len();
 
     let body = serde_json::json!({
         "license_tier": config.webui.license_tier,
@@ -694,8 +854,13 @@ async fn handle_agents_info(
         "work_profile": config.webui.work_profile,
         "base_port": config.webui.port,
         "instances": instances,
+        "local_agents": local_agents,
+        "local_count": max,
         "registered_agents": registered,
-        "registered_count": registered.len(),
+        "registered_count": registered_count,
+        "online_registered_count": online_agents,
+        "agents": all_agents,
+        "active_agents_total": max as usize + online_agents,
         "pricing": {
             "free": { "agents": 1, "price": "$0/mo" },
             "pro": { "agents": 5, "price": "$29/mo" },
@@ -706,15 +871,84 @@ async fn handle_agents_info(
     send_response(stream, 200, "application/json", &json, cors_origin).await
 }
 
-/// POST /api/agents/{id}/execute — Forward command to a remote agent (stub)
+/// POST /api/agents/{id}/execute — Execute command on local agent or forward to remote agent.
 async fn handle_agent_execute(
     stream: &mut TcpStream,
+    engine: &AgentEngine,
     agent_id: &str,
     body: &str,
     cors_origin: &str,
 ) -> Result<(), AgentError> {
-    let registry = crate::registry::AgentRegistry::new();
-    let agent = registry.get(agent_id);
+    if let Some(index) =
+        parse_local_agent_index(agent_id, engine.config().webui.effective_max_agents())
+    {
+        #[derive(serde::Deserialize)]
+        struct ExecuteReq {
+            command: String,
+            #[serde(default)]
+            args: Vec<String>,
+            action: Option<String>,
+            timeout_secs: Option<u64>,
+        }
+
+        let req: ExecuteReq = match serde_json::from_str(body) {
+            Ok(r) => r,
+            Err(e) => {
+                let err = serde_json::json!({"error": format!("invalid JSON: {}", e)});
+                let json = serde_json::to_vec(&err).unwrap_or_default();
+                return send_response(stream, 400, "application/json", &json, cors_origin).await;
+            }
+        };
+
+        if req.command.trim().is_empty() {
+            let err = serde_json::json!({"error": "command is required"});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+
+        let peer_id = local_agent_peer_id(index);
+        let agent_name = local_agent_name(&engine.config().agent.device_name, index);
+        let _ = engine.add_peer(&peer_id, &agent_name, "local-worker", "127.0.0.1", "owner");
+
+        let timeout = req
+            .timeout_secs
+            .unwrap_or(30)
+            .clamp(1, engine.config().execution.max_timeout_secs);
+        let action = req.action.unwrap_or_else(|| "shell_exec".to_string());
+        let exec_req = crate::executor::ExecRequest {
+            execution_id: uuid::Uuid::new_v4().to_string(),
+            action,
+            command: req.command,
+            args: req.args,
+            timeout_secs: timeout,
+            working_dir: None,
+        };
+
+        return match engine.execute_command(&peer_id, exec_req).await {
+            Ok(exec_result) => {
+                let status = if exec_result.success {
+                    "completed"
+                } else {
+                    "failed"
+                };
+                let resp = serde_json::json!({
+                    "agent_id": local_agent_id(index),
+                    "agent_name": agent_name,
+                    "status": status,
+                    "exec_result": exec_result,
+                });
+                let json = serde_json::to_vec(&resp).unwrap_or_default();
+                send_response(stream, 200, "application/json", &json, cors_origin).await
+            }
+            Err(e) => {
+                let err = serde_json::json!({"error": e.to_string()});
+                let json = serde_json::to_vec(&err).unwrap_or_default();
+                send_response(stream, 500, "application/json", &json, cors_origin).await
+            }
+        };
+    }
+
+    let agent = engine.agent_registry().get(agent_id);
 
     match agent {
         Some(a) => {
@@ -739,12 +973,18 @@ async fn handle_agent_execute(
 /// DELETE /api/agents/{id} — Remove agent from registry
 async fn handle_agent_delete(
     stream: &mut TcpStream,
+    engine: &AgentEngine,
     agent_id: &str,
     cors_origin: &str,
 ) -> Result<(), AgentError> {
-    let registry = crate::registry::AgentRegistry::new();
-    if registry.remove(agent_id) {
-        let _ = registry.save();
+    if parse_local_agent_index(agent_id, engine.config().webui.effective_max_agents()).is_some() {
+        let err = serde_json::json!({"error": "local agents cannot be deleted"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 400, "application/json", &json, cors_origin).await;
+    }
+
+    if engine.agent_registry().remove(agent_id) {
+        let _ = engine.agent_registry().save();
         let resp = serde_json::json!({"removed": agent_id});
         let json = serde_json::to_vec(&resp).unwrap_or_default();
         send_response(stream, 200, "application/json", &json, cors_origin).await
@@ -752,6 +992,90 @@ async fn handle_agent_delete(
         let err = serde_json::json!({"error": format!("agent '{}' not found", agent_id)});
         let json = serde_json::to_vec(&err).unwrap_or_default();
         send_response(stream, 404, "application/json", &json, cors_origin).await
+    }
+}
+
+/// GET /api/memory — Full memory state (Core + Tiers + Lessons)
+async fn handle_memory_info(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let json = {
+        let memory = engine
+            .memory_engine()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        serde_json::to_vec(&*memory).unwrap_or_default()
+    };
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// GET /api/agents/{id} — Detailed agent profile including reputation
+async fn handle_agent_profile(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    agent_id: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    // If it's a local agent instance, return rich info
+    if let Some(index) =
+        parse_local_agent_index(agent_id, engine.config().webui.effective_max_agents())
+    {
+        let ai = engine.ai_status();
+        let sys = engine.get_system_info();
+        let score = engine.reputation_score();
+        let name = local_agent_name(&engine.config().agent.device_name, index);
+        let id = local_agent_id(index);
+        let port = engine.config().webui.agent_port(index);
+        let peer_id = local_agent_peer_id(index);
+        let tasks = engine.list_tasks_filtered(None, Some(&id));
+
+        let body = serde_json::json!({
+            "id": id,
+            "name": name,
+            "profile": engine.config().webui.work_profile,
+            "status": "online",
+            "reputation_score": score,
+            "capabilities": engine.get_capabilities(),
+            "uptime_secs": engine.uptime_secs(),
+            "address": engine.config().webui.bind,
+            "port": port,
+            "peer_id": peer_id,
+            "system": {
+                "cpu": sys.cpu_usage,
+                "memory": sys.memory_usage_percent,
+                "platform": sys.hostname,
+            },
+            "recent_tasks": tasks.iter().take(5).collect::<Vec<_>>(),
+            "ai_provider": ai["provider"],
+        });
+        let json = serde_json::to_vec(&body).unwrap_or_default();
+        return send_response(stream, 200, "application/json", &json, cors_origin).await;
+    }
+
+    // Otherwise check registry
+    match engine.agent_registry().get(agent_id) {
+        Some(a) => {
+            let body = serde_json::json!({
+                "id": a.id,
+                "name": a.name,
+                "profile": a.profile,
+                "address": a.address,
+                "port": a.port,
+                "status": a.status.to_string(),
+                "version": a.version,
+                "capabilities": a.capabilities,
+                "reputation_score": 85.0, // Remote agents dummy score for now
+            });
+            let json = serde_json::to_vec(&body).unwrap_or_default();
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+        None => {
+            let err = serde_json::json!({"error": format!("agent '{}' not found", agent_id)});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            send_response(stream, 404, "application/json", &json, cors_origin).await
+        }
     }
 }
 
@@ -1166,6 +1490,187 @@ async fn send_paginated_response(
     Ok(())
 }
 
+// ─── Task Board handlers ─────────────────────────────────
+
+fn parse_task_status(status: &str) -> crate::task_board::TaskStatus {
+    match status.to_lowercase().as_str() {
+        "in_progress" | "inprogress" | "progress" => crate::task_board::TaskStatus::InProgress,
+        "review" => crate::task_board::TaskStatus::Review,
+        "done" => crate::task_board::TaskStatus::Done,
+        "archived" => crate::task_board::TaskStatus::Archived,
+        _ => crate::task_board::TaskStatus::Backlog,
+    }
+}
+
+/// GET /api/tasks — List all tasks.
+async fn handle_tasks_list(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    raw_request: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let status_filter = parse_query_param(raw_request, "status").map(parse_task_status);
+    let assignee_filter = parse_query_param(raw_request, "assignee")
+        .and_then(|v| (!v.trim().is_empty()).then_some(v));
+
+    let tasks = engine.list_tasks_filtered(status_filter.as_ref(), assignee_filter);
+    let json = serde_json::to_vec(&tasks).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// POST /api/tasks — Create a new task.
+async fn handle_task_create(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    #[derive(serde::Deserialize)]
+    struct CreateReq {
+        title: String,
+        description: Option<String>,
+        priority: String,
+        assignee: Option<String>,
+        tags: Vec<String>,
+    }
+
+    let req: CreateReq = match serde_json::from_str(body) {
+        Ok(r) => r,
+        Err(e) => {
+            let err = serde_json::json!({"error": format!("invalid JSON: {}", e)});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    if req.title.trim().is_empty() {
+        let err = serde_json::json!({"error": "title is required"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 400, "application/json", &json, cors_origin).await;
+    }
+
+    let priority = match req.priority.to_lowercase().as_str() {
+        "critical" => crate::task_board::TaskPriority::Critical,
+        "high" => crate::task_board::TaskPriority::High,
+        "low" => crate::task_board::TaskPriority::Low,
+        _ => crate::task_board::TaskPriority::Medium,
+    };
+
+    let tag_refs: Vec<&str> = req.tags.iter().map(|s| s.as_str()).collect();
+    let mut task = engine.create_task(&req.title, req.description.as_deref(), priority, &tag_refs);
+
+    if let Some(assignee) = req
+        .assignee
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        if let Ok(updated) = engine.assign_task(task.id, assignee) {
+            task = updated;
+        }
+    }
+
+    let json = serde_json::to_vec(&task).unwrap_or_default();
+    send_response(stream, 201, "application/json", &json, cors_origin).await
+}
+
+/// POST /api/tasks/:id/move — Move task to new status.
+async fn handle_task_move(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    task_id: &str,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let uuid = match uuid::Uuid::parse_str(task_id) {
+        Ok(u) => u,
+        Err(_) => {
+            let err = serde_json::json!({"error": "invalid UUID"});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    #[derive(serde::Deserialize)]
+    struct MoveReq {
+        status: String,
+    }
+
+    let req: MoveReq = match serde_json::from_str(body) {
+        Ok(r) => r,
+        Err(e) => {
+            let err = serde_json::json!({"error": format!("invalid JSON: {}", e)});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    let status = parse_task_status(&req.status);
+
+    match engine.move_task(uuid, status) {
+        Ok(task) => {
+            let json = serde_json::to_vec(&task).unwrap_or_default();
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+        Err(e) => {
+            let err = serde_json::json!({"error": e.to_string()});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            send_response(stream, 404, "application/json", &json, cors_origin).await
+        }
+    }
+}
+
+/// POST /api/tasks/:id/assign — Assign task to agent.
+async fn handle_task_assign(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    task_id: &str,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let uuid = match uuid::Uuid::parse_str(task_id) {
+        Ok(u) => u,
+        Err(_) => {
+            let err = serde_json::json!({"error": "invalid UUID"});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    #[derive(serde::Deserialize)]
+    struct AssignReq {
+        assignee: String,
+    }
+
+    let req: AssignReq = match serde_json::from_str(body) {
+        Ok(r) => r,
+        Err(e) => {
+            let err = serde_json::json!({"error": format!("invalid JSON: {}", e)});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    let assignee = req.assignee.trim();
+    if assignee.is_empty() {
+        let err = serde_json::json!({"error": "assignee is required"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 400, "application/json", &json, cors_origin).await;
+    }
+
+    match engine.assign_task(uuid, assignee) {
+        Ok(task) => {
+            let json = serde_json::to_vec(&task).unwrap_or_default();
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+        Err(e) => {
+            let err = serde_json::json!({"error": e.to_string()});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            send_response(stream, 404, "application/json", &json, cors_origin).await
+        }
+    }
+}
+
 // ─── V4.0 Activity REST API handlers ─────────────────────
 
 /// GET /api/activities — Paginated activity list.
@@ -1512,6 +2017,117 @@ async fn handle_session_context(
     send_response(stream, 200, "application/json", &json, cors_origin).await
 }
 
+/// POST /api/agents — Register a new agent manually
+async fn handle_agent_register(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let info: crate::registry::AgentInfo = match serde_json::from_str(body) {
+        Ok(i) => i,
+        Err(e) => {
+            let err = serde_json::json!({"error": format!("invalid JSON: {}", e)});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    if parse_local_agent_index(&info.id, engine.config().webui.effective_max_agents()).is_some() {
+        let err = serde_json::json!({"error": "local agent IDs are reserved"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 400, "application/json", &json, cors_origin).await;
+    }
+
+    engine.agent_registry().register(info.clone())?;
+
+    let resp = serde_json::json!({"registered": info.id, "name": info.name});
+    let json = serde_json::to_vec(&resp).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// POST /api/agents/discover — Trigger mDNS discovery scan
+async fn handle_agents_discover(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let mut found = engine
+        .discovery_service()
+        .discover_mdns()
+        .unwrap_or_default();
+
+    // Fallback: If no agents found via mDNS, try a local TCP scan of common ports
+    if found.is_empty() {
+        let common_ports = [8443, 8543, 9443, 9543];
+        for port in common_ports {
+            // Don't scan our own port
+            if port == engine.config().agent.listen_port {
+                continue;
+            }
+
+            let addr = format!("127.0.0.1:{}", port);
+            if let Ok(Ok(_)) = tokio::time::timeout(
+                std::time::Duration::from_millis(100),
+                tokio::net::TcpStream::connect(&addr),
+            )
+            .await
+            {
+                found.push(crate::discovery::DiscoveredAgent {
+                    name: format!("local-agent:{}", port),
+                    address: "127.0.0.1".to_string(),
+                    port,
+                    profile: "all".to_string(),
+                    version: "2.0.0".to_string(),
+                    last_seen: chrono::Utc::now(),
+                });
+            }
+        }
+    }
+
+    // Auto-register discovered agents into the registry for convenience
+    for agent in &found {
+        let info = crate::registry::AgentInfo {
+            id: agent.name.clone(),
+            name: agent.name.clone(),
+            profile: agent.profile.clone(),
+            address: agent.address.clone(),
+            port: agent.port,
+            status: crate::registry::AgentStatus::Online,
+            capabilities: vec![], // Will be updated on first connection
+            version: agent.version.clone(),
+            last_heartbeat: chrono::Utc::now(),
+            registered_at: chrono::Utc::now(),
+        };
+        let _ = engine.agent_registry().register(info);
+    }
+
+    let json = serde_json::to_vec(&found).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// POST /api/agent/mode — Switch between Sanctum and Market modes
+async fn handle_agent_mode(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    #[derive(serde::Deserialize)]
+    struct ModeRequest {
+        mode: String,
+    }
+
+    let req: ModeRequest = serde_json::from_str(body)
+        .map_err(|e| AgentError::SerializationError(format!("Invalid mode body: {e}")))?;
+
+    engine.set_mode(&req.mode)?;
+
+    let resp = serde_json::json!({"status": "success", "mode": req.mode});
+    let json = serde_json::to_vec(&resp).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1769,6 +2385,16 @@ mod tests {
         String::from_utf8_lossy(&buf).to_string()
     }
 
+    fn http_body(response: &str) -> &str {
+        if let Some((_, body)) = response.split_once("\r\n\r\n") {
+            body
+        } else if let Some((_, body)) = response.split_once("\n\n") {
+            body
+        } else {
+            ""
+        }
+    }
+
     #[tokio::test]
     async fn test_webui_serve_index_html() {
         let (addr, _engine, _tx) = start_test_server("").await;
@@ -1954,6 +2580,21 @@ mod tests {
         .await;
         assert!(resp.contains("HTTP/1.1 200"));
         assert!(resp.contains("\"max_agents\""));
+        assert!(resp.contains("\"local_agents\""));
+    }
+
+    #[tokio::test]
+    async fn test_webui_delete_local_agent_rejected() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let resp = http_request(
+            &addr,
+            "DELETE /api/agents/local HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(resp.contains("HTTP/1.1 400"));
+        assert!(resp.contains("local agents cannot be deleted"));
     }
 
     #[tokio::test]
@@ -2056,6 +2697,68 @@ mod tests {
         );
         let resp = http_request(&addr, &req).await;
         assert!(resp.contains("HTTP/1.1 404"));
+    }
+
+    #[tokio::test]
+    async fn test_webui_execute_local_agent() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let body = r#"{"command":"whoami","args":[]}"#;
+        let req = format!(
+            "POST /api/agents/local/execute HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("\"exec_result\""));
+    }
+
+    #[tokio::test]
+    async fn test_webui_task_assign_and_filter() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Create task assigned to local-1.
+        let create_body = r#"{"title":"assigned task","description":"test","priority":"Medium","assignee":"local-1","tags":["webui"]}"#;
+        let create_req = format!(
+            "POST /api/tasks HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            create_body.len(),
+            create_body
+        );
+        let create_resp = http_request(&addr, &create_req).await;
+        assert!(create_resp.contains("HTTP/1.1 201"));
+        let created: serde_json::Value = serde_json::from_str(http_body(&create_resp)).unwrap();
+        assert_eq!(created["assignee"], "local-1");
+        let task_id = created["id"].as_str().unwrap().to_string();
+
+        // Filter by assignee
+        let filtered_resp = http_request(
+            &addr,
+            "GET /api/tasks?assignee=local-1 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(filtered_resp.contains("HTTP/1.1 200"));
+        let filtered: serde_json::Value = serde_json::from_str(http_body(&filtered_resp)).unwrap();
+        assert!(filtered
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["id"] == task_id));
+
+        // Re-assign task to local and verify.
+        let assign_body = r#"{"assignee":"local"}"#;
+        let assign_req = format!(
+            "POST /api/tasks/{}/assign HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            task_id,
+            assign_body.len(),
+            assign_body
+        );
+        let assign_resp = http_request(&addr, &assign_req).await;
+        assert!(assign_resp.contains("HTTP/1.1 200"));
+        let assigned: serde_json::Value = serde_json::from_str(http_body(&assign_resp)).unwrap();
+        assert_eq!(assigned["assignee"], "local");
     }
 
     #[tokio::test]

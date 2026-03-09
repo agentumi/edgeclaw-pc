@@ -22,6 +22,22 @@ struct Cli {
     #[arg(short, long, default_value_t = default_config_path())]
     config: String,
 
+    /// Override base storage directory
+    #[arg(short, long, global = true)]
+    storage_path: Option<String>,
+
+    /// Override ECNP listen port
+    #[arg(short, long, global = true)]
+    port: Option<u16>,
+
+    /// Override WebUI listen port
+    #[arg(short, long, global = true)]
+    web_port: Option<u16>,
+
+    /// Override WebSocket listen port
+    #[arg(long, global = true)]
+    ws_port: Option<u16>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -242,10 +258,26 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let config_path = PathBuf::from(&cli.config);
-    let config = AgentConfig::load(&config_path).unwrap_or_else(|e| {
+    let mut config = AgentConfig::load(&config_path).unwrap_or_else(|e| {
         eprintln!("Warning: failed to load config: {e}, using defaults");
         AgentConfig::default()
     });
+
+    // Override storage path if provided via CLI
+    if let Some(sp) = cli.storage_path {
+        config.agent.storage_path = Some(sp);
+    }
+
+    // Override ports if provided via CLI
+    if let Some(p) = cli.port {
+        config.agent.listen_port = p;
+    }
+    if let Some(wp) = cli.web_port {
+        config.webui.port = wp;
+    }
+    if let Some(wsp) = cli.ws_port {
+        config.websocket.port = wsp;
+    }
 
     match cli.command.unwrap_or(Commands::Start) {
         Commands::Init => {
@@ -461,6 +493,11 @@ async fn main() -> anyhow::Result<()> {
                 platform = %identity.platform,
                 "Device identity generated"
             );
+
+            // Register for mDNS discovery
+            if let Err(e) = engine.discovery_service().register() {
+                warn!(error = %e, "Failed to register for discovery");
+            }
 
             // Register web-client as owner peer for chat
             engine.add_peer("web-client", "WebUI", "browser", "127.0.0.1", "owner")?;
@@ -719,17 +756,30 @@ async fn main() -> anyhow::Result<()> {
                         identity.public_key_hex.clone(),
                         identity.device_name.clone(),
                         platform.clone(),
-                        engine.get_capabilities().into_iter().map(|s| s.to_string()).collect(),
+                        engine
+                            .get_capabilities()
+                            .into_iter()
+                            .map(|s| s.to_string())
+                            .collect(),
                         true,
                         true,
                     );
-                    
-                    match engine.blockchain_client().mint_agent_passport(&mut passport) {
+
+                    match engine
+                        .blockchain_client()
+                        .mint_agent_passport(&mut passport)
+                    {
                         Ok(_) => {
                             println!("✅ Passport NFT Minted Successfully!");
-                            println!("  NFT Object ID:  {}", passport.nft_object_id.unwrap_or_default());
+                            println!(
+                                "  NFT Object ID:  {}",
+                                passport.nft_object_id.unwrap_or_default()
+                            );
                             println!("  Reputation:     {:.1}", passport.reputation_score);
-                            println!("  Capabilities:   {} registered", passport.capabilities.capabilities.len());
+                            println!(
+                                "  Capabilities:   {} registered",
+                                passport.capabilities.capabilities.len()
+                            );
                         }
                         Err(e) => {
                             println!("❌ Failed to mint Passport: {}", e);
@@ -737,9 +787,15 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
                 PassportAction::Show => {
-                    match engine.blockchain_client().lookup_agent_passport(&identity.public_key_hex) {
+                    match engine
+                        .blockchain_client()
+                        .lookup_agent_passport(&identity.public_key_hex)
+                    {
                         Some(passport) => {
-                            println!("Agent Passport (NFT ID: {})", passport.nft_object_id.unwrap_or_default());
+                            println!(
+                                "Agent Passport (NFT ID: {})",
+                                passport.nft_object_id.unwrap_or_default()
+                            );
                             println!("  Name:       {}", passport.metadata.name);
                             println!("  Device:     {}", passport.capabilities.device_id);
                             println!("  Platform:   {}", passport.capabilities.platform);

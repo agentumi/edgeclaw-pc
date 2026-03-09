@@ -183,6 +183,16 @@ pub struct TaskBoard {
 }
 
 impl TaskBoard {
+    fn sort_tasks(tasks: &mut Vec<&TaskEntry>) {
+        tasks.sort_by(|a, b| {
+            a.status
+                .display()
+                .cmp(b.status.display())
+                .then_with(|| b.priority.cmp(&a.priority))
+                .then_with(|| a.created_at.cmp(&b.created_at))
+        });
+    }
+
     /// Create a new empty task board.
     pub fn new(agent_id: &str, project: &str) -> Self {
         Self {
@@ -256,13 +266,7 @@ impl TaskBoard {
     /// List all tasks.
     pub fn list_all(&self) -> Vec<&TaskEntry> {
         let mut tasks: Vec<&TaskEntry> = self.tasks.values().collect();
-        tasks.sort_by(|a, b| {
-            a.status
-                .display()
-                .cmp(b.status.display())
-                .then_with(|| b.priority.cmp(&a.priority))
-                .then_with(|| a.created_at.cmp(&b.created_at))
-        });
+        Self::sort_tasks(&mut tasks);
         tasks
     }
 
@@ -273,20 +277,37 @@ impl TaskBoard {
             .values()
             .filter(|t| &t.status == status)
             .collect();
-        tasks.sort_by(|a, b| {
-            b.priority
-                .cmp(&a.priority)
-                .then_with(|| a.created_at.cmp(&b.created_at))
-        });
+        Self::sort_tasks(&mut tasks);
         tasks
     }
 
     /// List tasks assigned to a specific agent.
     pub fn list_by_assignee(&self, assignee: &str) -> Vec<&TaskEntry> {
-        self.tasks
+        let mut tasks: Vec<&TaskEntry> = self
+            .tasks
             .values()
             .filter(|t| t.assignee.as_deref() == Some(assignee))
-            .collect()
+            .collect();
+        Self::sort_tasks(&mut tasks);
+        tasks
+    }
+
+    /// List tasks filtered by optional status and assignee.
+    pub fn list_filtered(
+        &self,
+        status: Option<&TaskStatus>,
+        assignee: Option<&str>,
+    ) -> Vec<&TaskEntry> {
+        let mut tasks: Vec<&TaskEntry> = self
+            .tasks
+            .values()
+            .filter(|t| {
+                status.is_none_or(|s| t.status == *s)
+                    && assignee.is_none_or(|a| t.assignee.as_deref() == Some(a))
+            })
+            .collect();
+        Self::sort_tasks(&mut tasks);
+        tasks
     }
 
     /// Delete/archive a task.
@@ -440,6 +461,29 @@ mod tests {
 
         let dev1_tasks = board.list_by_assignee("dev-1");
         assert_eq!(dev1_tasks.len(), 1);
+    }
+
+    #[test]
+    fn test_list_filtered_by_status_and_assignee() {
+        let mut board = test_board();
+        let t1 = board.create_task("T1", None, TaskPriority::High, &[]);
+        let t2 = board.create_task("T2", None, TaskPriority::Medium, &[]);
+        let t3 = board.create_task("T3", None, TaskPriority::Low, &[]);
+
+        board.assign_task(t1.id, "dev-1");
+        board.assign_task(t2.id, "dev-2");
+        board.assign_task(t3.id, "dev-1");
+        board.move_task(t3.id, TaskStatus::InProgress);
+
+        let filtered = board.list_filtered(Some(&TaskStatus::InProgress), Some("dev-1"));
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].title, "T3");
+
+        let by_assignee = board.list_filtered(None, Some("dev-1"));
+        assert_eq!(by_assignee.len(), 2);
+
+        let by_status = board.list_filtered(Some(&TaskStatus::Backlog), None);
+        assert_eq!(by_status.len(), 2);
     }
 
     #[test]

@@ -296,9 +296,7 @@ mod tests {
         let mut router = make_router_with_agents();
 
         // First task — delegates alpha
-        router
-            .route("d1", "rust", "Task 1", 50.0)
-            .unwrap();
+        router.route("d1", "rust", "Task 1", 50.0).unwrap();
 
         // Second task — alpha is busy, should queue
         let result = router.route("d1", "rust", "Task 2", 50.0).unwrap();

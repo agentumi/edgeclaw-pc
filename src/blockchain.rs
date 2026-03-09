@@ -159,7 +159,8 @@ pub struct BlockchainClient {
     policy_nfts: std::sync::Arc<std::sync::Mutex<Vec<PolicyNft>>>,
     anchors: std::sync::Arc<std::sync::Mutex<Vec<AuditAnchor>>>,
     offline_cache: std::sync::Arc<std::sync::Mutex<Vec<CacheEntry>>>,
-    agent_passports: std::sync::Arc<std::sync::Mutex<HashMap<String, crate::identity_passport::AgentPassport>>>,
+    agent_passports:
+        std::sync::Arc<std::sync::Mutex<HashMap<String, crate::identity_passport::AgentPassport>>>,
     connected: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -266,8 +267,15 @@ impl BlockchainClient {
     }
 
     /// Lookup an Agent Passport by public key.
-    pub fn lookup_agent_passport(&self, public_key: &str) -> Option<crate::identity_passport::AgentPassport> {
-        self.agent_passports.lock().unwrap().get(public_key).cloned()
+    pub fn lookup_agent_passport(
+        &self,
+        public_key: &str,
+    ) -> Option<crate::identity_passport::AgentPassport> {
+        self.agent_passports
+            .lock()
+            .unwrap()
+            .get(public_key)
+            .cloned()
     }
 
     /// Anchor audit batch on-chain.

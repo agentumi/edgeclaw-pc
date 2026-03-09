@@ -227,7 +227,11 @@ impl DelegationEngine {
         contract.status = DelegationStatus::Accepted;
 
         // Mark candidate as busy
-        if let Some(c) = self.candidates.iter_mut().find(|c| c.agent_id == delegate_id) {
+        if let Some(c) = self
+            .candidates
+            .iter_mut()
+            .find(|c| c.agent_id == delegate_id)
+        {
             c.busy = true;
         }
 
@@ -274,10 +278,7 @@ impl DelegationEngine {
 
         contract.quality_score = Some(quality_score);
 
-        let escrow_id = contract
-            .escrow_object_id
-            .clone()
-            .unwrap_or_default();
+        let escrow_id = contract.escrow_object_id.clone().unwrap_or_default();
 
         if quality_score >= threshold {
             SuiEscrow::release(&escrow_id)?;
@@ -285,7 +286,11 @@ impl DelegationEngine {
 
             // Free up the delegate
             let delegate_id = contract.delegate_id.clone();
-            if let Some(c) = self.candidates.iter_mut().find(|c| c.agent_id == delegate_id) {
+            if let Some(c) = self
+                .candidates
+                .iter_mut()
+                .find(|c| c.agent_id == delegate_id)
+            {
                 c.busy = false;
             }
         } else {

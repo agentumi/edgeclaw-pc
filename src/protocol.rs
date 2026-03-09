@@ -31,7 +31,7 @@ pub enum MessageType {
     ContextResponse = 0x25,
     /// Activity acknowledgement (team sync)
     ActivityAck = 0x26,
-    
+
     // ─── Phase 5: V2 Protocol Extensions ───
 
     // Identity & Economy (0x30-0x35)
@@ -300,14 +300,29 @@ mod tests {
             MessageType::try_from(0x26).unwrap(),
             MessageType::ActivityAck
         );
-        
+
         // V2 Tests
-        assert_eq!(MessageType::try_from(0x30).unwrap(), MessageType::PassportQuery);
+        assert_eq!(
+            MessageType::try_from(0x30).unwrap(),
+            MessageType::PassportQuery
+        );
         assert_eq!(MessageType::try_from(0x35).unwrap(), MessageType::AgentChat);
-        assert_eq!(MessageType::try_from(0x40).unwrap(), MessageType::MemorySyncRequest);
-        assert_eq!(MessageType::try_from(0x44).unwrap(), MessageType::BootRitualResponse);
-        assert_eq!(MessageType::try_from(0x50).unwrap(), MessageType::TaskCreateV2);
-        assert_eq!(MessageType::try_from(0x55).unwrap(), MessageType::TaskSchedule);
+        assert_eq!(
+            MessageType::try_from(0x40).unwrap(),
+            MessageType::MemorySyncRequest
+        );
+        assert_eq!(
+            MessageType::try_from(0x44).unwrap(),
+            MessageType::BootRitualResponse
+        );
+        assert_eq!(
+            MessageType::try_from(0x50).unwrap(),
+            MessageType::TaskCreateV2
+        );
+        assert_eq!(
+            MessageType::try_from(0x55).unwrap(),
+            MessageType::TaskSchedule
+        );
 
         assert!(MessageType::try_from(0xFF).is_err());
     }

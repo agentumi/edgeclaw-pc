@@ -31,11 +31,11 @@ pub const AGENT_CHAT: u8 = 0x35;
 pub struct AgentChatMessage {
     pub id: Uuid,
     pub from_agent: String,
-    pub to_agent: Option<String>,   // None = broadcast
+    pub to_agent: Option<String>, // None = broadcast
     pub content: String,
     pub timestamp: DateTime<Utc>,
-    pub thread_id: Option<Uuid>,    // Optional thread grouping
-    pub is_crossview: bool,         // True → do not re-broadcast (loop prevention)
+    pub thread_id: Option<Uuid>, // Optional thread grouping
+    pub is_crossview: bool,      // True → do not re-broadcast (loop prevention)
 }
 
 impl AgentChatMessage {
@@ -747,7 +747,9 @@ mod tests {
     #[test]
     fn test_agent_chat_broadcast_roundtrip() {
         let chat = AgentChatMessage::new("agent_alpha", "Hello everyone!");
-        let msg = TeamSyncMessage::AgentChat { message: chat.clone() };
+        let msg = TeamSyncMessage::AgentChat {
+            message: chat.clone(),
+        };
         let bytes = msg.to_bytes().unwrap();
         let decoded = TeamSyncMessage::from_bytes(&bytes).unwrap();
         match decoded {

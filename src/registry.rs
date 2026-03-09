@@ -58,12 +58,9 @@ pub struct AgentRegistry {
 }
 
 impl AgentRegistry {
-    /// Create a new registry, loading from disk if available
-    pub fn new() -> Self {
-        let persist_path = dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("edgeclaw")
-            .join("agents.json");
+    /// Create a new registry, loading from disk at the specified storage directory
+    pub fn with_storage_dir(base: PathBuf) -> Self {
+        let persist_path = base.join("agents.json");
 
         let mut registry = Self {
             agents: Arc::new(Mutex::new(HashMap::new())),
@@ -75,6 +72,14 @@ impl AgentRegistry {
         }
 
         registry
+    }
+
+    /// Create a new registry with default system path
+    pub fn new() -> Self {
+        let base = dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("edgeclaw");
+        Self::with_storage_dir(base)
     }
 
     /// Create with a custom persistence path (for testing)

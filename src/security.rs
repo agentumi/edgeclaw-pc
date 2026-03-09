@@ -26,9 +26,9 @@ pub struct RateLimitConfig {
 impl Default for RateLimitConfig {
     fn default() -> Self {
         Self {
-            max_requests: 60,
+            max_requests: 200,
             window: Duration::from_secs(60),
-            burst: 10,
+            burst: 50,
         }
     }
 }

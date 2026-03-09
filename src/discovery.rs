@@ -81,10 +81,11 @@ impl DiscoveryService {
         properties.insert("profile".to_string(), self.profile.clone());
         properties.insert("version".to_string(), self.version.clone());
 
+        let instance_name = format!("{}:{}", self.agent_name, self.listen_port);
         let service_info = mdns_sd::ServiceInfo::new(
             SERVICE_TYPE,
-            &self.agent_name,
-            &format!("{}.local.", self.agent_name),
+            &instance_name,
+            &format!("{}.local.", instance_name),
             "",
             self.listen_port,
             properties,

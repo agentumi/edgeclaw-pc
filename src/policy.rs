@@ -291,7 +291,10 @@ impl StakingVerifier {
 
     /// 예치
     pub fn deposit_stake(&mut self, validator_id: &str, amount: f64) {
-        *self.staked_validators.entry(validator_id.to_string()).or_insert(0.0) += amount;
+        *self
+            .staked_validators
+            .entry(validator_id.to_string())
+            .or_insert(0.0) += amount;
     }
 
     /// 검증 권한 확인
@@ -304,12 +307,18 @@ impl StakingVerifier {
     }
 
     /// 오류 및 악의적 행위 시 Slashing (예: 50% 차감)
-    pub fn slash_validator(&mut self, validator_id: &str, penalty_ratio: f64) -> Result<(), AgentError> {
+    pub fn slash_validator(
+        &mut self,
+        validator_id: &str,
+        penalty_ratio: f64,
+    ) -> Result<(), AgentError> {
         if let Some(stake) = self.staked_validators.get_mut(validator_id) {
             *stake *= 1.0 - penalty_ratio.clamp(0.0, 1.0);
             Ok(())
         } else {
-            Err(AgentError::NotFound("Validator not found in staking pool".into()))
+            Err(AgentError::NotFound(
+                "Validator not found in staking pool".into(),
+            ))
         }
     }
 }
@@ -409,9 +418,9 @@ mod tests {
     fn test_staking_slashing() {
         let mut staking = StakingVerifier::new(100.0);
         staking.deposit_stake("val_3", 200.0);
-        
+
         assert!(staking.can_verify("val_3"));
-        
+
         // slash 60%
         let _ = staking.slash_validator("val_3", 0.6);
         // remaining: 200 * 0.4 = 80 < 100

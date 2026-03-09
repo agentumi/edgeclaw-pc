@@ -36,6 +36,7 @@ pub mod blockchain;
 pub mod cbor_encoding;
 pub mod chain;
 pub mod config;
+pub mod delegation;
 pub mod discovery;
 pub mod ecnp;
 pub mod edge_ai;
@@ -48,8 +49,6 @@ pub mod git_integration;
 pub mod identity;
 pub mod identity_passport;
 pub mod k8s;
-pub mod delegation;
-pub mod persona;
 pub mod license;
 pub mod memory_distiller;
 pub mod memory_engine;
@@ -57,6 +56,7 @@ pub mod memory_search;
 pub mod metrics;
 pub mod orchestrator;
 pub mod peer;
+pub mod persona;
 pub mod policy;
 pub mod protocol;
 pub mod registry;
@@ -83,6 +83,7 @@ pub mod workflows;
 pub mod x402_payment;
 
 use std::sync::{Arc, Mutex};
+use tracing::info;
 
 use crate::activity_log::{ActivityEntry, ActivityManager, ActivityStats, ActivityType};
 use crate::ai::{AiManager, AiRequest, AiResponse, ChatMessage, ChatRole};
@@ -114,9 +115,30 @@ pub struct AgentEngine {
     chat_history: Mutex<Vec<ChatMessage>>,
     start_time: chrono::DateTime<chrono::Utc>,
     blockchain_client: Arc<crate::blockchain::BlockchainClient>,
+    task_board: Mutex<crate::task_board::TaskBoard>,
+    memory_engine: Mutex<crate::memory_engine::MemoryEngine>,
+    reputation_engine: Mutex<crate::reputation::ReputationEngine>,
+    agent_registry: Arc<crate::registry::AgentRegistry>,
+    discovery_service: Arc<crate::discovery::DiscoveryService>,
+    mode: Mutex<String>,
 }
 
 impl AgentEngine {
+    pub fn memory_engine(&self) -> &Mutex<crate::memory_engine::MemoryEngine> {
+        &self.memory_engine
+    }
+
+    pub fn reputation_score(&self) -> f64 {
+        let rep = self
+            .reputation_engine
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        rep.calculate_score()
+    }
+
+    pub fn agent_registry(&self) -> &Arc<crate::registry::AgentRegistry> {
+        &self.agent_registry
+    }
     /// Create a new engine with the given config
     pub fn new(config: AgentConfig) -> Self {
         let executor = Executor::new(
@@ -135,10 +157,7 @@ impl AgentEngine {
             }
             #[cfg(not(test))]
             {
-                let audit_path = dirs::data_dir()
-                    .unwrap_or_else(|| std::path::PathBuf::from("."))
-                    .join("edgeclaw")
-                    .join("audit.jsonl");
+                let audit_path = config.storage_dir().join("audit.jsonl");
                 if let Some(p) = audit_path.parent() {
                     let _ = std::fs::create_dir_all(p);
                 }
@@ -158,10 +177,7 @@ impl AgentEngine {
             }
             #[cfg(not(test))]
             {
-                let activity_path = dirs::data_dir()
-                    .unwrap_or_else(|| std::path::PathBuf::from("."))
-                    .join("edgeclaw")
-                    .join("activity.jsonl");
+                let activity_path = config.storage_dir().join("activity.jsonl");
                 if let Some(p) = activity_path.parent() {
                     let _ = std::fs::create_dir_all(p);
                 }
@@ -175,7 +191,6 @@ impl AgentEngine {
         };
 
         Self {
-            config,
             identity_manager: Mutex::new(IdentityManager::new()),
             session_manager: Mutex::new(SessionManager::new()),
             peer_manager: Mutex::new(PeerManager::new(50)),
@@ -187,8 +202,99 @@ impl AgentEngine {
             event_bus: Arc::new(EventBus::new(256)),
             chat_history: Mutex::new(Vec::new()),
             start_time: chrono::Utc::now(),
-            blockchain_client: Arc::new(crate::blockchain::BlockchainClient::new(crate::blockchain::BlockchainConfig::default())),
+            blockchain_client: Arc::new(crate::blockchain::BlockchainClient::new(
+                crate::blockchain::BlockchainConfig::default(),
+            )),
+            task_board: Mutex::new({
+                let mut board = crate::task_board::TaskBoard::new(
+                    &config.agent.device_name,
+                    &config.webui.work_profile,
+                );
+                let task_path = config.storage_dir().join("tasks.jsonl");
+                if task_path.exists() {
+                    let _ = board.load_from_file(&task_path);
+                } else {
+                    board.create_task(
+                        "EdgeClaw V2.0 Dashboard 배포",
+                        Some("UI/UX 고도화 및 백엔드 연동 완료"),
+                        crate::task_board::TaskPriority::High,
+                        &["milestone", "ui"],
+                    );
+                    board.create_task(
+                        "SUI 스마트 컨트랙트 보안 감사",
+                        Some("Move 컨트랙트 취약점 점검"),
+                        crate::task_board::TaskPriority::Medium,
+                        &["security", "blockchain"],
+                    );
+                    board.create_task(
+                        "P2P 메시지 암호화 성능 최적화",
+                        Some("AES-GCM-256 오버헤드 측정"),
+                        crate::task_board::TaskPriority::Low,
+                        &["perf"],
+                    );
+                    let _ = board.save_to_file(&task_path);
+                }
+                board
+            }),
+            memory_engine: Mutex::new({
+                let mut engine = crate::memory_engine::MemoryEngine::new();
+                engine.core.update_soul("나는 EdgeClaw 데스크탑 에이전트입니다. 사용자의 보안과 효율적인 자산 관리를 최우선으로 합니다.");
+                engine
+                    .core
+                    .add_rule("모든 민감 데이터는 로컬 Sanctum 모드에서만 처리한다.");
+                engine
+                    .core
+                    .add_rule("외부 요청은 반드시 RBAC 검증을 거친다.");
+                engine
+            }),
+            reputation_engine: Mutex::new({
+                let mut rep = crate::reputation::ReputationEngine::new();
+                // Add some mock history for reputation
+                rep.add_task_result(crate::reputation::TaskResult {
+                    task_id: uuid::Uuid::new_v4(),
+                    counterparty_id: "system".to_string(),
+                    task_weight: 1.0,
+                    quality_score: 0.95,
+                    pop_verified: true,
+                    amount_usd: 100.0,
+                    timestamp: chrono::Utc::now(),
+                });
+                rep
+            }),
+            agent_registry: Arc::new(crate::registry::AgentRegistry::with_storage_dir(
+                config.storage_dir(),
+            )),
+            discovery_service: Arc::new(crate::discovery::DiscoveryService::new(
+                &config.agent.device_name,
+                config.agent.listen_port,
+                &config.webui.work_profile,
+                "2.0.0",
+            )),
+            mode: Mutex::new("sanctum".to_string()),
+            config,
         }
+    }
+
+    pub fn mode(&self) -> String {
+        self.mode.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn set_mode(&self, new_mode: &str) -> Result<(), AgentError> {
+        let mut m = self.mode.lock().unwrap_or_else(|e| e.into_inner());
+        *m = new_mode.to_string();
+
+        if new_mode == "market" {
+            let _ = self.discovery_service.register();
+            info!("Switched to Market Mode (Public)");
+        } else {
+            self.discovery_service.unregister();
+            info!("Switched to Sanctum Mode (Private)");
+        }
+        Ok(())
+    }
+
+    pub fn discovery_service(&self) -> &Arc<crate::discovery::DiscoveryService> {
+        &self.discovery_service
     }
 
     // ─── Clients ───────────────────────────────────────────
@@ -584,6 +690,36 @@ impl AgentEngine {
 
     /// Process a chat message through the AI provider
     pub fn chat(&self, peer_id: &str, user_input: &str) -> Result<AiResponse, AgentError> {
+        let trimmed = user_input.trim();
+
+        // Intercept mode switch commands
+        if trimmed.starts_with("/mode") {
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            if parts.len() > 1 {
+                let target_mode = parts[1].to_lowercase();
+                if target_mode == "market" || target_mode == "sanctum" {
+                    self.set_mode(&target_mode)?;
+                    return Ok(AiResponse {
+                        message: format!(
+                            "Agent mode has been updated to: **{}**",
+                            target_mode.to_uppercase()
+                        ),
+                        intent: None,
+                        confidence: 1.0,
+                        provider: "system".to_string(),
+                        is_local: true,
+                    });
+                }
+            }
+            return Ok(AiResponse {
+                message: "Usage: `/mode market` or `/mode sanctum`".to_string(),
+                intent: None,
+                confidence: 1.0,
+                provider: "system".to_string(),
+                is_local: true,
+            });
+        }
+
         let role = {
             let mgr = self.peer_manager.lock().unwrap_or_else(|e| e.into_inner());
             mgr.get_peer_role(peer_id)
@@ -743,6 +879,64 @@ impl AgentEngine {
     /// Get audit entry count
     pub fn audit_count(&self) -> usize {
         self.audit_manager.count()
+    }
+
+    // ─── Task Board ────────────────────────────────────────
+
+    /// List all tasks
+    pub fn list_tasks(&self) -> Vec<crate::task_board::TaskEntry> {
+        let board = self.task_board.lock().unwrap_or_else(|e| e.into_inner());
+        board.list_all().into_iter().cloned().collect()
+    }
+
+    /// List tasks filtered by status and/or assignee.
+    pub fn list_tasks_filtered(
+        &self,
+        status: Option<&crate::task_board::TaskStatus>,
+        assignee: Option<&str>,
+    ) -> Vec<crate::task_board::TaskEntry> {
+        let board = self.task_board.lock().unwrap_or_else(|e| e.into_inner());
+        board
+            .list_filtered(status, assignee)
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    /// Create a task
+    pub fn create_task(
+        &self,
+        title: &str,
+        description: Option<&str>,
+        priority: crate::task_board::TaskPriority,
+        tags: &[&str],
+    ) -> crate::task_board::TaskEntry {
+        let mut board = self.task_board.lock().unwrap_or_else(|e| e.into_inner());
+        board.create_task(title, description, priority, tags)
+    }
+
+    /// Move a task
+    pub fn move_task(
+        &self,
+        task_id: uuid::Uuid,
+        new_status: crate::task_board::TaskStatus,
+    ) -> Result<crate::task_board::TaskEntry, AgentError> {
+        let mut board = self.task_board.lock().unwrap_or_else(|e| e.into_inner());
+        board
+            .move_task(task_id, new_status)
+            .ok_or_else(|| AgentError::NotFound(format!("task not found: {}", task_id)))
+    }
+
+    /// Assign a task to an agent.
+    pub fn assign_task(
+        &self,
+        task_id: uuid::Uuid,
+        assignee: &str,
+    ) -> Result<crate::task_board::TaskEntry, AgentError> {
+        let mut board = self.task_board.lock().unwrap_or_else(|e| e.into_inner());
+        board
+            .assign_task(task_id, assignee)
+            .ok_or_else(|| AgentError::NotFound(format!("task not found: {}", task_id)))
     }
 }
 
@@ -929,6 +1123,23 @@ mod tests {
         assert!(status.get("provider").is_some());
         assert!(status.get("available").is_some());
         assert!(status.get("local").is_some());
+    }
+
+    #[test]
+    fn test_task_assign_and_filtered_list() {
+        let engine = test_engine();
+        let task = engine.create_task(
+            "Filter test",
+            None,
+            crate::task_board::TaskPriority::High,
+            &[],
+        );
+        let assigned = engine.assign_task(task.id, "local-1").unwrap();
+        assert_eq!(assigned.assignee.as_deref(), Some("local-1"));
+
+        let filtered = engine.list_tasks_filtered(None, Some("local-1"));
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].id, task.id);
     }
 
     #[test]

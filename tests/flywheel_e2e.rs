@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use edgeclaw_agent::memory_engine::{MemoryEngine};
-    use edgeclaw_agent::identity_passport::{AgentPassport};
-    use edgeclaw_agent::reputation::{ReputationEngine, TaskResult};
+    use chrono::Utc;
     use edgeclaw_agent::activity_log::{ActivityEntry, ActivityType};
-    use chrono::{Utc};
+    use edgeclaw_agent::identity_passport::AgentPassport;
+    use edgeclaw_agent::memory_engine::MemoryEngine;
+    use edgeclaw_agent::reputation::{ReputationEngine, TaskResult};
     use uuid::Uuid;
 
     #[tokio::test]
@@ -48,9 +48,13 @@ mod tests {
         };
 
         engine.ingest_activity(&entry);
-        
+
         // Importance 3 decisions go to M90
-        assert_eq!(engine.tiers.m90.len(), 1, "Should have 1 memory in M90 after ingestion");
+        assert_eq!(
+            engine.tiers.m90.len(),
+            1,
+            "Should have 1 memory in M90 after ingestion"
+        );
         assert!(engine.tiers.m90[0].content.contains("Better performance"));
 
         // --- 3. DISTILLATION (LESSON EXTRACTION) ---
@@ -64,7 +68,11 @@ mod tests {
             effectiveness: 0.95,
         };
         engine.lessons.add_lesson(lesson);
-        assert_eq!(engine.lessons.lessons.len(), 1, "Should have 1 distilled lesson");
+        assert_eq!(
+            engine.lessons.lessons.len(),
+            1,
+            "Should have 1 distilled lesson"
+        );
 
         // --- 4. REPUTATION & PASSPORT UPDATE ---
         // Record a successful task execution based on the lesson
@@ -81,10 +89,16 @@ mod tests {
         let new_score = rep_engine.calculate_score();
         passport.update_reputation(new_score);
 
-        assert!(passport.reputation_score > 90.0, "Reputation should be high for successful execution");
-        
+        assert!(
+            passport.reputation_score > 90.0,
+            "Reputation should be high for successful execution"
+        );
+
         // --- 5. FINALIZE ---
-        println!("Flywheel Cycle Complete for Agent: {}", passport.metadata.name);
+        println!(
+            "Flywheel Cycle Complete for Agent: {}",
+            passport.metadata.name
+        );
         println!("- Memory: {} items stored", engine.tiers.m90.len());
         println!("- Lessons learned: {}", engine.lessons.lessons[0].pattern);
         println!("- Reputation: {:.2}", passport.reputation_score);

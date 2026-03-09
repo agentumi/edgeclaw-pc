@@ -1,0 +1,26 @@
+{
+  "local-agent:9443": {
+    "id": "local-agent:9443",
+    "name": "local-agent:9443",
+    "profile": "all",
+    "address": "127.0.0.1",
+    "port": 9443,
+    "status": "online",
+    "capabilities": [],
+    "version": "2.0.0",
+    "last_heartbeat": "2026-03-09T17:42:35.618982700Z",
+    "registered_at": "2026-03-09T17:42:35.618984500Z"
+  },
+  "local-agent:8443": {
+    "id": "local-agent:8443",
+    "name": "local-agent:8443",
+    "profile": "all",
+    "address": "127.0.0.1",
+    "port": 8443,
+    "status": "online",
+    "capabilities": [],
+    "version": "2.0.0",
+    "last_heartbeat": "2026-03-09T17:42:35.617537100Z",
+    "registered_at": "2026-03-09T17:42:35.617539800Z"
+  }
+}

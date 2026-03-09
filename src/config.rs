@@ -52,6 +52,9 @@ pub struct AgentSection {
     pub listen_port: u16,
     #[serde(default = "default_max_connections")]
     pub max_connections: usize,
+    /// Storage path for databases, logs, and identities (default: system data dir + /edgeclaw)
+    #[serde(default)]
+    pub storage_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -568,6 +571,7 @@ fn default_agent() -> AgentSection {
         device_name: default_device_name(),
         listen_port: default_listen_port(),
         max_connections: default_max_connections(),
+        storage_path: None,
     }
 }
 
@@ -878,6 +882,17 @@ impl AgentConfig {
             .unwrap_or_else(|| PathBuf::from("."))
             .join("edgeclaw")
             .join("agent.toml")
+    }
+
+    /// Get the base storage directory for this instance.
+    pub fn storage_dir(&self) -> PathBuf {
+        if let Some(ref path) = self.agent.storage_path {
+            PathBuf::from(path)
+        } else {
+            dirs::data_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("edgeclaw")
+        }
     }
 }
 

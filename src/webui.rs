@@ -533,6 +533,13 @@ async fn handle_http(
             let body = extract_body(&request);
             handle_config_avatar_update(&mut stream, &engine, &body, cors_origin).await
         }
+        ("GET", "/api/rent-policies") => {
+            handle_rent_policy_get(&mut stream, &engine, cors_origin).await
+        }
+        ("PUT", "/api/rent-policies") => {
+            let body = extract_body(&request);
+            handle_rent_policy_update(&mut stream, &engine, &body, cors_origin).await
+        }
         ("POST", "/api/chat") => {
             let body = extract_body(&request);
             handle_chat(&mut stream, &engine, &body, cors_origin).await
@@ -1748,6 +1755,110 @@ async fn handle_config_avatar_update(
     send_response(stream, 200, "application/json", &json, cors_origin).await
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct RentPolicy {
+    #[serde(default)]
+    base_rate: f64,
+    #[serde(default)]
+    max_active: u32,
+    #[serde(default)]
+    min_reputation: f64,
+    #[serde(default)]
+    auto_approve: bool,
+}
+
+impl Default for RentPolicy {
+    fn default() -> Self {
+        Self {
+            base_rate: 0.0,
+            max_active: 0,
+            min_reputation: 0.0,
+            auto_approve: false,
+        }
+    }
+}
+
+fn rent_policy_path(engine: &AgentEngine) -> std::path::PathBuf {
+    if cfg!(test) {
+        std::env::temp_dir().join("edgeclaw_test_rent_policies.json")
+    } else {
+        engine.config().storage_dir().join("rent_policies.json")
+    }
+}
+
+fn load_rent_policy(engine: &AgentEngine) -> Result<RentPolicy, AgentError> {
+    let path = rent_policy_path(engine);
+    if !path.exists() {
+        return Ok(RentPolicy::default());
+    }
+    let content = std::fs::read_to_string(path)?;
+    let policy: RentPolicy = serde_json::from_str(&content)?;
+    Ok(policy)
+}
+
+fn save_rent_policy(engine: &AgentEngine, policy: &RentPolicy) -> Result<(), AgentError> {
+    let path = rent_policy_path(engine);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let content = serde_json::to_string_pretty(policy)?;
+    std::fs::write(path, content)?;
+    Ok(())
+}
+
+/// GET /api/rent-policies — Fetch current rent policy.
+async fn handle_rent_policy_get(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let policy = load_rent_policy(engine)?;
+    let json = serde_json::to_vec(&policy).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+#[derive(serde::Deserialize)]
+struct RentPolicyUpdate {
+    base_rate: f64,
+    max_active: u32,
+    min_reputation: f64,
+    auto_approve: bool,
+}
+
+/// PUT /api/rent-policies — Update rent policy.
+async fn handle_rent_policy_update(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let req: RentPolicyUpdate = match serde_json::from_str(body) {
+        Ok(r) => r,
+        Err(e) => {
+            let err = serde_json::json!({"error": format!("invalid JSON: {}", e)});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    if req.base_rate.is_sign_negative() || req.min_reputation.is_sign_negative() {
+        let err = serde_json::json!({"error": "values must be non-negative"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 400, "application/json", &json, cors_origin).await;
+    }
+
+    let policy = RentPolicy {
+        base_rate: req.base_rate,
+        max_active: req.max_active,
+        min_reputation: req.min_reputation,
+        auto_approve: req.auto_approve,
+    };
+    save_rent_policy(engine, &policy)?;
+
+    let json = serde_json::to_vec(&policy).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
 /// Parse a query parameter from the raw HTTP request path.
 fn parse_query_param<'a>(request: &'a str, key: &str) -> Option<&'a str> {
     let first_line = request.lines().next()?;
@@ -1826,6 +1937,8 @@ fn required_access_level(method: &str, path: &str) -> ApiAccessLevel {
         ("PUT", "/api/config") => ApiAccessLevel::Admin,
         ("PUT", "/api/config/identity") => ApiAccessLevel::Admin,
         ("PUT", "/api/config/avatar") => ApiAccessLevel::Admin,
+        ("GET", "/api/rent-policies") => ApiAccessLevel::Viewer,
+        ("PUT", "/api/rent-policies") => ApiAccessLevel::Admin,
         // Agent execution: Admin
         _ if method == "POST" && path.contains("/execute") => ApiAccessLevel::Admin,
         // Everything else: Viewer
@@ -3295,6 +3408,32 @@ mod tests {
             .join("avatar.png");
         assert!(avatar_path.exists());
         let _ = std::fs::remove_file(avatar_path);
+    }
+
+    #[tokio::test]
+    async fn test_webui_rent_policy_roundtrip() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let body = r#"{"base_rate":12.5,"max_active":4,"min_reputation":75.0,"auto_approve":true}"#;
+        let put_req = format!(
+            "PUT /api/rent-policies HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let put_resp = http_request(&addr, &put_req).await;
+        assert!(put_resp.contains("HTTP/1.1 200"));
+
+        let get_resp = http_request(
+            &addr,
+            "GET /api/rent-policies HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        )
+        .await;
+        assert!(get_resp.contains("HTTP/1.1 200"));
+        assert!(get_resp.contains("\"base_rate\":12.5"));
+
+        let path = std::env::temp_dir().join("edgeclaw_test_rent_policies.json");
+        let _ = std::fs::remove_file(path);
     }
 
     // ─── V4.0 Activity REST API tests ────────────────────

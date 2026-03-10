@@ -11,6 +11,7 @@ use crate::memory_engine::{Lesson, MemoryTier, TimedMemory};
 use crate::metrics::MetricsRegistry;
 use crate::security::{RateLimitConfig, RateLimiter};
 use crate::AgentEngine;
+use base64::Engine as _;
 use chrono::{Duration as ChronoDuration, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -524,6 +525,14 @@ async fn handle_http(
             let body = extract_body(&request);
             handle_config_update(&mut stream, &engine, &body, cors_origin).await
         }
+        ("PUT", "/api/config/identity") => {
+            let body = extract_body(&request);
+            handle_config_identity_update(&mut stream, &engine, &body, cors_origin).await
+        }
+        ("PUT", "/api/config/avatar") => {
+            let body = extract_body(&request);
+            handle_config_avatar_update(&mut stream, &engine, &body, cors_origin).await
+        }
         ("POST", "/api/chat") => {
             let body = extract_body(&request);
             handle_chat(&mut stream, &engine, &body, cors_origin).await
@@ -591,6 +600,10 @@ async fn handle_http(
         _ if method == "GET" && path.starts_with("/api/agents/") => {
             let agent_id = path.strip_prefix("/api/agents/").unwrap_or("");
             handle_agent_profile(&mut stream, &engine, agent_id, cors_origin).await
+        }
+        _ if method == "GET" && path.starts_with("/api/avatars/") => {
+            let name = path.strip_prefix("/api/avatars/").unwrap_or("");
+            handle_avatar_get(&mut stream, &engine, name, cors_origin).await
         }
         // ─── V4.0 Activity REST API ──────────────────────
         ("GET", "/api/activities") => {
@@ -812,11 +825,16 @@ async fn handle_agents_info(
     let online_agents = engine.agent_registry().count_online();
     let mut instances = Vec::new();
     let mut local_agents = Vec::new();
+    let base_name = if config.agent.display_name.is_empty() {
+        &config.agent.device_name
+    } else {
+        &config.agent.display_name
+    };
     for i in 0..max {
         let port = config.webui.agent_port(i);
         let id = local_agent_id(i);
         let peer_id = local_agent_peer_id(i);
-        let name = local_agent_name(&config.agent.device_name, i);
+        let name = local_agent_name(base_name, i);
 
         instances.push(serde_json::json!({
             "index": i,
@@ -923,7 +941,12 @@ async fn handle_agent_execute(
         }
 
         let peer_id = local_agent_peer_id(index);
-        let agent_name = local_agent_name(&engine.config().agent.device_name, index);
+        let base_name = if engine.config().agent.display_name.is_empty() {
+            &engine.config().agent.device_name
+        } else {
+            &engine.config().agent.display_name
+        };
+        let agent_name = local_agent_name(base_name, index);
         let _ = engine.add_peer(&peer_id, &agent_name, "local-worker", "127.0.0.1", "owner");
 
         let timeout = req
@@ -1221,11 +1244,17 @@ async fn handle_agent_profile(
         let ai = engine.ai_status();
         let sys = engine.get_system_info();
         let score = engine.reputation_score();
-        let name = local_agent_name(&engine.config().agent.device_name, index);
+        let base_name = if engine.config().agent.display_name.is_empty() {
+            &engine.config().agent.device_name
+        } else {
+            &engine.config().agent.display_name
+        };
+        let name = local_agent_name(base_name, index);
         let id = local_agent_id(index);
         let port = engine.config().webui.agent_port(index);
         let peer_id = local_agent_peer_id(index);
         let tasks = engine.list_tasks_filtered(None, Some(&id));
+        let agent_cfg = engine.config().agent.clone();
 
         let body = serde_json::json!({
             "id": id,
@@ -1238,6 +1267,16 @@ async fn handle_agent_profile(
             "address": engine.config().webui.bind,
             "port": port,
             "peer_id": peer_id,
+            "identity": {
+                "device_name": agent_cfg.device_name,
+                "display_name": agent_cfg.display_name,
+                "avatar_url": agent_cfg.avatar_url,
+                "persona": agent_cfg.persona,
+                "role": agent_cfg.role,
+                "email": agent_cfg.email,
+                "messenger": agent_cfg.messenger,
+                "phone": agent_cfg.phone,
+            },
             "system": {
                 "cpu": sys.cpu_usage,
                 "memory": sys.memory_usage_percent,
@@ -1273,6 +1312,40 @@ async fn handle_agent_profile(
             send_response(stream, 404, "application/json", &json, cors_origin).await
         }
     }
+}
+
+/// GET /api/avatars/{name} — Serve stored avatar image.
+async fn handle_avatar_get(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    name: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    if name.is_empty() || name.contains("..") || name.contains('/') || name.contains('\\') {
+        let err = serde_json::json!({"error": "invalid avatar name"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 400, "application/json", &json, cors_origin).await;
+    }
+
+    let path = avatar_storage_dir(engine).join(name);
+    if !path.exists() {
+        let err = serde_json::json!({"error": "avatar not found"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 404, "application/json", &json, cors_origin).await;
+    }
+
+    let content_type = if name.ends_with(".png") {
+        "image/png"
+    } else if name.ends_with(".jpg") || name.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if name.ends_with(".webp") {
+        "image/webp"
+    } else {
+        "application/octet-stream"
+    };
+
+    let bytes = std::fs::read(&path)?;
+    send_response(stream, 200, content_type, &bytes, cors_origin).await
 }
 
 /// POST /api/chat
@@ -1473,6 +1546,208 @@ async fn handle_config_update(
     }
 }
 
+#[derive(serde::Deserialize)]
+struct IdentityConfigUpdate {
+    #[serde(default)]
+    device_name: Option<String>,
+    #[serde(default)]
+    display_name: Option<String>,
+    #[serde(default)]
+    avatar_url: Option<String>,
+    #[serde(default)]
+    persona: Option<String>,
+    #[serde(default)]
+    role: Option<String>,
+    #[serde(default)]
+    email: Option<String>,
+    #[serde(default)]
+    messenger: Option<String>,
+    #[serde(default)]
+    phone: Option<String>,
+}
+
+/// PUT /api/config/identity — Update agent identity fields (JSON body).
+async fn handle_config_identity_update(
+    stream: &mut TcpStream,
+    _engine: &AgentEngine,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let req: IdentityConfigUpdate = match serde_json::from_str(body) {
+        Ok(r) => r,
+        Err(e) => {
+            let err = serde_json::json!({"error": format!("invalid JSON: {}", e)});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    let device_name = req.device_name.as_deref().map(str::trim).unwrap_or("");
+    let display_name = req.display_name.as_deref().map(str::trim).unwrap_or("");
+    if device_name.is_empty() && display_name.is_empty() {
+        let err = serde_json::json!({"error": "device_name or display_name is required"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 400, "application/json", &json, cors_origin).await;
+    }
+
+    let config_path = if cfg!(test) {
+        std::env::temp_dir().join("edgeclaw_test_agent.toml")
+    } else {
+        crate::config::AgentConfig::default_path()
+    };
+
+    let mut config = crate::config::AgentConfig::load(&config_path)?;
+    if !device_name.is_empty() {
+        config.agent.device_name = device_name.to_string();
+    }
+    if !display_name.is_empty() {
+        config.agent.display_name = display_name.to_string();
+    }
+    if let Some(value) = req.avatar_url.as_deref().map(str::trim) {
+        config.agent.avatar_url = value.to_string();
+    }
+    if let Some(value) = req.persona.as_deref().map(str::trim) {
+        config.agent.persona = value.to_string();
+    }
+    if let Some(value) = req.role.as_deref().map(str::trim) {
+        config.agent.role = value.to_string();
+    }
+    if let Some(value) = req.email.as_deref().map(str::trim) {
+        config.agent.email = value.to_string();
+    }
+    if let Some(value) = req.messenger.as_deref().map(str::trim) {
+        config.agent.messenger = value.to_string();
+    }
+    if let Some(value) = req.phone.as_deref().map(str::trim) {
+        config.agent.phone = value.to_string();
+    }
+    config.save(&config_path)?;
+
+    let resp = serde_json::json!({
+        "status": "saved",
+        "path": config_path.to_string_lossy(),
+        "message": "Config saved. Restart agent to apply changes."
+    });
+    let json = serde_json::to_vec(&resp).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+#[derive(serde::Deserialize)]
+struct AvatarUploadRequest {
+    data_url: String,
+    #[serde(default)]
+    filename: Option<String>,
+}
+
+fn avatar_storage_dir(engine: &AgentEngine) -> std::path::PathBuf {
+    if cfg!(test) {
+        std::env::temp_dir().join("edgeclaw_test_avatars")
+    } else {
+        engine.config().storage_dir().join("avatars")
+    }
+}
+
+fn parse_data_url(data_url: &str) -> Result<(String, Vec<u8>), AgentError> {
+    if !data_url.starts_with("data:") {
+        return Err(AgentError::InvalidParameter("data_url must be a data URL".into()));
+    }
+    let mut parts = data_url.splitn(2, ',');
+    let meta = parts.next().unwrap_or("");
+    let b64 = parts.next().unwrap_or("");
+    if !meta.contains(";base64") {
+        return Err(AgentError::InvalidParameter("data_url must be base64".into()));
+    }
+    let mime = meta.trim_start_matches("data:").trim_end_matches(";base64");
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(b64.as_bytes())
+        .map_err(|e| AgentError::InvalidParameter(format!("base64 decode failed: {e}")))?;
+    Ok((mime.to_string(), decoded))
+}
+
+fn avatar_ext_for_mime(mime: &str) -> Option<&'static str> {
+    match mime {
+        "image/png" => Some("png"),
+        "image/jpeg" => Some("jpg"),
+        "image/jpg" => Some("jpg"),
+        "image/webp" => Some("webp"),
+        _ => None,
+    }
+}
+
+/// PUT /api/config/avatar — Upload avatar image (JSON with data URL).
+async fn handle_config_avatar_update(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let req: AvatarUploadRequest = match serde_json::from_str(body) {
+        Ok(r) => r,
+        Err(e) => {
+            let err = serde_json::json!({"error": format!("invalid JSON: {}", e)});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    let (mime, bytes) = match parse_data_url(req.data_url.trim()) {
+        Ok(v) => v,
+        Err(e) => {
+            let err = serde_json::json!({"error": e.to_string()});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    let ext = match avatar_ext_for_mime(&mime) {
+        Some(ext) => ext,
+        None => {
+            let err = serde_json::json!({"error": "unsupported image type"});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    let max_bytes = 2 * 1024 * 1024;
+    if bytes.len() > max_bytes {
+        let err = serde_json::json!({"error": "image exceeds 2MB limit"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 400, "application/json", &json, cors_origin).await;
+    }
+
+    let dir = avatar_storage_dir(engine);
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        let err = serde_json::json!({"error": format!("avatar dir create failed: {}", e)});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 500, "application/json", &json, cors_origin).await;
+    }
+
+    let filename = format!("avatar.{}", ext);
+    let path = dir.join(&filename);
+    if let Err(e) = std::fs::write(&path, &bytes) {
+        let err = serde_json::json!({"error": format!("avatar save failed: {}", e)});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 500, "application/json", &json, cors_origin).await;
+    }
+
+    let config_path = if cfg!(test) {
+        std::env::temp_dir().join("edgeclaw_test_agent.toml")
+    } else {
+        crate::config::AgentConfig::default_path()
+    };
+    let mut config = crate::config::AgentConfig::load(&config_path)?;
+    config.agent.avatar_url = format!("/api/avatars/{}", filename);
+    config.save(&config_path)?;
+
+    let resp = serde_json::json!({
+        "status": "saved",
+        "avatar_url": format!("/api/avatars/{}", filename),
+        "message": "Avatar saved. Restart agent to apply changes."
+    });
+    let json = serde_json::to_vec(&resp).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
 /// Parse a query parameter from the raw HTTP request path.
 fn parse_query_param<'a>(request: &'a str, key: &str) -> Option<&'a str> {
     let first_line = request.lines().next()?;
@@ -1549,6 +1824,8 @@ fn required_access_level(method: &str, path: &str) -> ApiAccessLevel {
         ("POST", "/api/activities/search") => ApiAccessLevel::Operator,
         // Config changes: Admin
         ("PUT", "/api/config") => ApiAccessLevel::Admin,
+        ("PUT", "/api/config/identity") => ApiAccessLevel::Admin,
+        ("PUT", "/api/config/avatar") => ApiAccessLevel::Admin,
         // Agent execution: Admin
         _ if method == "POST" && path.contains("/execute") => ApiAccessLevel::Admin,
         // Everything else: Viewer
@@ -2971,6 +3248,53 @@ mod tests {
         let resp = http_request(&addr, &req).await;
         assert!(resp.contains("HTTP/1.1 400"));
         assert!(resp.contains("invalid TOML"));
+    }
+
+    #[tokio::test]
+    async fn test_webui_identity_update() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let body = r#"{"device_name":"test-identity","display_name":"Test Agent","email":"test@example.com","messenger":"slack:test","phone":"+82-10-0000-0000"}"#;
+        let req = format!(
+            "PUT /api/config/identity HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 200"));
+
+        let path = std::env::temp_dir().join("edgeclaw_test_agent.toml");
+        let loaded = crate::config::AgentConfig::load(&path).unwrap();
+        assert_eq!(loaded.agent.device_name, "test-identity");
+        assert_eq!(loaded.agent.display_name, "Test Agent");
+        assert_eq!(loaded.agent.email, "test@example.com");
+        assert_eq!(loaded.agent.messenger, "slack:test");
+        assert_eq!(loaded.agent.phone, "+82-10-0000-0000");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn test_webui_avatar_upload() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // 1x1 PNG data URL
+        let data_url = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
+        let body = format!(r#"{{"data_url":"{}","filename":"avatar.png"}}"#, data_url);
+        let req = format!(
+            "PUT /api/config/avatar HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 200"));
+
+        let avatar_path = std::env::temp_dir()
+            .join("edgeclaw_test_avatars")
+            .join("avatar.png");
+        assert!(avatar_path.exists());
+        let _ = std::fs::remove_file(avatar_path);
     }
 
     // ─── V4.0 Activity REST API tests ────────────────────

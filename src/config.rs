@@ -48,6 +48,27 @@ pub struct AgentConfig {
 pub struct AgentSection {
     #[serde(default = "default_device_name")]
     pub device_name: String,
+    /// Optional user-facing display name shown in the UI.
+    #[serde(default)]
+    pub display_name: String,
+    /// Avatar image URL or local path (UI only).
+    #[serde(default)]
+    pub avatar_url: String,
+    /// Character persona or personality summary.
+    #[serde(default)]
+    pub persona: String,
+    /// Role description (e.g. "Market Analyst").
+    #[serde(default)]
+    pub role: String,
+    /// Contact email address.
+    #[serde(default)]
+    pub email: String,
+    /// Linked messenger handle (e.g. Slack, Discord).
+    #[serde(default)]
+    pub messenger: String,
+    /// Linked mobile number.
+    #[serde(default)]
+    pub phone: String,
     #[serde(default = "default_listen_port")]
     pub listen_port: u16,
     #[serde(default = "default_max_connections")]
@@ -569,6 +590,13 @@ impl WebUiSection {
 fn default_agent() -> AgentSection {
     AgentSection {
         device_name: default_device_name(),
+        display_name: String::new(),
+        avatar_url: String::new(),
+        persona: String::new(),
+        role: String::new(),
+        email: String::new(),
+        messenger: String::new(),
+        phone: String::new(),
         listen_port: default_listen_port(),
         max_connections: default_max_connections(),
         storage_path: None,
@@ -978,6 +1006,13 @@ mod tests {
     fn test_config_agent_defaults() {
         let config = AgentConfig::default();
         assert!(!config.agent.device_name.is_empty());
+        assert!(config.agent.display_name.is_empty());
+        assert!(config.agent.avatar_url.is_empty());
+        assert!(config.agent.persona.is_empty());
+        assert!(config.agent.role.is_empty());
+        assert!(config.agent.email.is_empty());
+        assert!(config.agent.messenger.is_empty());
+        assert!(config.agent.phone.is_empty());
     }
 
     #[test]

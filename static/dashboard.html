@@ -768,7 +768,7 @@
             <div class="nav-item" data-target="view-chat">
                 <i class="fa-solid fa-terminal"></i> Command Center
             </div>
-            <div class="nav-item">
+            <div class="nav-item" data-target="view-settings">
                 <i class="fa-solid fa-gear"></i> Settings v2.0
             </div>
         </div>
@@ -855,9 +855,9 @@
             </div>
         </div>
 
-        <!-- VIEW 2: Command Center (Integrated Chat) -->
-        <div id="view-chat" class="view-content">
-            <div class="chat-container">
+    <!-- VIEW 2: Command Center (Integrated Chat) -->
+    <div id="view-chat" class="view-content">
+        <div class="chat-container">
                 <div class="chat-tabs" id="chatProfiles">
                     <button class="chat-tab active" data-profile="all">All Profiles</button>
                     <button class="chat-tab" data-profile="System">System</button>
@@ -1126,6 +1126,40 @@
                 <div style="display:flex; gap:12px; margin-top:10px;">
                     <button class="btn" onclick="hideAddAgentModal()" style="flex:1; justify-content:center;">Cancel</button>
                     <button class="btn btn-primary" onclick="submitAddAgent()" style="flex:1; justify-content:center;">Register</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- VIEW 5: Settings -->
+    <div id="view-settings" class="view-content">
+        <div class="card" style="max-width:720px;">
+            <div class="card-title"><i class="fa-solid fa-id-card"></i> Agent Identity</div>
+            <div style="display:flex; flex-direction:column; gap:12px;">
+                <label style="font-size:12px; color:var(--text-muted);">Agent Name</label>
+                <input id="settingsDisplayName" type="text" placeholder="e.g. Nilebooks-4" style="width:100%; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:10px; color:var(--text-primary);">
+                <label style="font-size:12px; color:var(--text-muted);">Device Name (system)</label>
+                <input id="settingsDeviceName" type="text" placeholder="e.g. edgeclaw-node" style="width:100%; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:10px; color:var(--text-primary);">
+                <label style="font-size:12px; color:var(--text-muted);">Avatar Image URL</label>
+                <input id="settingsAvatarUrl" type="text" placeholder="https://..." style="width:100%; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:10px; color:var(--text-primary);">
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <input id="settingsAvatarFile" type="file" accept="image/*" style="flex:1; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:8px; color:var(--text-primary);">
+                    <button id="settingsAvatarUploadBtn" type="button" class="btn"><i class="fa-solid fa-upload"></i> Upload</button>
+                </div>
+                <img id="settingsAvatarPreview" alt="avatar preview" style="width:72px; height:72px; border-radius:12px; border:1px solid var(--surface-700); display:none; object-fit:cover;">
+                <label style="font-size:12px; color:var(--text-muted);">Character Persona</label>
+                <textarea id="settingsPersona" rows="3" placeholder="Short personality summary" style="width:100%; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:10px; color:var(--text-primary); resize:vertical;"></textarea>
+                <label style="font-size:12px; color:var(--text-muted);">Role</label>
+                <input id="settingsRole" type="text" placeholder="e.g. Market Analyst" style="width:100%; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:10px; color:var(--text-primary);">
+                <label style="font-size:12px; color:var(--text-muted);">Email</label>
+                <input id="settingsEmail" type="email" placeholder="name@example.com" style="width:100%; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:10px; color:var(--text-primary);">
+                <label style="font-size:12px; color:var(--text-muted);">Messenger</label>
+                <input id="settingsMessenger" type="text" placeholder="e.g. slack:handle" style="width:100%; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:10px; color:var(--text-primary);">
+                <label style="font-size:12px; color:var(--text-muted);">Mobile</label>
+                <input id="settingsPhone" type="text" placeholder="+82-10-0000-0000" style="width:100%; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:10px; color:var(--text-primary);">
+                <div style="font-size:11px; color:var(--text-muted);">Identity is stored locally. Restart required after saving.</div>
+                <div style="display:flex; gap:8px; justify-content:flex-end;">
+                    <button id="settingsIdentitySaveBtn" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save</button>
                 </div>
             </div>
         </div>
@@ -1804,6 +1838,9 @@
                 fetchTasks();
             } else if (item.dataset.target === 'view-memory') {
                 fetchMemory();
+            } else if (item.dataset.target === 'view-settings') {
+                setMode('sanctum');
+                loadSettingsIdentity();
             } else {
                 setMode('sanctum');
             }
@@ -1811,6 +1848,151 @@
             showToast(`${item.textContent.trim()} View Activated`, 'info');
         });
     });
+
+    async function loadSettingsIdentity() {
+        const inputDevice = document.getElementById('settingsDeviceName');
+        const inputDisplay = document.getElementById('settingsDisplayName');
+        const inputAvatar = document.getElementById('settingsAvatarUrl');
+        const preview = document.getElementById('settingsAvatarPreview');
+        const inputPersona = document.getElementById('settingsPersona');
+        const inputRole = document.getElementById('settingsRole');
+        const inputEmail = document.getElementById('settingsEmail');
+        const inputMessenger = document.getElementById('settingsMessenger');
+        const inputPhone = document.getElementById('settingsPhone');
+        try {
+            const res = await apiFetch(`${API}/api/agents/local`);
+            if (res.ok) {
+                const data = await res.json();
+                const identity = data.identity || {};
+                if (inputDevice) inputDevice.value = identity.device_name || '';
+                if (inputDisplay) inputDisplay.value = identity.display_name || data.name || '';
+                if (inputAvatar) inputAvatar.value = identity.avatar_url || '';
+                if (preview) {
+                    const url = identity.avatar_url || '';
+                    if (url) {
+                        preview.src = url;
+                        preview.style.display = 'block';
+                    } else {
+                        preview.style.display = 'none';
+                    }
+                }
+                if (inputPersona) inputPersona.value = identity.persona || '';
+                if (inputRole) inputRole.value = identity.role || '';
+                if (inputEmail) inputEmail.value = identity.email || '';
+                if (inputMessenger) inputMessenger.value = identity.messenger || '';
+                if (inputPhone) inputPhone.value = identity.phone || '';
+            }
+        } catch (_) {}
+    }
+
+    function readFileAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+        });
+    }
+
+    async function uploadAvatar() {
+        const fileInput = document.getElementById('settingsAvatarFile');
+        const inputAvatar = document.getElementById('settingsAvatarUrl');
+        const preview = document.getElementById('settingsAvatarPreview');
+        if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+            showToast('Select an image file first', 'error');
+            return null;
+        }
+        const file = fileInput.files[0];
+        if (!file.type.startsWith('image/')) {
+            showToast('Avatar must be an image', 'error');
+            return null;
+        }
+        const dataUrl = await readFileAsDataUrl(file);
+        const res = await apiFetch(`${API}/api/config/avatar`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data_url: dataUrl, filename: file.name })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const avatarUrl = data.avatar_url || '';
+        if (inputAvatar) inputAvatar.value = avatarUrl;
+        if (preview && avatarUrl) {
+            preview.src = `${avatarUrl}?ts=${Date.now()}`;
+            preview.style.display = 'block';
+        }
+        fileInput.value = '';
+        showToast('Avatar uploaded', 'success');
+        return avatarUrl;
+    }
+
+    async function submitIdentitySettings() {
+        const btn = document.getElementById('settingsIdentitySaveBtn');
+        const inputDevice = document.getElementById('settingsDeviceName');
+        const inputDisplay = document.getElementById('settingsDisplayName');
+        const inputAvatar = document.getElementById('settingsAvatarUrl');
+        const inputPersona = document.getElementById('settingsPersona');
+        const inputRole = document.getElementById('settingsRole');
+        const inputEmail = document.getElementById('settingsEmail');
+        const inputMessenger = document.getElementById('settingsMessenger');
+        const inputPhone = document.getElementById('settingsPhone');
+
+        const deviceName = inputDevice?.value.trim() || '';
+        const displayName = inputDisplay?.value.trim() || '';
+        if (!deviceName && !displayName) {
+            showToast('Agent name or device name is required', 'error');
+            return;
+        }
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving';
+        }
+        try {
+            const fileInput = document.getElementById('settingsAvatarFile');
+            if (fileInput && fileInput.files && fileInput.files.length > 0) {
+                await uploadAvatar();
+            }
+            const res = await apiFetch(`${API}/api/config/identity`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    device_name: deviceName || undefined,
+                    display_name: displayName || undefined,
+                    avatar_url: inputAvatar?.value.trim() || undefined,
+                    persona: inputPersona?.value.trim() || undefined,
+                    role: inputRole?.value.trim() || undefined,
+                    email: inputEmail?.value.trim() || undefined,
+                    messenger: inputMessenger?.value.trim() || undefined,
+                    phone: inputPhone?.value.trim() || undefined,
+                })
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            showToast('Identity saved. Restart required.', 'success');
+        } catch (e) {
+            showToast(`Failed to save identity: ${e?.message || 'unknown error'}`, 'error');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-check"></i> Save';
+            }
+        }
+    }
+
+    const settingsSaveBtn = document.getElementById('settingsIdentitySaveBtn');
+    if (settingsSaveBtn) {
+        settingsSaveBtn.addEventListener('click', submitIdentitySettings);
+    }
+
+    const settingsAvatarUploadBtn = document.getElementById('settingsAvatarUploadBtn');
+    if (settingsAvatarUploadBtn) {
+        settingsAvatarUploadBtn.addEventListener('click', async () => {
+            try {
+                await uploadAvatar();
+            } catch (e) {
+                showToast(`Avatar upload failed: ${e?.message || 'unknown error'}`, 'error');
+            }
+        });
+    }
 
     async function fetchStatus() {
         try {
@@ -1904,6 +2086,12 @@
         let status = "online";
         let address = null;
         let port = null;
+        let avatarUrl = '';
+        let persona = '';
+        let role = '';
+        let email = '';
+        let messenger = '';
+        let phone = '';
         
         let contextPayload = contextFromTasks(lastTasks, selectedAgentId);
 
@@ -1913,12 +2101,19 @@
                 if (res.ok) {
                     const data = await res.json();
             const showOffline = document.getElementById('marketShowOffline')?.checked;
-                    name = data.name || id;
+                    const identity = data.identity || {};
+                    name = identity.display_name || data.name || id;
                     repScore = typeof data.reputation_score === 'number' ? data.reputation_score : null;
                     profile = data.profile || 'all';
                     status = data.status || 'offline';
                     address = data.address || null;
                     port = data.port || null;
+                    avatarUrl = identity.avatar_url || '';
+                    persona = identity.persona || '';
+                    role = identity.role || '';
+                    email = identity.email || '';
+                    messenger = identity.messenger || '';
+                    phone = identity.phone || '';
                 }
             } catch(e) {
                 appendSessionLog('Context panel fallback used', 'warn');
@@ -1947,6 +2142,12 @@
             if (task?.assignee) details.push(`Assignee: ${task.assignee}`);
             if (task?.priority) details.push(`Priority: ${task.priority}`);
         }
+        if (type !== 'Task') {
+            if (role) details.push(`Role: ${role}`);
+            if (email) details.push(`Email: ${email}`);
+            if (messenger) details.push(`Messenger: ${messenger}`);
+            if (phone) details.push(`Mobile: ${phone}`);
+        }
         const detailsHtml = details.length
             ? `<div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">${details.map(escapeHtml).join(' • ')}</div>`
             : '';
@@ -1958,7 +2159,13 @@
                     <span>${type === 'Task' ? 'Task ID' : 'Passport NFT'}</span>
                     <i class="fa-brands fa-ethereum" style="color:var(--accent-purple)"></i>
                 </div>
-                <div style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted); margin-bottom:8px;">${escapeHtml(id)}</div>
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+                    <div style="width:36px; height:36px; border-radius:10px; background:var(--surface-800); border:1px solid var(--surface-700); display:flex; align-items:center; justify-content:center; overflow:hidden;">
+                        ${avatarUrl ? `<img src="${escapeHtml(avatarUrl)}" alt="avatar" style="width:100%; height:100%; object-fit:cover;">` : '<i class="fa-solid fa-user" style="color:var(--text-muted)"></i>'}
+                    </div>
+                    <div style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted);">${escapeHtml(id)}</div>
+                </div>
+                ${persona ? `<div style="font-size:11px; color:var(--text-secondary); margin-bottom:8px;">${escapeHtml(persona)}</div>` : ''}
                 ${detailsHtml}
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <span class="badge ${status === 'online' ? 'badge-green' : 'badge-red'}">${status.toUpperCase()}</span>

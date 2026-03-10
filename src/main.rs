@@ -503,6 +503,28 @@ async fn main() -> anyhow::Result<()> {
             engine.add_peer("web-client", "WebUI", "browser", "127.0.0.1", "owner")?;
 
             let num_agents = config.webui.effective_max_agents();
+            let mut effective_ws_port = config.websocket.port;
+
+            // Prevent WebSocket bind conflicts with multi-agent WebUI ports.
+            if config.websocket.enabled && config.webui.enabled && num_agents > 0 {
+                let webui_start = config.webui.port;
+                let webui_end = config.webui.agent_port(num_agents - 1);
+                if (webui_start..=webui_end).contains(&effective_ws_port) {
+                    let shifted = webui_end.saturating_add(1);
+                    warn!(
+                        ws_port = effective_ws_port,
+                        webui_start = webui_start,
+                        webui_end = webui_end,
+                        shifted_ws_port = shifted,
+                        "WebSocket port overlaps WebUI agent port range; shifting port"
+                    );
+                    println!(
+                        "  [Port Fix] WS port {} conflicts with WebUI range {}-{}, using {}",
+                        effective_ws_port, webui_start, webui_end, shifted
+                    );
+                    effective_ws_port = shifted;
+                }
+            }
 
             // Print agent startup banner
             println!("╔══════════════════════════════════════════╗");
@@ -588,13 +610,13 @@ async fn main() -> anyhow::Result<()> {
 
             // Start WebSocket server for real-time events
             if config.websocket.enabled {
-                let ws_bind = format!("{}:{}", config.websocket.bind, config.websocket.port);
+                let ws_bind = format!("{}:{}", config.websocket.bind, effective_ws_port);
                 let ws_event_bus = engine.event_bus().clone();
                 let ws_max_clients = config.websocket.max_clients;
 
                 println!(
                     "║  WS:   ws://{}:{}                ║",
-                    config.websocket.bind, config.websocket.port
+                    config.websocket.bind, effective_ws_port
                 );
 
                 tokio::spawn(async move {

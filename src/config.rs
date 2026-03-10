@@ -172,10 +172,10 @@ fn default_webui_bind() -> String {
     "127.0.0.1".to_string()
 }
 fn default_max_agents() -> u16 {
-    1
+    4
 }
 fn default_license_tier() -> String {
-    "free".to_string()
+    "pro".to_string()
 }
 fn default_work_profile() -> String {
     "all".to_string()
@@ -187,7 +187,7 @@ pub struct WebSocketSection {
     /// Enable WebSocket event streaming
     #[serde(default = "default_true")]
     pub enabled: bool,
-    /// WebSocket server port (default: 9445)
+    /// WebSocket server port (default: 9460)
     #[serde(default = "default_ws_port")]
     pub port: u16,
     /// Bind address
@@ -202,7 +202,7 @@ pub struct WebSocketSection {
 }
 
 fn default_ws_port() -> u16 {
-    9445
+    9460
 }
 fn default_ws_max_clients() -> usize {
     50
@@ -910,6 +910,9 @@ mod tests {
         assert_eq!(config.security.policy_mode, "strict");
         assert_eq!(config.execution.max_concurrent, 5);
         assert_eq!(config.resource.cpu_limit_percent, 80);
+        assert_eq!(config.webui.max_agents, 4);
+        assert_eq!(config.webui.license_tier, "pro");
+        assert_eq!(config.websocket.port, 9460);
     }
 
     #[test]

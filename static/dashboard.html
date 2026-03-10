@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -566,6 +566,119 @@
         .send-btn:hover { background: var(--primary-500); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4); }
         .send-btn:active { transform: translateY(0); }
         .send-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        .ec-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(3, 6, 18, 0.78);
+            backdrop-filter: blur(4px);
+            z-index: 10000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .ec-modal-card {
+            width: min(680px, 100%);
+            background: linear-gradient(165deg, rgba(29, 32, 52, 0.98) 0%, rgba(14, 16, 28, 0.98) 100%);
+            border: 1px solid rgba(99, 102, 241, 0.35);
+            border-radius: 16px;
+            box-shadow: 0 28px 70px rgba(0, 0, 0, 0.55);
+            overflow: hidden;
+        }
+        .ec-modal-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 14px;
+            padding: 18px 20px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .ec-modal-title {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .ec-modal-subtitle {
+            margin: 6px 0 0;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .ec-icon-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(0, 0, 0, 0.25);
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+        .ec-icon-btn:hover {
+            border-color: var(--primary-500);
+            color: var(--text-primary);
+        }
+        .ec-modal-body {
+            padding: 18px 20px 20px;
+        }
+        .ec-form-grid {
+            display: grid;
+            gap: 14px;
+            grid-template-columns: 1fr 1fr;
+        }
+        .ec-field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .ec-field.full {
+            grid-column: 1 / -1;
+        }
+        .ec-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 600;
+            letter-spacing: 0.2px;
+        }
+        .ec-input,
+        .ec-select,
+        .ec-textarea {
+            width: 100%;
+            background: rgba(10, 13, 24, 0.9);
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            border-radius: 10px;
+            padding: 11px 12px;
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            font-size: 13px;
+            transition: var(--transition);
+        }
+        .ec-textarea {
+            min-height: 96px;
+            resize: vertical;
+        }
+        .ec-input:focus,
+        .ec-select:focus,
+        .ec-textarea:focus {
+            outline: none;
+            border-color: var(--primary-500);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.22);
+        }
+        .ec-hint {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .ec-modal-actions {
+            margin-top: 10px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        @media (max-width: 860px) {
+            .ec-form-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
@@ -583,9 +696,6 @@
             <div class="nav-item active" data-target="view-dashboard">
                 <i class="fa-solid fa-chart-pie"></i> Mission Control
             </div>
-            <div class="nav-item" data-target="view-chat">
-                <i class="fa-solid fa-terminal"></i> Command Center
-            </div>
             <div class="nav-item" data-target="view-board">
                 <i class="fa-solid fa-kanban"></i> Agent Board
             </div>
@@ -599,7 +709,7 @@
         
         <div class="device-groups">
             <div class="group-title">
-                <span id="sidebarGroupTitle">📁 Local Agents</span>
+                <span id="sidebarGroupTitle">?뱚 Local Agents</span>
                 <i class="fa-solid fa-plus" style="cursor:pointer"></i>
             </div>
             <div id="sidebarDeviceGroups">
@@ -611,6 +721,9 @@
         </div>
         
         <div class="sidebar-nav" style="border-top: 1px solid var(--surface-700); margin-top: auto;">
+            <div class="nav-item" data-target="view-chat">
+                <i class="fa-solid fa-terminal"></i> Command Center
+            </div>
             <div class="nav-item">
                 <i class="fa-solid fa-gear"></i> Settings v2.0
             </div>
@@ -683,16 +796,16 @@
                     <div style="display:flex; gap:12px;">
                         <div style="flex:1; background:var(--surface-800); padding:16px; border-radius:8px; border-top:3px solid var(--text-muted)">
                             <h4 style="margin-bottom:12px;">Todo (3)</h4>
-                            <div style="background:var(--surface-700); padding:10px; border-radius:6px; margin-bottom:8px;">시장 데이터 수집</div>
-                            <div style="background:var(--surface-700); padding:10px; border-radius:6px;">주간 보고서 템플릿</div>
+                            <div style="background:var(--surface-700); padding:10px; border-radius:6px; margin-bottom:8px;">?쒖옣 ?곗씠???섏쭛</div>
+                            <div style="background:var(--surface-700); padding:10px; border-radius:6px;">二쇨컙 蹂닿퀬???쒗뵆由?/div>
                         </div>
                         <div style="flex:1; background:var(--surface-800); padding:16px; border-radius:8px; border-top:3px solid var(--primary-500)">
                             <h4 style="margin-bottom:12px;">In Progress (2)</h4>
-                            <div style="background:var(--surface-700); padding:10px; border-radius:6px;">상권 분석 (68%)<br><span style="font-size:11px; color:var(--text-muted)">🟢 WorkStation-01</span></div>
+                            <div style="background:var(--surface-700); padding:10px; border-radius:6px;">?곴텒 遺꾩꽍 (68%)<br><span style="font-size:11px; color:var(--text-muted)">?윟 WorkStation-01</span></div>
                         </div>
                         <div style="flex:1; background:var(--surface-800); padding:16px; border-radius:8px; border-top:3px solid var(--accent-green)">
                             <h4 style="margin-bottom:12px;">Done Today (7)</h4>
-                            <div style="background:var(--surface-700); padding:10px; border-radius:6px;">✓ ML 추론 모듈 테스트</div>
+                            <div style="background:var(--surface-700); padding:10px; border-radius:6px;">??ML 異붾줎 紐⑤뱢 ?뚯뒪??/div>
                         </div>
                     </div>
                 </div>
@@ -714,8 +827,8 @@
                 <div class="chat-area" id="chatArea">
                     <div class="msg system">
                         <div class="msg-bubble">
-                            EdgeClaw Command Center v2.0 — Connected to Agent Node<br>
-                            Status: <span id="chatStatusText" style="color:var(--accent-green)">Ready</span> · Zero-Trust Channel Secure
+                            EdgeClaw Command Center v2.0 ??Connected to Agent Node<br>
+                            Status: <span id="chatStatusText" style="color:var(--accent-green)">Ready</span> 쨌 Zero-Trust Channel Secure
                         </div>
                     </div>
                 </div>
@@ -738,7 +851,7 @@
         <div id="view-board" class="view-content">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
                 <h2 style="font-size:20px; font-weight:600;">Agent Board</h2>
-                <button class="btn btn-primary"><i class="fa-solid fa-plus"></i> New Task</button>
+                <button id="newTaskBtn" class="btn btn-primary"><i class="fa-solid fa-plus"></i> New Task</button>
             </div>
             
             <div class="kanban-board">
@@ -749,19 +862,19 @@
                     </div>
                     <div class="kanban-cards">
                         <div class="task-card" draggable="true" ondragstart="drag(event)" id="task-1">
-                            <div class="task-title"><i class="fa-solid fa-lock" style="color:var(--primary-500); margin-right:6px;"></i>시장 데이터 수집 및 전처리</div>
+                            <div class="task-title"><i class="fa-solid fa-lock" style="color:var(--primary-500); margin-right:6px;"></i>?쒖옣 ?곗씠???섏쭛 諛??꾩쿂由?/div>
                             <span class="badge badge-green">Risk: L0 Safe</span>
                             <div class="task-meta">
-                                <span><i class="fa-solid fa-server"></i> Local 실행 (Sanctum)</span>
+                                <span><i class="fa-solid fa-server"></i> Local ?ㅽ뻾 (Sanctum)</span>
                                 <span>3 / 9 subtasks</span>
                             </div>
                         </div>
                         <div class="task-card" draggable="true" ondragstart="drag(event)" id="task-2">
-                            <div class="task-title"><i class="fa-solid fa-earth-americas" style="color:var(--accent-purple); margin-right:6px;"></i>주간 결산 보고서 작성</div>
+                            <div class="task-title"><i class="fa-solid fa-earth-americas" style="color:var(--accent-purple); margin-right:6px;"></i>二쇨컙 寃곗궛 蹂닿퀬???묒꽦</div>
                             <span class="badge badge-gold">Risk: L2 Sensitive</span>
-                            <div style="margin-top:8px;"><span class="badge badge-blue" style="cursor:pointer; background:rgba(168, 85, 247, 0.1); color:var(--accent-purple); border-color:var(--accent-purple)"><i class="fa-solid fa-handshake"></i> 마켓 위임 가능</span></div>
+                            <div style="margin-top:8px;"><span class="badge badge-blue" style="cursor:pointer; background:rgba(168, 85, 247, 0.1); color:var(--accent-purple); border-color:var(--accent-purple)"><i class="fa-solid fa-handshake"></i> 留덉폆 ?꾩엫 媛??/span></div>
                             <div class="task-meta">
-                                <span style="color:var(--accent-purple)">0.5 SUI 예상 비용</span>
+                                <span style="color:var(--accent-purple)">0.5 SUI ?덉긽 鍮꾩슜</span>
                             </div>
                         </div>
                     </div>
@@ -774,12 +887,12 @@
                     </div>
                     <div class="kanban-cards">
                         <div class="task-card" draggable="true" ondragstart="drag(event)" id="task-3" style="border-left:3px solid var(--primary-500)">
-                            <div class="task-title"><i class="fa-solid fa-lock" style="color:var(--primary-500); margin-right:6px;"></i>상권 분석 지역 탐색</div>
+                            <div class="task-title"><i class="fa-solid fa-lock" style="color:var(--primary-500); margin-right:6px;"></i>?곴텒 遺꾩꽍 吏???먯깋</div>
                             <div class="progress-bar" style="width:100%; margin: 8px 0;"><div class="progress-fill" style="width:80%"></div></div>
-                            <div style="font-size:11px; margin-bottom:8px">🟢 WorkStation-01 (80%)</div>
+                            <div style="font-size:11px; margin-bottom:8px">?윟 WorkStation-01 (80%)</div>
                             <span class="badge badge-blue">Risk: L1 Restricted</span>
                             <div class="task-meta">
-                                <span>🛡 스테이킹 검증 | Sanctum</span>
+                                <span>?썳 ?ㅽ뀒?댄궧 寃利?| Sanctum</span>
                             </div>
                         </div>
                     </div>
@@ -792,10 +905,10 @@
                     </div>
                     <div class="kanban-cards">
                         <div class="task-card" style="opacity:0.7">
-                            <div class="task-title" style="text-decoration:line-through; color:var(--text-muted)">✓ ML 추론 모델 최적화 #47</div>
+                            <div class="task-title" style="text-decoration:line-through; color:var(--text-muted)">??ML 異붾줎 紐⑤뜽 理쒖쟻??#47</div>
                             <div style="margin-top:8px; display:flex; gap:8px;">
                                 <span class="badge badge-gold" style="border:none"><i class="fa-brands fa-ethereum"></i> 28.3 SUI</span>
-                                <span class="badge badge-green" style="border:none">⭐ Rep +2.1</span>
+                                <span class="badge badge-green" style="border:none">狩?Rep +2.1</span>
                                 <span class="badge" style="background:rgba(168, 85, 247, 0.1); color:var(--accent-purple); border:none;"><i class="fa-solid fa-earth-americas"></i> Public</span>
                             </div>
                         </div>
@@ -818,19 +931,19 @@
                 <div class="memory-tiers">
                     <div class="tier-item active">
                         <h4>M0 Core Memory</h4>
-                        <div style="font-size:11px; color:var(--text-muted)">12 items · SOUL & Rules</div>
+                        <div style="font-size:11px; color:var(--text-muted)">12 items 쨌 SOUL & Rules</div>
                     </div>
                     <div class="tier-item">
                         <h4>M30 Short-term</h4>
-                        <div style="font-size:11px; color:var(--text-muted)">156 items · Recent Context</div>
+                        <div style="font-size:11px; color:var(--text-muted)">156 items 쨌 Recent Context</div>
                     </div>
                     <div class="tier-item">
                         <h4>M90 Mid-term</h4>
-                        <div style="font-size:11px; color:var(--text-muted)">89 items · Project Knowledge</div>
+                        <div style="font-size:11px; color:var(--text-muted)">89 items 쨌 Project Knowledge</div>
                     </div>
                     <div class="tier-item">
                         <h4>M365 Long-term</h4>
-                        <div style="font-size:11px; color:var(--text-muted)">34 items · Hardened Facts</div>
+                        <div style="font-size:11px; color:var(--text-muted)">34 items 쨌 Hardened Facts</div>
                     </div>
                     <div class="tier-item" style="border-color:var(--accent-purple)">
                         <h4 style="color:var(--accent-purple)"><i class="fa-solid fa-graduation-cap"></i> Lessons</h4>
@@ -843,7 +956,7 @@
                 
                 <div class="memory-content">
                     <div style="display:flex; justify-content:space-between; margin-bottom:16px;">
-                        <h3 style="font-size:16px; color:var(--primary-400)">🧠 SOUL.md</h3>
+                        <h3 style="font-size:16px; color:var(--primary-400)">?쭬 SOUL.md</h3>
                         <div style="display:flex; gap:8px;">
                             <span class="badge" style="background:rgba(99, 102, 241, 0.1); color:var(--primary-400); border:1px solid var(--primary-500);"><i class="fa-solid fa-lock"></i> Sanctum Private</span>
                             <button class="btn"><i class="fa-solid fa-pen"></i> Edit</button>
@@ -851,18 +964,18 @@
                         </div>
                     </div>
                     <div class="memory-entry">
-                        "나는 EdgeClaw Agent WorkStation-01이다.<br>
-                        사용자의 업무 자동화를 돕는 것이 나의 존재 이유이다."<br><br>
+                        "?섎뒗 EdgeClaw Agent WorkStation-01?대떎.<br>
+                        ?ъ슜?먯쓽 ?낅Т ?먮룞?붾? ?뺣뒗 寃껋씠 ?섏쓽 議댁옱 ?댁쑀?대떎."<br><br>
                         
-                        [규칙]<br>
-                        • 사용자 파일 삭제 전 반드시 확인 요청 (Risk Level L3)<br>
-                        • 금융/개인정보 데이터는 TEE(신뢰 실행 환경)에서만 처리할 것<br>
-                        • 야간 23시에 자가 증류(Distillation) 프로세스 실행
+                        [洹쒖튃]<br>
+                        ???ъ슜???뚯씪 ??젣 ??諛섎뱶???뺤씤 ?붿껌 (Risk Level L3)<br>
+                        ??湲덉쑖/媛쒖씤?뺣낫 ?곗씠?곕뒗 TEE(?좊ː ?ㅽ뻾 ?섍꼍)?먯꽌留?泥섎━??寃?br>
+                        ???쇨컙 23?쒖뿉 ?먭? 利앸쪟(Distillation) ?꾨줈?몄뒪 ?ㅽ뻾
                     </div>
                     
                     <h3 style="font-size:14px; margin: 24px 0 16px; color:var(--text-secondary)">System Prompts Overview</h3>
                     <div class="memory-entry" style="border-left-color:var(--text-muted)">
-                        System directives loaded from memory hooks based on current context: 상권 분석.<br>
+                        System directives loaded from memory hooks based on current context: ?곴텒 遺꾩꽍.<br>
                         Injected 3 related rules.
                     </div>
                 </div>
@@ -895,7 +1008,7 @@
                 </div>
                 <div>
                     <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">Avg Reputation</div>
-                    <div style="font-size:24px; font-weight:700; color:var(--text-primary)">87.3 <span style="font-size:12px; color:var(--accent-green)">↑ 1.2</span></div>
+                    <div style="font-size:24px; font-weight:700; color:var(--text-primary)">87.3 <span style="font-size:12px; color:var(--accent-green)">??1.2</span></div>
                 </div>
                 <div style="flex:1; text-align:right;">
                     <button class="btn"><i class="fa-solid fa-gear"></i> Manage Rent Policies</button>
@@ -935,11 +1048,11 @@
             <div class="info-block">
                 <h4>Current Context</h4>
                 <div style="background:var(--surface-800); border:1px solid var(--surface-700); border-radius:8px; padding:12px;">
-                    <div style="font-weight:600; margin-bottom:8px">상권 분석 보고서 작업</div>
+                    <div style="font-weight:600; margin-bottom:8px">?곴텒 遺꾩꽍 蹂닿퀬???묒뾽</div>
                     <div class="progress-bar" style="width:100%; margin-bottom:8px;"><div class="progress-fill" style="width:80%"></div></div>
                     <div style="display:flex; gap:6px;">
                         <span class="badge badge-blue">Risk: L1</span>
-                        <span class="badge" style="background:var(--surface-700)">스테이킹 검증</span>
+                        <span class="badge" style="background:var(--surface-700)">?ㅽ뀒?댄궧 寃利?/span>
                     </div>
                 </div>
             </div>
@@ -948,11 +1061,11 @@
             <div class="info-block" style="flex:1;">
                 <h4>Live Session Log</h4>
                 <div id="sessionLog" style="background:var(--surface-950); border:1px solid var(--surface-700); border-radius:8px; padding:12px; height:200px; overflow-y:auto;">
-                    <div class="log-entry"><span class="log-time">10:45</span> <span>API 호출 완료 (200 OK)</span></div>
-                    <div class="log-entry"><span class="log-time">10:42</span> <span>데이터 파싱 및 정제 시작</span></div>
-                    <div class="log-entry" style="color:var(--accent-gold)"><span class="log-time">10:40</span> <span>Lesson: chunk 분할 적용됨</span></div>
-                    <div class="log-entry"><span class="log-time">10:35</span> <span>SUI 에스크로 컨트랙트 생성 (0.5 SUI)</span></div>
-                    <div class="log-entry"><span class="log-time">10:32</span> <span>A2A 위임 요청 접수</span></div>
+                    <div class="log-entry"><span class="log-time">10:45</span> <span>API ?몄텧 ?꾨즺 (200 OK)</span></div>
+                    <div class="log-entry"><span class="log-time">10:42</span> <span>?곗씠???뚯떛 諛??뺤젣 ?쒖옉</span></div>
+                    <div class="log-entry" style="color:var(--accent-gold)"><span class="log-time">10:40</span> <span>Lesson: chunk 遺꾪븷 ?곸슜??/span></div>
+                    <div class="log-entry"><span class="log-time">10:35</span> <span>SUI ?먯뒪?щ줈 而⑦듃?숉듃 ?앹꽦 (0.5 SUI)</span></div>
+                    <div class="log-entry"><span class="log-time">10:32</span> <span>A2A ?꾩엫 ?붿껌 ?묒닔</span></div>
                 </div>
             </div>
         </div>
@@ -979,6 +1092,58 @@
                     <button class="btn" onclick="hideAddAgentModal()" style="flex:1; justify-content:center;">Cancel</button>
                     <button class="btn btn-primary" onclick="submitAddAgent()" style="flex:1; justify-content:center;">Register</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: New Task -->
+    <div id="newTaskModal" class="ec-modal">
+        <div class="ec-modal-card">
+            <div class="ec-modal-head">
+                <div>
+                    <h2 class="ec-modal-title">Create New Task</h2>
+                    <p class="ec-modal-subtitle">Define title, assignee, and priority before adding to Agent Board.</p>
+                </div>
+                <button class="ec-icon-btn" type="button" aria-label="Close" onclick="hideNewTaskModal()">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="ec-modal-body">
+                <form id="newTaskForm" onsubmit="event.preventDefault(); submitNewTask();">
+                    <div class="ec-form-grid">
+                        <label class="ec-field full">
+                            <span class="ec-label">Task Title</span>
+                            <input id="taskTitleInput" class="ec-input" type="text" maxlength="120" placeholder="e.g. API error rate investigation" required>
+                        </label>
+                        <label class="ec-field full">
+                            <span class="ec-label">Description</span>
+                            <textarea id="taskDescriptionInput" class="ec-textarea" placeholder="What should be done and what output is expected?"></textarea>
+                        </label>
+                        <label class="ec-field">
+                            <span class="ec-label">Priority</span>
+                            <select id="taskPriorityInput" class="ec-select">
+                                <option value="High">High</option>
+                                <option value="Medium" selected>Medium</option>
+                                <option value="Low">Low</option>
+                            </select>
+                        </label>
+                        <label class="ec-field">
+                            <span class="ec-label">Assignee</span>
+                            <select id="taskAssigneeInput" class="ec-select"></select>
+                        </label>
+                        <label class="ec-field full">
+                            <span class="ec-label">Tags (comma separated)</span>
+                            <input id="taskTagsInput" class="ec-input" type="text" placeholder="dashboard, ui, bugfix" value="dashboard">
+                            <span class="ec-hint">Example: dashboard, marketplace, urgent</span>
+                        </label>
+                    </div>
+                    <div class="ec-modal-actions">
+                        <button type="button" class="btn" onclick="hideNewTaskModal()">Cancel</button>
+                        <button id="newTaskSubmitBtn" type="submit" class="btn btn-primary">
+                            <i class="fa-solid fa-check"></i> Create Task
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
@@ -1052,6 +1217,30 @@
         return 'todo';
     }
 
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function normalizeCapabilities(value) {
+        if (Array.isArray(value)) return value.map(v => String(v));
+        if (value && typeof value === 'object') return Object.keys(value);
+        if (typeof value === 'string' && value.trim()) return [value.trim()];
+        return [];
+    }
+
+    function extractAgentList(payload) {
+        if (Array.isArray(payload)) return payload;
+        if (payload && Array.isArray(payload.agents)) return payload.agents;
+        if (payload && Array.isArray(payload.registered_agents)) return payload.registered_agents;
+        if (payload && Array.isArray(payload.local_agents)) return payload.local_agents;
+        return [];
+    }
+
     function highlightSidebarSelection() {
         document.querySelectorAll('#sidebarDeviceGroups .device-item').forEach(item => {
             item.classList.toggle('active', item.dataset.agentId === selectedAgentId);
@@ -1071,7 +1260,7 @@
 
         const remoteSection = remoteAgents.length > 0
             ? `
-                <div class="group-title" style="margin:14px 0 8px 0;"><span>── Remote Registry (${remoteAgents.length}) ──</span></div>
+                <div class="group-title" style="margin:14px 0 8px 0;"><span>?? Remote Registry (${remoteAgents.length}) ??</span></div>
                 ${remoteAgents.map(agent => `
                     <div class="device-item" data-agent-id="${agent.id}" data-agent-name="${agent.name}">
                         <div class="status-dot ${normalizeAgentStatus(agent.status) === 'online' ? 'online' : 'offline'}"></div>
@@ -1083,7 +1272,7 @@
 
         container.innerHTML = localHtml + remoteSection;
         const title = document.getElementById('sidebarGroupTitle');
-        if (title) title.textContent = `📁 Local Agents (${localAgents.length})`;
+        if (title) title.textContent = `?뱚 Local Agents (${localAgents.length})`;
         highlightSidebarSelection();
     }
 
@@ -1364,22 +1553,28 @@
         setTimeout(() => panel.style.display = 'none', 300);
     });
 
-    // Marketplace Interactions
-    document.querySelectorAll('.agent-card .btn-primary').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const agentName = btn.closest('.agent-card').querySelector('h3').textContent;
-            showToast(`Hiring Request: ${agentName}`, 'info');
-            setTimeout(() => showToast(`${agentName} has been assigned!`, 'success'), 800);
-        });
-    });
+    // Marketplace Interactions (event delegation for dynamic cards)
+    const marketGrid = document.getElementById('marketGrid');
+    if (marketGrid) {
+        marketGrid.addEventListener('click', (e) => {
+            const card = e.target.closest('.agent-card');
+            if (!card) return;
 
-    document.querySelectorAll('.agent-card .btn:not(.btn-primary)').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const agentName = btn.closest('.agent-card').querySelector('h3').textContent;
-            updateContextPanel(agentName, 'Agent');
-            showToast(`Viewing ${agentName} Profile`, 'info');
+            const agentId = card.dataset.agentId || 'unknown';
+            const agentName = card.dataset.agentName || agentId;
+
+            if (e.target.closest('.inspect-agent-btn')) {
+                updateContextPanel(agentId, 'Agent');
+                showToast(`Viewing ${agentName} profile`, 'info');
+                return;
+            }
+
+            if (e.target.closest('.hire-agent-btn')) {
+                showToast(`Hiring request sent to ${agentName}`, 'info');
+                setTimeout(() => showToast(`${agentName} assignment queued`, 'success'), 700);
+            }
         });
-    });
+    }
 
     // Memory Tier Switching
     document.querySelectorAll('.tier-item').forEach(tier => {
@@ -1389,7 +1584,7 @@
             const tierName = tier.querySelector('h4').textContent;
             
             // Update memory content header
-            document.querySelector('.memory-content h3').textContent = `🧠 ${tierName}`;
+            document.querySelector('.memory-content h3').textContent = `?쭬 ${tierName}`;
             fetchMemory(); // Refresh for the selected tier
             showToast(`Loading: ${tierName}`, 'info');
         });
@@ -1481,11 +1676,11 @@
                     <div style="color:var(--primary-400); margin-bottom:10px;">[SOUL Definition]</div>
                     "${memory.core.soul.content}"<br><br>
                     <div style="color:var(--accent-gold); margin-bottom:10px;">[Absolute Rules]</div>
-                    ${memory.core.absolute_rules.map(r => `• ${r}`).join('<br>')}
+                    ${memory.core.absolute_rules.map(r => `??${r}`).join('<br>')}
                 `;
             } else if (activeTier.includes("Lessons")) {
                 contentArea.innerHTML = memory.lessons.lessons.length > 0 
-                    ? memory.lessons.lessons.map(l => `<div style="margin-bottom:12px;">• Pattern: ${l.pattern}<br><small style="color:var(--text-muted)">Effectiveness: ${l.effectiveness}</small></div>`).join('')
+                    ? memory.lessons.lessons.map(l => `<div style="margin-bottom:12px;">??Pattern: ${l.pattern}<br><small style="color:var(--text-muted)">Effectiveness: ${l.effectiveness}</small></div>`).join('')
                     : "No lessons distilled yet.";
             } else {
                 // Tiered memory (M30, M90, etc)
@@ -1597,71 +1792,204 @@
 
     async function fetchMarketplaceAgents() {
         const grid = document.getElementById('marketGrid');
+        if (!grid) return;
+
         try {
-            const res = await apiFetch(`${API}/api/agents`);
-            if (res.ok) {
-                const data = await res.json();
-                const agents = data.agents || [];
-                grid.innerHTML = agents.length > 0 
-                    ? agents.map(a => `
-                        <div class="agent-card">
-                            <div class="badge ${a.status === 'online' ? 'badge-green' : 'badge-gold'}" style="position:absolute; top:12px; right:12px;">
-                                <i class="fa-solid fa-circle" style="font-size:8px; margin-right:4px;"></i> ${a.status}
-                            </div>
-                            <div class="agent-icon" style="color:${a.status === 'online' ? 'var(--accent-green)' : 'var(--text-muted)'}">
-                                <i class="fa-solid fa-robot"></i>
-                            </div>
-                            <h3>${a.name}</h3>
-                            <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">🌐 ${a.address}:${a.port}</div>
-                            <div style="display:flex; gap:6px; justify-content:center; margin-bottom:16px; flex-wrap:wrap;">
-                                <span class="badge" style="background:var(--surface-700)">${a.profile}</span>
-                                <span class="badge" style="background:var(--surface-800)">${a.source || 'remote'}</span>
-                                ${(a.capabilities || []).slice(0, 2).map(c => `<span class="badge" style="background:var(--surface-600)">${c}</span>`).join('')}
-                            </div>
-                            <div class="hire-actions">
-                                <button class="btn btn-primary" onclick="updateContextPanel('${a.id}', 'Agent')" style="flex:1; justify-content:center">Inspect</button>
-                                <button class="btn" style="flex:1; justify-content:center" onclick="showToast('Hiring request sent', 'info')">Hire</button>
-                            </div>
-                        </div>
-                    `).join('')
-                    : '<div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--text-muted);">No agents found. Use "Discover" or "Add Agent".</div>';
+            const res = await apiFetch(`${API}/api/agents`, { cache: 'no-store' });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+            const data = await res.json();
+            const agents = extractAgentList(data)
+                .filter(a => a && typeof a === 'object')
+                .map((a, idx) => ({
+                    id: String(a.id || `agent-${idx + 1}`),
+                    name: String(a.name || a.id || `Agent-${idx + 1}`),
+                    address: String(a.address || '127.0.0.1'),
+                    port: Number.isFinite(Number(a.port)) ? Number(a.port) : '-',
+                    status: normalizeAgentStatus(a.status),
+                    profile: String(a.profile || 'Worker'),
+                    source: String(a.source || 'remote'),
+                    capabilities: normalizeCapabilities(a.capabilities),
+                }));
+
+            if (agents.length === 0) {
+                grid.innerHTML = '<div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--text-muted);">No agents found. Use "Discover" or "Add Agent".</div>';
+                return;
             }
-        } catch(e) {
+
+            grid.innerHTML = agents.map(a => {
+                const isOnline = a.status === 'online';
+                const capsHtml = a.capabilities
+                    .slice(0, 2)
+                    .map(c => `<span class="badge" style="background:var(--surface-600)">${escapeHtml(c)}</span>`)
+                    .join('');
+
+                return `
+                    <div class="agent-card" data-agent-id="${escapeHtml(a.id)}" data-agent-name="${escapeHtml(a.name)}">
+                        <div class="badge ${isOnline ? 'badge-green' : 'badge-gold'}" style="position:absolute; top:12px; right:12px;">
+                            <i class="fa-solid fa-circle" style="font-size:8px; margin-right:4px;"></i> ${escapeHtml(a.status)}
+                        </div>
+                        <div class="agent-icon" style="color:${isOnline ? 'var(--accent-green)' : 'var(--text-muted)'}">
+                            <i class="fa-solid fa-robot"></i>
+                        </div>
+                        <h3>${escapeHtml(a.name)}</h3>
+                        <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">@ ${escapeHtml(a.address)}:${escapeHtml(a.port)}</div>
+                        <div style="display:flex; gap:6px; justify-content:center; margin-bottom:16px; flex-wrap:wrap;">
+                            <span class="badge" style="background:var(--surface-700)">${escapeHtml(a.profile)}</span>
+                            <span class="badge" style="background:var(--surface-800)">${escapeHtml(a.source)}</span>
+                            ${capsHtml}
+                        </div>
+                        <div class="hire-actions">
+                            <button class="btn btn-primary inspect-agent-btn" style="flex:1; justify-content:center">Inspect</button>
+                            <button class="btn hire-agent-btn" style="flex:1; justify-content:center">Hire</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        } catch (e) {
             console.error("Failed to fetch marketplace agents:", e);
-            grid.innerHTML = '<div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--risk-l3);">Error loading agents.</div>';
+            const reason = escapeHtml(e?.message || 'unknown error');
+            grid.innerHTML = `<div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--risk-l3);">Error loading agents (${reason}).</div>`;
         }
     }
 
-    // "New Task" button
-    const newTaskBtn = document.querySelector('#view-board .btn-primary');
-    if (newTaskBtn) {
-        newTaskBtn.addEventListener('click', async () => {
-            const taskName = prompt("Enter new task title:");
-            if (taskName) {
+    function populateTaskAssigneeOptions() {
+        const select = document.getElementById('taskAssigneeInput');
+        if (!select) return;
+
+        const assignees = cachedAgents.length > 0
+            ? cachedAgents
+            : [{ id: selectedAgentId || 'local', name: selectedAgentName || 'local' }];
+
+        select.innerHTML = '';
+
+        const unassigned = document.createElement('option');
+        unassigned.value = '';
+        unassigned.textContent = 'Unassigned';
+        select.appendChild(unassigned);
+
+        assignees.forEach(agent => {
+            const id = String(agent.id || '').trim();
+            if (!id) return;
+            const option = document.createElement('option');
+            option.value = id;
+            option.textContent = `${agent.name || id} (${id})`;
+            select.appendChild(option);
+        });
+
+        if (selectedAgentId && [...select.options].some(o => o.value === selectedAgentId)) {
+            select.value = selectedAgentId;
+        } else {
+            select.value = '';
+        }
+    }
+
+    function showNewTaskModal() {
+        const modal = document.getElementById('newTaskModal');
+        if (!modal) return;
+        populateTaskAssigneeOptions();
+        modal.style.display = 'flex';
+        const title = document.getElementById('taskTitleInput');
+        if (title) title.focus();
+    }
+
+    function hideNewTaskModal() {
+        const modal = document.getElementById('newTaskModal');
+        if (modal) modal.style.display = 'none';
+
+        const form = document.getElementById('newTaskForm');
+        if (form) form.reset();
+
+        const tags = document.getElementById('taskTagsInput');
+        if (tags) tags.value = 'dashboard';
+
+        const priority = document.getElementById('taskPriorityInput');
+        if (priority) priority.value = 'Medium';
+    }
+
+    async function submitNewTask() {
+        const titleInput = document.getElementById('taskTitleInput');
+        const descInput = document.getElementById('taskDescriptionInput');
+        const priorityInput = document.getElementById('taskPriorityInput');
+        const assigneeInput = document.getElementById('taskAssigneeInput');
+        const tagsInput = document.getElementById('taskTagsInput');
+        const submitBtn = document.getElementById('newTaskSubmitBtn');
+
+        const title = (titleInput?.value || '').trim();
+        if (!title) {
+            showToast('Task title is required', 'error');
+            titleInput?.focus();
+            return;
+        }
+
+        const payload = {
+            title,
+            description: (descInput?.value || '').trim() || 'Created from Agent Board',
+            priority: priorityInput?.value || 'Medium',
+            tags: (tagsInput?.value || '')
+                .split(',')
+                .map(t => t.trim())
+                .filter(Boolean),
+        };
+
+        const assignee = (assigneeInput?.value || '').trim();
+        if (assignee) payload.assignee = assignee;
+        if (payload.tags.length === 0) payload.tags = ['dashboard'];
+
+        const originalBtn = submitBtn?.innerHTML || '';
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creating...';
+        }
+
+        try {
+            const res = await apiFetch(`${API}/api/tasks`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+
+            if (!res.ok) {
+                let reason = `HTTP ${res.status}`;
                 try {
-                    const res = await apiFetch(`${API}/api/tasks`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            title: taskName,
-                            description: "Created from Dashboard",
-                            priority: "Medium",
-                            assignee: selectedAgentId,
-                            tags: ["dashboard"]
-                        })
-                    });
-                    if (res.ok) {
-                        showToast(`Task "${taskName}" created for ${selectedAgentName}`, 'success');
-                        fetchTasks(); // Refresh board
-                    }
-                } catch(e) {
-                    showToast("Failed to create task", "error");
-                }
+                    const err = await res.json();
+                    if (err?.error) reason = err.error;
+                } catch (_) {}
+                throw new Error(reason);
             }
+
+            hideNewTaskModal();
+            showToast(`Task "${title}" created`, 'success');
+            fetchTasks();
+        } catch (e) {
+            showToast(`Failed to create task: ${e?.message || 'unknown error'}`, 'error');
+        } finally {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalBtn;
+            }
+        }
+    }
+
+    // "New Task" modal triggers
+    const newTaskBtn = document.getElementById('newTaskBtn');
+    if (newTaskBtn) {
+        newTaskBtn.addEventListener('click', showNewTaskModal);
+    }
+
+    const newTaskModal = document.getElementById('newTaskModal');
+    if (newTaskModal) {
+        newTaskModal.addEventListener('click', (e) => {
+            if (e.target === newTaskModal) hideNewTaskModal();
         });
     }
 
-    // ── Integrated Chat Logic ──
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && newTaskModal && newTaskModal.style.display === 'flex') {
+            hideNewTaskModal();
+        }
+    });
+    // ?? Integrated Chat Logic ??
     const API = window.location.origin;
     const chatArea = document.getElementById('chatArea');
     const chatInput = document.getElementById('chatInput');
@@ -1755,7 +2083,7 @@
         if (role === 'agent' && data) {
             const provider = data.provider || 'AI';
             const confidence = data.confidence ? (data.confidence * 100).toFixed(0) : '?';
-            metaHtml = `<div class="msg-info">${privacyIcon} ${provider} · ${confidence}% accuracy · ${new Date().toLocaleTimeString()}</div>`;
+            metaHtml = `<div class="msg-info">${privacyIcon} ${provider} 쨌 ${confidence}% accuracy 쨌 ${new Date().toLocaleTimeString()}</div>`;
             
             // Handle execution results if present
             if (data.exec_result) {
@@ -1818,7 +2146,7 @@
         }
     });
 
-    // ── WebSocket for real-time events ──
+    // ?? WebSocket for real-time events ??
     function initWebSocket() {
         const wsPort = parseInt(window.location.port || '9444') + 1;
         const ws = new WebSocket(`ws://${window.location.hostname}:${wsPort}`);
@@ -1837,23 +2165,23 @@
 
                 switch (type) {
                     case 'Alert':
-                        addMsg('system', `🚨 ALERT: ${payload.message}`);
+                        addMsg('system', `?슚 ALERT: ${payload.message}`);
                         break;
                     case 'CommandStarted':
-                        addMsg('system', `⚡ EXECUTING: ${payload.command}`);
+                        addMsg('system', `??EXECUTING: ${payload.command}`);
                         break;
                     case 'CommandCompleted':
-                        const status = payload.success ? '✅ Success' : '❌ Failed';
-                        addMsg('system', `🏁 ${status}: Command finished in ${payload.duration_ms}ms (code: ${payload.exit_code ?? '?'})`);
+                        const status = payload.success ? '??Success' : '??Failed';
+                        addMsg('system', `?뢾 ${status}: Command finished in ${payload.duration_ms}ms (code: ${payload.exit_code ?? '?'})`);
                         break;
                     case 'PeerConnected':
-                        addMsg('system', `🔗 Peer connected: ${payload.device_name || payload.peer_id}`);
+                        addMsg('system', `?뵕 Peer connected: ${payload.device_name || payload.peer_id}`);
                         break;
                     case 'PeerDisconnected':
-                        addMsg('system', `🔌 Peer disconnected: ${payload.peer_id}`);
+                        addMsg('system', `?뵆 Peer disconnected: ${payload.peer_id}`);
                         break;
                     case 'StatusChange':
-                        addMsg('system', `📡 Status changed: ${payload.previous} → ${payload.current}`);
+                        addMsg('system', `?뱻 Status changed: ${payload.previous} ??${payload.current}`);
                         break;
                     case 'MetricUpdate':
                         // Optionally update dashboard stats here if needed
@@ -1869,9 +2197,48 @@
         };
     }
 
+    // Dev-only auto reload: refresh browser when watch mode restarts the server.
+    function initDevAutoReload() {
+        const isLocal =
+            window.location.hostname === '127.0.0.1' ||
+            window.location.hostname === 'localhost';
+        if (!isLocal) return;
+
+        let lastUptime = null;
+        let serverWasDown = false;
+
+        const probe = async () => {
+            try {
+                const res = await fetch(`${API}/api/health`, { cache: 'no-store' });
+                if (!res.ok) throw new Error(`health ${res.status}`);
+                const data = await res.json();
+                const uptime = Number(data.uptime_secs || 0);
+
+                // If server came back after downtime, reload to get newest bundled HTML/JS.
+                if (serverWasDown) {
+                    window.location.reload();
+                    return;
+                }
+
+                // Restart detected (uptime dropped): force full reload.
+                if (lastUptime !== null && uptime + 2 < lastUptime) {
+                    window.location.reload();
+                    return;
+                }
+                lastUptime = uptime;
+            } catch (_) {
+                serverWasDown = true;
+            }
+        };
+
+        probe();
+        setInterval(probe, 1500);
+    }
+
     // Initialize
     loadQuickActions();
     initWebSocket();
+    initDevAutoReload();
     fetchStatus();
     fetchTasks();
     fetchMemory();
@@ -1879,3 +2246,4 @@
 </script>
 </body>
 </html>
+

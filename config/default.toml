@@ -58,13 +58,13 @@ enabled = true
 port = 9444
 bind = "127.0.0.1"
 auto_open = true
-max_agents = 1
-license_tier = "free"
+max_agents = 4
+license_tier = "pro"
 work_profile = "all"
 
 [websocket]
 enabled = true
-port = 9445
+port = 9460
 bind = "127.0.0.1"
 max_clients = 50
 heartbeat_secs = 30

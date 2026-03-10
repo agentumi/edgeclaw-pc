@@ -1,14 +1,17 @@
-//! Web UI HTTP server for the EdgeClaw Agent chat interface.
+﻿//! Web UI HTTP server for the EdgeClaw Agent chat interface.
 //!
 //! Serves an embedded single-page chat application and exposes JSON API endpoints
 //! for chat, quick actions, and status queries. Uses raw tokio TCP — no HTTP framework
 //! dependency needed. Includes session-based authentication and rate limiting.
 
+use crate::activity_log::ActivityType;
 use crate::ai::QuickAction;
 use crate::error::AgentError;
+use crate::memory_engine::{Lesson, MemoryTier, TimedMemory};
 use crate::metrics::MetricsRegistry;
 use crate::security::{RateLimitConfig, RateLimiter};
 use crate::AgentEngine;
+use chrono::{Duration as ChronoDuration, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -16,6 +19,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, Mutex};
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 /// Embedded HTML chat page (compiled into the binary)
 const CHAT_HTML: &str = include_str!("../static/chat.html");
@@ -529,6 +533,18 @@ async fn handle_http(
             handle_agent_mode(&mut stream, &engine, &body, cors_origin).await
         }
         ("GET", "/api/memory") => handle_memory_info(&mut stream, &engine, cors_origin).await,
+        ("PUT", "/api/memory/core") => {
+            let body = extract_body(&request);
+            handle_memory_core_update(&mut stream, &engine, &body, cors_origin).await
+        }
+        ("POST", "/api/memory/tier") => {
+            let body = extract_body(&request);
+            handle_memory_tier_add(&mut stream, &engine, &body, cors_origin).await
+        }
+        ("POST", "/api/memory/lessons") => {
+            let body = extract_body(&request);
+            handle_memory_lesson_add(&mut stream, &engine, &body, cors_origin).await
+        }
         // ─── Task Board API ──────────────────────────────
         ("GET", "/api/tasks") => {
             handle_tasks_list(&mut stream, &engine, &request, cors_origin).await
@@ -1008,6 +1024,186 @@ async fn handle_memory_info(
             .unwrap_or_else(|e| e.into_inner());
         serde_json::to_vec(&*memory).unwrap_or_default()
     };
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+#[derive(serde::Deserialize)]
+struct MemoryCoreUpdate {
+    soul: String,
+    #[serde(default)]
+    rules: Vec<String>,
+}
+
+/// PUT /api/memory/core — Update core SOUL and absolute rules
+async fn handle_memory_core_update(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let req: MemoryCoreUpdate = match serde_json::from_str(body) {
+        Ok(r) => r,
+        Err(e) => {
+            let err = serde_json::json!({"error": format!("invalid JSON: {}", e)});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    let (json, rule_count) = {
+        let mut memory = engine
+            .memory_engine()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        memory.core.update_soul(req.soul.trim());
+        memory.core.absolute_rules = req
+            .rules
+            .into_iter()
+            .map(|r| r.trim().to_string())
+            .filter(|r| !r.is_empty())
+            .collect();
+        memory.save_to_markdown_file(&engine.memory_storage_path())?;
+        let json = serde_json::to_vec(&memory.core).unwrap_or_default();
+        (json, memory.core.absolute_rules.len())
+    };
+
+    let activity = ActivityType::Custom {
+        category: "memory".to_string(),
+        data: serde_json::json!({"action": "core_update", "rules": rule_count}),
+    };
+    engine.record_activity(activity, "Memory core updated", Uuid::new_v4(), 1, &["memory", "core"], None, "all");
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+#[derive(serde::Deserialize)]
+struct MemoryTierAdd {
+    tier: String,
+    content: String,
+    #[serde(default)]
+    importance: Option<u8>,
+}
+
+/// POST /api/memory/tier — Add a tiered memory entry
+async fn handle_memory_tier_add(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let req: MemoryTierAdd = match serde_json::from_str(body) {
+        Ok(r) => r,
+        Err(e) => {
+            let err = serde_json::json!({"error": format!("invalid JSON: {}", e)});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    let content = req.content.trim();
+    if content.is_empty() {
+        let err = serde_json::json!({"error": "content is required"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 400, "application/json", &json, cors_origin).await;
+    }
+
+    let tier_key = req.tier.to_lowercase();
+    let (tier, ttl_days) = match tier_key.as_str() {
+        "m30" => (MemoryTier::M30, 30),
+        "m90" => (MemoryTier::M90, 90),
+        "m365" => (MemoryTier::M365, 365),
+        _ => {
+            let err = serde_json::json!({"error": "invalid tier"});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    let now = Utc::now();
+    let mem = TimedMemory {
+        id: Uuid::new_v4(),
+        content: content.to_string(),
+        source_activity_id: None,
+        tier,
+        created_at: now,
+        expires_at: now + ChronoDuration::days(ttl_days),
+        reference_count: 0,
+        importance: req.importance.unwrap_or(1),
+    };
+
+    {
+        let mut memory = engine
+            .memory_engine()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        memory.tiers.add_memory(mem.clone());
+        memory.save_to_markdown_file(&engine.memory_storage_path())?;
+    }
+
+    let activity = ActivityType::Custom {
+        category: "memory".to_string(),
+        data: serde_json::json!({"action": "tier_add", "tier": tier_key}),
+    };
+    engine.record_activity(activity, "Memory entry added", Uuid::new_v4(), 1, &["memory", "tier"], None, "all");
+
+    let json = serde_json::to_vec(&mem).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+#[derive(serde::Deserialize)]
+struct MemoryLessonAdd {
+    pattern: String,
+    #[serde(default)]
+    effectiveness: Option<f64>,
+}
+
+/// POST /api/memory/lessons — Add a lesson pattern
+async fn handle_memory_lesson_add(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let req: MemoryLessonAdd = match serde_json::from_str(body) {
+        Ok(r) => r,
+        Err(e) => {
+            let err = serde_json::json!({"error": format!("invalid JSON: {}", e)});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    let pattern = req.pattern.trim();
+    if pattern.is_empty() {
+        let err = serde_json::json!({"error": "pattern is required"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 400, "application/json", &json, cors_origin).await;
+    }
+
+    let effectiveness = req.effectiveness.unwrap_or(0.7).clamp(0.0, 1.0);
+    let lesson = Lesson {
+        id: Uuid::new_v4(),
+        pattern: pattern.to_string(),
+        source_errors: Vec::new(),
+        applied_count: 0,
+        effectiveness,
+    };
+
+    {
+        let mut memory = engine
+            .memory_engine()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        memory.lessons.add_lesson(lesson.clone());
+        memory.save_to_markdown_file(&engine.memory_storage_path())?;
+    }
+
+    let activity = ActivityType::Custom {
+        category: "memory".to_string(),
+        data: serde_json::json!({"action": "lesson_add"}),
+    };
+    engine.record_activity(activity, "Lesson published", Uuid::new_v4(), 1, &["memory", "lesson"], None, "all");
+
+    let json = serde_json::to_vec(&lesson).unwrap_or_default();
     send_response(stream, 200, "application/json", &json, cors_origin).await
 }
 
@@ -2945,6 +3141,54 @@ mod tests {
         assert!(resp.contains("context"));
     }
 
+    #[tokio::test]
+    async fn test_webui_memory_core_update() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let body = r#"{"soul":"Core updated","rules":["Rule A","Rule B"]}"#;
+        let req = format!(
+            "PUT /api/memory/core HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("Core updated"));
+    }
+
+    #[tokio::test]
+    async fn test_webui_memory_tier_add() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let body = r#"{"tier":"m30","content":"Test memory entry","importance":2}"#;
+        let req = format!(
+            "POST /api/memory/tier HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("Test memory entry"));
+    }
+
+    #[tokio::test]
+    async fn test_webui_memory_lesson_add() {
+        let (addr, _engine, _tx) = start_test_server("").await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let body = r#"{"pattern":"If X then Y","effectiveness":0.6}"#;
+        let req = format!(
+            "POST /api/memory/lessons HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        let resp = http_request(&addr, &req).await;
+        assert!(resp.contains("HTTP/1.1 200"));
+        assert!(resp.contains("If X then Y"));
+    }
+
     #[test]
     fn test_rbac_access_levels() {
         assert_eq!(
@@ -2976,3 +3220,9 @@ mod tests {
         assert!(ApiAccessLevel::Admin < ApiAccessLevel::Owner);
     }
 }
+
+
+
+
+
+

@@ -2,6 +2,7 @@ use crate::activity_log::{ActivityEntry, ActivityType};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::Path;
 use uuid::Uuid;
 
 /// 에이전트의 성향 및 자아 (M0 CoreMemory)
@@ -281,6 +282,23 @@ impl MemoryEngine {
 
         serde_json::from_str(&json_str).ok()
     }
+
+    /// Save the memory state to a markdown file.
+    pub fn save_to_markdown_file(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, self.serialize_to_markdown())
+    }
+
+    /// Load the memory state from a markdown file.
+    pub fn load_from_markdown_file(path: &Path) -> std::io::Result<Option<Self>> {
+        if !path.exists() {
+            return Ok(None);
+        }
+        let content = std::fs::read_to_string(path)?;
+        Ok(Self::deserialize_from_markdown(&content))
+    }
 }
 
 #[cfg(test)]
@@ -392,5 +410,30 @@ mod tests {
 
         let deserialized = MemoryEngine::deserialize_from_markdown(&md).unwrap();
         assert_eq!(deserialized.core.soul.content, "Testing Soul");
+    }
+
+    #[test]
+    fn test_markdown_persistence_roundtrip() {
+        let mut engine = MemoryEngine::new();
+        engine.core.update_soul("Persisted Soul");
+        engine.core.add_rule("Persisted Rule");
+        engine.lessons.add_lesson(Lesson {
+            id: Uuid::new_v4(),
+            pattern: "Persisted Pattern".to_string(),
+            source_errors: vec![],
+            applied_count: 2,
+            effectiveness: 0.9,
+        });
+
+        let path = std::env::temp_dir().join(format!(
+            "edgeclaw_memory_{}.md",
+            Uuid::new_v4()
+        ));
+        engine.save_to_markdown_file(&path).unwrap();
+        let loaded = MemoryEngine::load_from_markdown_file(&path).unwrap().unwrap();
+        assert_eq!(loaded.core.soul.content, "Persisted Soul");
+        assert!(loaded.core.absolute_rules.contains(&"Persisted Rule".to_string()));
+        assert_eq!(loaded.lessons.lessons.len(), 1);
+        let _ = std::fs::remove_file(path);
     }
 }

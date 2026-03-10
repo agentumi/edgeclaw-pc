@@ -43,7 +43,7 @@
             --text-secondary: #94a3b8;
             --text-muted: #64748b;
             
-            --font-sans: 'Inter', -apple-system, sans-serif;
+            --font-sans: 'Inter', 'Pretendard', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Segoe UI', sans-serif;
             --font-mono: 'JetBrains Mono', monospace;
             
             --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -91,6 +91,7 @@
         .badge-green { background: rgba(34, 197, 94, 0.15); color: var(--accent-green); border: 1px solid rgba(34, 197, 94, 0.3); }
         .badge-blue { background: rgba(59, 130, 246, 0.15); color: var(--risk-l1); border: 1px solid rgba(59, 130, 246, 0.3); }
         .badge-gold { background: rgba(245, 158, 11, 0.15); color: var(--accent-gold); border: 1px solid rgba(245, 158, 11, 0.3); }
+        .badge-red { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); border: 1px solid rgba(239, 68, 68, 0.3); }
         
         .btn {
             background: var(--surface-700);
@@ -253,6 +254,9 @@
         .card.col-8 { grid-column: span 8; }
         .card.col-4 { grid-column: span 4; }
         .card.col-6 { grid-column: span 6; }
+        .task-overview-col { flex:1; background:var(--surface-800); padding:16px; border-radius:8px; border-top:3px solid var(--surface-700); }
+        .task-overview-col h4 { display:flex; justify-content:space-between; align-items:center; font-size:13px; }
+        .task-overview-item { background:var(--surface-900); padding:10px; border-radius:8px; border:1px solid var(--surface-700); }
         
         .agent-list-item {
             display: flex;
@@ -332,6 +336,12 @@
             padding: 16px; background: var(--surface-800); border-left: 3px solid var(--primary-500); border-radius: 4px; margin-bottom: 16px;
             font-family: var(--font-mono); font-size: 12px; line-height: 1.6;
         }
+        .memory-edit-section { display: flex; flex-direction: column; gap: 14px; margin-bottom: 12px; }
+        .memory-history-date { font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 6px; }
+        .memory-history-item { padding: 12px; border: 1px solid var(--surface-700); border-radius: 8px; background: var(--surface-900); display: flex; flex-direction: column; gap: 6px; }
+        .memory-history-item h4 { font-size: 13px; margin-bottom: 0; display: flex; justify-content: space-between; align-items: center; }
+        .memory-history-item p { font-size: 12px; color: var(--text-muted); margin: 0; }
+        .memory-history-meta { font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 8px; }
 
         /* P4-1-5 View 4: Agent Marketplace */
         .market-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
@@ -441,6 +451,40 @@
         }
         .qa-btn:hover { background: var(--primary-600); color: white; border-color: var(--primary-600); }
         .qa-btn.confirm { border-color: rgba(245,158,11,0.3); color: var(--accent-gold); }
+        .qa-btn.qa-icon {
+            width: 30px;
+            height: 30px;
+            padding: 0;
+            border-radius: 10px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            font-size: 12px;
+        }
+        .qa-btn.qa-icon i { font-size: 13px; }
+        .qa-btn.qa-icon::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%) translateY(4px);
+            background: rgba(12, 14, 22, 0.95);
+            color: var(--text-primary);
+            padding: 6px 8px;
+            border-radius: 8px;
+            border: 1px solid rgba(99, 102, 241, 0.35);
+            font-size: 11px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            z-index: 20;
+        }
+        .qa-btn.qa-icon:hover::after {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
 
         .chat-area {
             flex: 1;
@@ -709,7 +753,7 @@
         
         <div class="device-groups">
             <div class="group-title">
-                <span id="sidebarGroupTitle">?뱚 Local Agents</span>
+                <span id="sidebarGroupTitle">Local Agents</span>
                 <i class="fa-solid fa-plus" style="cursor:pointer"></i>
             </div>
             <div id="sidebarDeviceGroups">
@@ -749,7 +793,7 @@
             <div style="display:flex; align-items:center; gap: 16px;">
                 <span class="badge badge-green"><i class="fa-solid fa-shield-halved"></i> Zero-Trust Active</span>
                 <span id="topbarActiveAgents" class="badge badge-blue"><i class="fa-solid fa-server"></i> 1 Agent Active</span>
-                <span id="balance-display" style="font-family:var(--font-mono); color:var(--accent-gold); font-weight:600;"><i class="fa-brands fa-ethereum"></i> 142.5 SUI</span>
+                <span id="balance-display" style="font-family:var(--font-mono); color:var(--accent-gold); font-weight:600;"><i class="fa-solid fa-microchip"></i> Loading...</span>
                 <div style="width:32px; height:32px; background:var(--primary-glow); border:1px solid var(--primary-500); border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--primary-400); font-size:12px; font-weight:700;">KS</div>
             </div>
         </header>
@@ -771,41 +815,40 @@
                 <!-- Today's Memory -->
                 <div class="card col-3">
                     <div class="card-title"><i class="fa-solid fa-brain"></i> Today's Memory</div>
-                    <div class="stat-huge">+12</div>
-                    <div style="color:var(--text-muted); margin-bottom:12px">New memory fragments</div>
-                    <div class="badge badge-blue"><i class="fa-solid fa-graduation-cap"></i> +2 Lessons Extracted</div>
-                    <div style="margin-top:20px; font-size:11px; color:var(--text-muted); display:flex; gap:6px; align-items:center;">
-                        <i class="fa-solid fa-clock"></i> Next Distillation: 23:00 (3h left)
+                    <div class="stat-huge" id="memory-fragments">--</div>
+                    <div id="memory-fragments-label" style="color:var(--text-muted); margin-bottom:12px">Fragments</div>
+                    <div class="badge badge-blue" id="memory-lessons-pill"><i class="fa-solid fa-graduation-cap"></i> 0 Lessons</div>
+                    <div id="memory-distillation" style="margin-top:20px; font-size:11px; color:var(--text-muted); display:flex; gap:6px; align-items:center;">
+                        <i class="fa-solid fa-clock"></i> Next distillation pending
                     </div>
                 </div>
 
                 <!-- Economy -->
                 <div class="card col-3">
                     <div class="card-title"><i class="fa-solid fa-coins"></i> Economy</div>
-                    <div class="stat-huge" style="color:var(--accent-gold)">28.3</div>
-                    <div style="color:var(--text-muted); margin-bottom:12px">SUI earned today</div>
-                    <div class="badge badge-green">Reputation: 87.3 (+1.2)</div>
-                    <div style="margin-top:20px; font-size:11px; color:var(--text-muted); display:flex; gap:6px; align-items:center;">
-                        <i class="fa-solid fa-handshake"></i> 3 Delegations completed
+                    <div class="stat-huge" id="economy-metric" style="color:var(--accent-gold)">--</div>
+                    <div id="economy-subtitle" style="color:var(--text-muted); margin-bottom:12px">System utilization</div>
+                    <div class="badge badge-green" id="economy-capabilities">Capabilities</div>
+                    <div id="economy-uptime" style="margin-top:20px; font-size:11px; color:var(--text-muted); display:flex; gap:6px; align-items:center;">
+                        <i class="fa-solid fa-handshake"></i> Uptime —
                     </div>
                 </div>
 
                 <!-- Task Overview -->
                 <div class="card col-12">
                     <div class="card-title"><i class="fa-solid fa-list-check"></i> Task Overview</div>
-                    <div style="display:flex; gap:12px;">
-                        <div style="flex:1; background:var(--surface-800); padding:16px; border-radius:8px; border-top:3px solid var(--text-muted)">
-                            <h4 style="margin-bottom:12px;">Todo (3)</h4>
-                            <div style="background:var(--surface-700); padding:10px; border-radius:6px; margin-bottom:8px;">?쒖옣 ?곗씠???섏쭛</div>
-                            <div style="background:var(--surface-700); padding:10px; border-radius:6px;">二쇨컙 蹂닿퀬???쒗뵆由?/div>
+                    <div id="task-overview" style="display:flex; gap:12px;">
+                        <div class="task-overview-col" data-col="todo">
+                            <h4 style="margin-bottom:12px;">Todo (0)</h4>
+                            <div class="task-overview-items" style="display:flex; flex-direction:column; gap:8px;"></div>
                         </div>
-                        <div style="flex:1; background:var(--surface-800); padding:16px; border-radius:8px; border-top:3px solid var(--primary-500)">
-                            <h4 style="margin-bottom:12px;">In Progress (2)</h4>
-                            <div style="background:var(--surface-700); padding:10px; border-radius:6px;">?곴텒 遺꾩꽍 (68%)<br><span style="font-size:11px; color:var(--text-muted)">?윟 WorkStation-01</span></div>
+                        <div class="task-overview-col" data-col="progress">
+                            <h4 style="margin-bottom:12px;">In Progress (0)</h4>
+                            <div class="task-overview-items" style="display:flex; flex-direction:column; gap:8px;"></div>
                         </div>
-                        <div style="flex:1; background:var(--surface-800); padding:16px; border-radius:8px; border-top:3px solid var(--accent-green)">
-                            <h4 style="margin-bottom:12px;">Done Today (7)</h4>
-                            <div style="background:var(--surface-700); padding:10px; border-radius:6px;">??ML 異붾줎 紐⑤뱢 ?뚯뒪??/div>
+                        <div class="task-overview-col" data-col="done">
+                            <h4 style="margin-bottom:12px;">Done (0)</h4>
+                            <div class="task-overview-items" style="display:flex; flex-direction:column; gap:8px;"></div>
                         </div>
                     </div>
                 </div>
@@ -827,8 +870,8 @@
                 <div class="chat-area" id="chatArea">
                     <div class="msg system">
                         <div class="msg-bubble">
-                            EdgeClaw Command Center v2.0 ??Connected to Agent Node<br>
-                            Status: <span id="chatStatusText" style="color:var(--accent-green)">Ready</span> 쨌 Zero-Trust Channel Secure
+                            EdgeClaw Command Center v2.0 - Connected to Agent Node<br>
+                            Status: <span id="chatStatusText" style="color:var(--accent-green)">Ready</span> - Zero-Trust Channel Secure
                         </div>
                     </div>
                 </div>
@@ -862,19 +905,19 @@
                     </div>
                     <div class="kanban-cards">
                         <div class="task-card" draggable="true" ondragstart="drag(event)" id="task-1">
-                            <div class="task-title"><i class="fa-solid fa-lock" style="color:var(--primary-500); margin-right:6px;"></i>?쒖옣 ?곗씠???섏쭛 諛??꾩쿂由?/div>
+                            <div class="task-title"><i class="fa-solid fa-lock" style="color:var(--primary-500); margin-right:6px;"></i>Collect and preprocess market data</div>
                             <span class="badge badge-green">Risk: L0 Safe</span>
                             <div class="task-meta">
-                                <span><i class="fa-solid fa-server"></i> Local ?ㅽ뻾 (Sanctum)</span>
+                                <span><i class="fa-solid fa-server"></i> Local execution (Sanctum)</span>
                                 <span>3 / 9 subtasks</span>
                             </div>
                         </div>
                         <div class="task-card" draggable="true" ondragstart="drag(event)" id="task-2">
-                            <div class="task-title"><i class="fa-solid fa-earth-americas" style="color:var(--accent-purple); margin-right:6px;"></i>二쇨컙 寃곗궛 蹂닿퀬???묒꽦</div>
+                            <div class="task-title"><i class="fa-solid fa-earth-americas" style="color:var(--accent-purple); margin-right:6px;"></i>Write weekly analysis report</div>
                             <span class="badge badge-gold">Risk: L2 Sensitive</span>
-                            <div style="margin-top:8px;"><span class="badge badge-blue" style="cursor:pointer; background:rgba(168, 85, 247, 0.1); color:var(--accent-purple); border-color:var(--accent-purple)"><i class="fa-solid fa-handshake"></i> 留덉폆 ?꾩엫 媛??/span></div>
+                            <div style="margin-top:8px;"><span class="badge badge-blue" style="cursor:pointer; background:rgba(168, 85, 247, 0.1); color:var(--accent-purple); border-color:var(--accent-purple)"><i class="fa-solid fa-handshake"></i> Delegation available</span></div>
                             <div class="task-meta">
-                                <span style="color:var(--accent-purple)">0.5 SUI ?덉긽 鍮꾩슜</span>
+                                <span style="color:var(--accent-purple)">Estimated cost: 0.5 SUI</span>
                             </div>
                         </div>
                     </div>
@@ -887,12 +930,12 @@
                     </div>
                     <div class="kanban-cards">
                         <div class="task-card" draggable="true" ondragstart="drag(event)" id="task-3" style="border-left:3px solid var(--primary-500)">
-                            <div class="task-title"><i class="fa-solid fa-lock" style="color:var(--primary-500); margin-right:6px;"></i>?곴텒 遺꾩꽍 吏???먯깋</div>
+                            <div class="task-title"><i class="fa-solid fa-lock" style="color:var(--primary-500); margin-right:6px;"></i>Investigate market trend signals</div>
                             <div class="progress-bar" style="width:100%; margin: 8px 0;"><div class="progress-fill" style="width:80%"></div></div>
-                            <div style="font-size:11px; margin-bottom:8px">?윟 WorkStation-01 (80%)</div>
+                            <div style="font-size:11px; margin-bottom:8px">@ WorkStation-01 (80%)</div>
                             <span class="badge badge-blue">Risk: L1 Restricted</span>
                             <div class="task-meta">
-                                <span>?썳 ?ㅽ뀒?댄궧 寃利?| Sanctum</span>
+                                <span>Staking validation | Sanctum</span>
                             </div>
                         </div>
                     </div>
@@ -905,10 +948,10 @@
                     </div>
                     <div class="kanban-cards">
                         <div class="task-card" style="opacity:0.7">
-                            <div class="task-title" style="text-decoration:line-through; color:var(--text-muted)">??ML 異붾줎 紐⑤뜽 理쒖쟻??#47</div>
+                            <div class="task-title" style="text-decoration:line-through; color:var(--text-muted)">ML extraction model optimization #47</div>
                             <div style="margin-top:8px; display:flex; gap:8px;">
                                 <span class="badge badge-gold" style="border:none"><i class="fa-brands fa-ethereum"></i> 28.3 SUI</span>
-                                <span class="badge badge-green" style="border:none">狩?Rep +2.1</span>
+                                <span class="badge badge-green" style="border:none">Rep +2.1</span>
                                 <span class="badge" style="background:rgba(168, 85, 247, 0.1); color:var(--accent-purple); border:none;"><i class="fa-solid fa-earth-americas"></i> Public</span>
                             </div>
                         </div>
@@ -923,61 +966,50 @@
                 <h2 style="font-size:20px; font-weight:600;">Memory Explorer</h2>
                 <div class="search-bar" style="background:var(--surface-800); padding:6px 14px; border-radius:6px; border:1px solid var(--surface-700); width:250px;">
                     <i class="fa-solid fa-magnifying-glass" style="color:var(--text-muted)"></i>
-                    <input type="text" placeholder="FTS Search..." style="background:transparent; border:none; outline:none; color:var(--text-primary); margin-left:8px;">
+                    <input id="memorySearchInput" type="text" placeholder="FTS Search..." style="background:transparent; border:none; outline:none; color:var(--text-primary); margin-left:8px;">
                 </div>
             </div>
             
             <div class="memory-layout">
                 <div class="memory-tiers">
-                    <div class="tier-item active">
+                    <div class="tier-item active" data-tier="core">
                         <h4>M0 Core Memory</h4>
-                        <div style="font-size:11px; color:var(--text-muted)">12 items 쨌 SOUL & Rules</div>
+                        <div class="tier-meta" data-tier-meta="core" style="font-size:11px; color:var(--text-muted)">Loading...</div>
                     </div>
                     <div class="tier-item">
                         <h4>M30 Short-term</h4>
-                        <div style="font-size:11px; color:var(--text-muted)">156 items 쨌 Recent Context</div>
+                        <div class="tier-meta" data-tier-meta="m30" style="font-size:11px; color:var(--text-muted)">Loading...</div>
                     </div>
                     <div class="tier-item">
                         <h4>M90 Mid-term</h4>
-                        <div style="font-size:11px; color:var(--text-muted)">89 items 쨌 Project Knowledge</div>
+                        <div class="tier-meta" data-tier-meta="m90" style="font-size:11px; color:var(--text-muted)">Loading...</div>
                     </div>
                     <div class="tier-item">
                         <h4>M365 Long-term</h4>
-                        <div style="font-size:11px; color:var(--text-muted)">34 items 쨌 Hardened Facts</div>
+                        <div class="tier-meta" data-tier-meta="m365" style="font-size:11px; color:var(--text-muted)">Loading...</div>
                     </div>
-                    <div class="tier-item" style="border-color:var(--accent-purple)">
+                    <div class="tier-item" data-tier="lessons" style="border-color:var(--accent-purple)">
                         <h4 style="color:var(--accent-purple)"><i class="fa-solid fa-graduation-cap"></i> Lessons</h4>
-                        <div style="font-size:11px; color:var(--text-muted)">23 Extracted Patterns</div>
+                        <div class="tier-meta" data-tier-meta="lessons" style="font-size:11px; color:var(--text-muted)">Loading...</div>
                     </div>
                     
-                    <button class="btn" style="width:100%; justify-content:center; margin-top:12px;"><i class="fa-solid fa-clock-rotate-left"></i> Distillation History</button>
-                    <button class="btn" style="width:100%; justify-content:center; margin-top:8px;"><i class="fa-brands fa-git-alt"></i> Git Log</button>
+                    <button id="distillationBtn" class="btn" style="width:100%; justify-content:center; margin-top:12px;"><i class="fa-solid fa-timeline"></i> Memory Timeline</button>
+                    <button id="gitLogBtn" class="btn" style="width:100%; justify-content:center; margin-top:8px;"><i class="fa-brands fa-git-alt"></i> Git Log</button>
                 </div>
                 
                 <div class="memory-content">
                     <div style="display:flex; justify-content:space-between; margin-bottom:16px;">
-                        <h3 style="font-size:16px; color:var(--primary-400)">?쭬 SOUL.md</h3>
+                        <h3 id="memoryContentTitle" style="font-size:16px; color:var(--primary-400)">SOUL.md</h3>
                         <div style="display:flex; gap:8px;">
                             <span class="badge" style="background:rgba(99, 102, 241, 0.1); color:var(--primary-400); border:1px solid var(--primary-500);"><i class="fa-solid fa-lock"></i> Sanctum Private</span>
-                            <button class="btn"><i class="fa-solid fa-pen"></i> Edit</button>
-                            <button class="btn" style="color:var(--accent-gold); border-color:var(--accent-gold);"><i class="fa-solid fa-cloud-arrow-up"></i> Publish Lesson</button>
+                            <button id="memoryEditBtn" class="btn"><i class="fa-solid fa-pen"></i> Edit</button>
+                            <button id="memoryPublishBtn" class="btn" style="color:var(--accent-gold); border-color:var(--accent-gold);"><i class="fa-solid fa-cloud-arrow-up"></i> Publish Lesson</button>
                         </div>
                     </div>
-                    <div class="memory-entry">
-                        "?섎뒗 EdgeClaw Agent WorkStation-01?대떎.<br>
-                        ?ъ슜?먯쓽 ?낅Т ?먮룞?붾? ?뺣뒗 寃껋씠 ?섏쓽 議댁옱 ?댁쑀?대떎."<br><br>
-                        
-                        [洹쒖튃]<br>
-                        ???ъ슜???뚯씪 ??젣 ??諛섎뱶???뺤씤 ?붿껌 (Risk Level L3)<br>
-                        ??湲덉쑖/媛쒖씤?뺣낫 ?곗씠?곕뒗 TEE(?좊ː ?ㅽ뻾 ?섍꼍)?먯꽌留?泥섎━??寃?br>
-                        ???쇨컙 23?쒖뿉 ?먭? 利앸쪟(Distillation) ?꾨줈?몄뒪 ?ㅽ뻾
-                    </div>
+                    <div id="memoryEntry" class="memory-entry"></div>
                     
                     <h3 style="font-size:14px; margin: 24px 0 16px; color:var(--text-secondary)">System Prompts Overview</h3>
-                    <div class="memory-entry" style="border-left-color:var(--text-muted)">
-                        System directives loaded from memory hooks based on current context: ?곴텒 遺꾩꽍.<br>
-                        Injected 3 related rules.
-                    </div>
+                    <div id="memoryOverview" class="memory-entry" style="border-left-color:var(--text-muted)"></div>
                 </div>
             </div>
         </div>
@@ -986,7 +1018,11 @@
         <div id="view-market" class="view-content">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
                 <h2 style="font-size:20px; font-weight:600;">Agent Marketplace</h2>
-                <div style="display:flex; gap:12px;">
+                <div style="display:flex; gap:12px; align-items:center;">
+                    <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-muted);">
+                        <input id="marketShowOffline" type="checkbox" style="accent-color: var(--primary-500);">
+                        Show offline
+                    </label>
                     <button class="btn" onclick="showAddAgentModal()" style="border-color:var(--accent-purple); color:var(--accent-purple);"><i class="fa-solid fa-plus"></i> Add Agent</button>
                     <button id="discoverBtn" class="btn btn-primary" onclick="discoverAgents()"><i class="fa-solid fa-magnifying-glass"></i> Discover</button>
                 </div>
@@ -1000,15 +1036,19 @@
                 </div>
             </div>
             
-            <h3 style="margin: 40px 0 16px; font-size:16px;">My Delegations & Income</h3>
-            <div class="card" style="display:flex; gap:40px; align-items:center;">
+            <h3 style="margin: 40px 0 16px; font-size:16px;">Fleet Overview</h3>
+            <div class="card" style="display:flex; gap:40px; align-items:center; flex-wrap:wrap;">
                 <div>
-                    <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">Total Income</div>
-                    <div style="font-size:24px; font-weight:700; font-family:var(--font-mono); color:var(--accent-gold)">142.5 SUI</div>
+                    <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">Local online</div>
+                    <div id="stat-local-online" style="font-size:24px; font-weight:700; font-family:var(--font-mono); color:var(--accent-green)">--</div>
                 </div>
                 <div>
-                    <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">Avg Reputation</div>
-                    <div style="font-size:24px; font-weight:700; color:var(--text-primary)">87.3 <span style="font-size:12px; color:var(--accent-green)">??1.2</span></div>
+                    <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">Registered online</div>
+                    <div id="stat-remote-online" style="font-size:24px; font-weight:700; color:var(--text-primary)">--</div>
+                </div>
+                <div>
+                    <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">Max agents (tier)</div>
+                    <div id="stat-max-agents" style="font-size:24px; font-weight:700; color:var(--text-primary)">--</div>
                 </div>
                 <div style="flex:1; text-align:right;">
                     <button class="btn"><i class="fa-solid fa-gear"></i> Manage Rent Policies</button>
@@ -1033,13 +1073,13 @@
                 <h4>Agent Identity</h4>
                 <div class="nft-card">
                     <div style="font-size:14px; font-weight:600; margin-bottom:12px; display:flex; justify-content:space-between;">
-                        <span>Passport NFT</span>
+                        <span>Identity</span>
                         <i class="fa-brands fa-ethereum" style="color:var(--accent-purple)"></i>
                     </div>
-                    <div style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted); margin-bottom:8px;">ID: #4821-X99</div>
+                    <div style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted); margin-bottom:8px;">ID: --</div>
                     <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <span class="badge badge-green">Verified</span>
-                        <span style="font-weight:600; color:var(--accent-gold)"><i class="fa-solid fa-star"></i> 87.3</span>
+                        <span class="badge badge-blue">Unknown</span>
+                        <span style="font-weight:600; color:var(--accent-gold)"><i class="fa-solid fa-star"></i> --</span>
                     </div>
                 </div>
             </div>
@@ -1048,12 +1088,11 @@
             <div class="info-block">
                 <h4>Current Context</h4>
                 <div style="background:var(--surface-800); border:1px solid var(--surface-700); border-radius:8px; padding:12px;">
-                    <div style="font-weight:600; margin-bottom:8px">?곴텒 遺꾩꽍 蹂닿퀬???묒뾽</div>
-                    <div class="progress-bar" style="width:100%; margin-bottom:8px;"><div class="progress-fill" style="width:80%"></div></div>
-                    <div style="display:flex; gap:6px;">
-                        <span class="badge badge-blue">Risk: L1</span>
-                        <span class="badge" style="background:var(--surface-700)">?ㅽ뀒?댄궧 寃利?/span>
+                    <div id="context-title" style="font-weight:600; margin-bottom:8px">No active context</div>
+                    <div class="progress-bar" style="width:100%; margin-bottom:8px;">
+                        <div id="context-progress" class="progress-fill" style="width:0%"></div>
                     </div>
+                    <div id="context-badges" style="display:flex; gap:6px;"></div>
                 </div>
             </div>
 
@@ -1061,11 +1100,7 @@
             <div class="info-block" style="flex:1;">
                 <h4>Live Session Log</h4>
                 <div id="sessionLog" style="background:var(--surface-950); border:1px solid var(--surface-700); border-radius:8px; padding:12px; height:200px; overflow-y:auto;">
-                    <div class="log-entry"><span class="log-time">10:45</span> <span>API ?몄텧 ?꾨즺 (200 OK)</span></div>
-                    <div class="log-entry"><span class="log-time">10:42</span> <span>?곗씠???뚯떛 諛??뺤젣 ?쒖옉</span></div>
-                    <div class="log-entry" style="color:var(--accent-gold)"><span class="log-time">10:40</span> <span>Lesson: chunk 遺꾪븷 ?곸슜??/span></div>
-                    <div class="log-entry"><span class="log-time">10:35</span> <span>SUI ?먯뒪?щ줈 而⑦듃?숉듃 ?앹꽦 (0.5 SUI)</span></div>
-                    <div class="log-entry"><span class="log-time">10:32</span> <span>A2A ?꾩엫 ?붿껌 ?묒닔</span></div>
+                    <div class="log-entry" style="color:var(--text-muted)"><span class="log-time">--:--</span> <span>Waiting for activity...</span></div>
                 </div>
             </div>
         </div>
@@ -1148,8 +1183,88 @@
         </div>
     </div>
 
-</div>
 
+    <!-- Modal: Edit Memory -->
+    <div id="memoryEditModal" class="ec-modal">
+        <div class="ec-modal-card">
+            <div class="ec-modal-head">
+                <div>
+                    <h2 class="ec-modal-title">Edit Memory</h2>
+                    <p id="memoryEditSubtitle" class="ec-modal-subtitle">Update the selected memory tier.</p>
+                </div>
+                <button class="ec-icon-btn" type="button" aria-label="Close" onclick="hideMemoryEditModal()">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="ec-modal-body">
+                <form id="memoryEditForm" onsubmit="event.preventDefault(); submitMemoryEdit();">
+                    <input id="memoryEditTierValue" type="hidden" value="core">
+                    <div id="memoryEditCore" class="memory-edit-section">
+                        <label class="ec-field full">
+                            <span class="ec-label">SOUL Definition</span>
+                            <textarea id="memorySoulInput" class="ec-textarea" rows="4" placeholder="Describe the core identity"></textarea>
+                        </label>
+                        <label class="ec-field full">
+                            <span class="ec-label">Absolute Rules (one per line)</span>
+                            <textarea id="memoryRulesInput" class="ec-textarea" rows="5" placeholder="Rule 1\nRule 2\nRule 3"></textarea>
+                        </label>
+                    </div>
+                    <div id="memoryEditTier" class="memory-edit-section" style="display:none;">
+                        <label class="ec-field full">
+                            <span class="ec-label">Tier</span>
+                            <select id="memoryTierSelect" class="ec-select">
+                                <option value="m30">M30 Short-term</option>
+                                <option value="m90">M90 Mid-term</option>
+                                <option value="m365">M365 Long-term</option>
+                            </select>
+                        </label>
+                        <label class="ec-field full">
+                            <span class="ec-label">Memory Content</span>
+                            <textarea id="memoryTierContentInput" class="ec-textarea" rows="4" placeholder="What should be remembered?"></textarea>
+                        </label>
+                    </div>
+                    <div id="memoryEditLesson" class="memory-edit-section" style="display:none;">
+                        <label class="ec-field full">
+                            <span class="ec-label">Lesson Pattern</span>
+                            <input id="lessonPatternInput" class="ec-input" type="text" placeholder="If X happens, do Y" required>
+                        </label>
+                        <label class="ec-field">
+                            <span class="ec-label">Effectiveness</span>
+                            <input id="lessonEffectInput" class="ec-input" type="number" step="0.1" min="0" max="1" value="0.7">
+                            <span class="ec-hint">0.0 to 1.0</span>
+                        </label>
+                    </div>
+                    <div class="ec-modal-actions">
+                        <button type="button" class="btn" onclick="hideMemoryEditModal()">Cancel</button>
+                        <button id="memoryEditSubmitBtn" type="submit" class="btn btn-primary">
+                            <i class="fa-solid fa-check"></i> Save
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Memory History -->
+    <div id="memoryHistoryModal" class="ec-modal">
+        <div class="ec-modal-card">
+            <div class="ec-modal-head">
+                <div>
+                    <h2 id="memoryHistoryTitle" class="ec-modal-title">Memory History</h2>
+                    <p id="memoryHistorySubtitle" class="ec-modal-subtitle">Memory timeline entries.</p>
+                </div>
+                <button class="ec-icon-btn" type="button" aria-label="Close" onclick="hideMemoryHistoryModal()">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="ec-modal-body">
+                <div id="memoryHistoryList" style="display:flex; flex-direction:column; gap:10px;"></div>
+            </div>
+            <div class="ec-modal-actions">
+                <button type="button" class="btn" onclick="hideMemoryHistoryModal()">Close</button>
+            </div>
+        </div>
+    </div>
 <script>
     // Toast system for feedback
     function showToast(message, type = 'info') {
@@ -1204,6 +1319,14 @@
     let selectedAgentId = 'local';
     let selectedAgentName = 'local';
     let cachedAgents = [];
+    let lastStatus = null;
+    let lastTasks = [];
+    let lastMemory = null;
+    const translateEnabled = true;
+    const translationCache = new Map();
+    const translationQueue = new Map();
+    let translationBatchTimer = null;
+    const translationBatchDelay = 80;
 
     function normalizeAgentStatus(status) {
         return String(status || 'offline').toLowerCase();
@@ -1226,6 +1349,108 @@
             .replace(/'/g, '&#39;');
     }
 
+    function containsHangul(value) {
+        return /[\u3131-\uD79D]/.test(String(value || ''));
+    }
+
+    function extractJsonArray(value) {
+        if (!value) return null;
+        try {
+            return JSON.parse(value);
+        } catch (_) {
+            const match = String(value).match(/\[[\s\S]*\]/);
+            if (!match) return null;
+            try {
+                return JSON.parse(match[0]);
+            } catch (_) {
+                return null;
+            }
+        }
+    }
+
+    async function requestBatchTranslation(texts) {
+        if (!texts.length) return [];
+        try {
+            const res = await apiFetch(`${API}/api/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: `Translate each Korean text into natural English. Return ONLY a JSON array of strings in the same order.\n\n${JSON.stringify(texts)}`
+                }),
+            });
+            if (!res.ok) throw new Error(`chat ${res.status}`);
+            const data = await res.json();
+            const parsed = extractJsonArray(data.message);
+            if (Array.isArray(parsed)) {
+                return parsed.map((value, idx) => (typeof value === 'string' ? value : texts[idx]));
+            }
+            return texts;
+        } catch (_) {
+            return texts;
+        }
+    }
+
+    async function flushTranslationBatch() {
+        translationBatchTimer = null;
+        const batch = Array.from(translationQueue.entries());
+        translationQueue.clear();
+        if (batch.length === 0) return;
+
+        const texts = batch.map(([text]) => text);
+        const chunkSize = 20;
+        const results = new Array(texts.length);
+        for (let i = 0; i < texts.length; i += chunkSize) {
+            const slice = texts.slice(i, i + chunkSize);
+            const translated = await requestBatchTranslation(slice);
+            translated.forEach((value, idx) => {
+                results[i + idx] = value ?? slice[idx];
+            });
+        }
+
+        batch.forEach(([text, entry], idx) => {
+            const finalText = results[idx] ?? text;
+            const resolved = Promise.resolve(finalText);
+            translationCache.set(text, resolved);
+            entry.resolvers.forEach(resolve => resolve(finalText));
+        });
+    }
+
+    function scheduleTranslationBatch() {
+        if (translationBatchTimer) return;
+        translationBatchTimer = setTimeout(flushTranslationBatch, translationBatchDelay);
+    }
+
+    function queueTranslation(text) {
+        if (translationCache.has(text)) return translationCache.get(text);
+        const task = new Promise(resolve => {
+            const entry = translationQueue.get(text) || { resolvers: [] };
+            entry.resolvers.push(resolve);
+            translationQueue.set(text, entry);
+        });
+        translationCache.set(text, task);
+        scheduleTranslationBatch();
+        return task;
+    }
+
+    async function translateToEnglish(text) {
+        if (!translateEnabled) return text;
+        if (!text) return text;
+        if (!containsHangul(text)) return text;
+        return queueTranslation(text);
+    }
+
+    function setTranslatedText(el, text) {
+        if (!el) return;
+        const src = String(text ?? '');
+        el.dataset.sourceText = src;
+        el.textContent = src;
+        translateToEnglish(src).then(result => {
+            if (el.dataset.sourceText === src) {
+                el.textContent = result;
+            }
+        });
+    }
+
     function normalizeCapabilities(value) {
         if (Array.isArray(value)) return value.map(v => String(v));
         if (value && typeof value === 'object') return Object.keys(value);
@@ -1239,6 +1464,165 @@
         if (payload && Array.isArray(payload.registered_agents)) return payload.registered_agents;
         if (payload && Array.isArray(payload.local_agents)) return payload.local_agents;
         return [];
+    }
+
+    function formatDuration(seconds) {
+        const secs = Math.max(0, Number(seconds) || 0);
+        const h = Math.floor(secs / 3600);
+        const m = Math.floor((secs % 3600) / 60);
+        return h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
+
+    function appendSessionLog(message, tone = 'info') {
+        const log = document.getElementById('sessionLog');
+        if (!log) return;
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        if (tone === 'warn') entry.style.color = 'var(--accent-gold)';
+        if (tone === 'error') entry.style.color = 'var(--accent-red)';
+        entry.innerHTML = `<span class="log-time">${time}</span> <span>${escapeHtml(message)}</span>`;
+        log.prepend(entry);
+        while (log.children.length > 50) {
+            log.removeChild(log.lastChild);
+        }
+        const placeholder = Array.from(log.querySelectorAll('.log-entry')).find(entry => (entry.querySelector('.log-time')?.textContent || '') === '--:--');
+        if (placeholder && log.children.length > 1) {
+            placeholder.remove();
+        }
+    }
+
+    function renderTaskOverview(tasks) {
+        lastTasks = tasks;
+        const columns = {
+            todo: document.querySelector('#task-overview .task-overview-col[data-col="todo"]'),
+            progress: document.querySelector('#task-overview .task-overview-col[data-col="progress"]'),
+            done: document.querySelector('#task-overview .task-overview-col[data-col="done"]'),
+        };
+        const grouped = { todo: [], progress: [], done: [] };
+        tasks.forEach(t => {
+            const col = taskColumnId(t.status);
+            grouped[col].push(t);
+        });
+        Object.entries(columns).forEach(([key, col]) => {
+            if (!col) return;
+            const header = col.querySelector('h4');
+            const list = col.querySelector('.task-overview-items');
+            if (!header || !list) return;
+            const items = grouped[key];
+            header.textContent = `${key === 'progress' ? 'In Progress' : key === 'done' ? 'Done' : 'Todo'} (${items.length})`;
+            list.innerHTML = '';
+            if (items.length === 0) {
+                list.innerHTML = '<div class="task-overview-item" style="color:var(--text-muted);">No tasks</div>';
+                return;
+            }
+            items.slice(0, 3).forEach(task => {
+                const div = document.createElement('div');
+                div.className = 'task-overview-item';
+
+                const titleEl = document.createElement('div');
+                titleEl.style.fontWeight = '600';
+                titleEl.style.marginBottom = '4px';
+
+                const metaEl = document.createElement('div');
+                metaEl.style.fontSize = '11px';
+                metaEl.style.color = 'var(--text-muted)';
+
+                const metaText = `${task.priority || 'Normal'} • ${task.assignee || 'Unassigned'}`;
+                setTranslatedText(titleEl, task.title || '');
+                setTranslatedText(metaEl, metaText);
+
+                div.appendChild(titleEl);
+                div.appendChild(metaEl);
+                list.appendChild(div);
+            });
+        });
+    }
+
+    function renderMemoryOverview(memory) {
+        if (!memory) return;
+        const fragCount = Object.values(memory.tiers || {}).reduce((sum, list) => sum + ((list || []).length), 0);
+        const lessonCount = (memory.lessons && Array.isArray(memory.lessons.lessons)) ? memory.lessons.lessons.length : 0;
+        const fragmentsEl = document.getElementById('memory-fragments');
+        const fragmentsLabel = document.getElementById('memory-fragments-label');
+        const lessonsPill = document.getElementById('memory-lessons-pill');
+        const distEl = document.getElementById('memory-distillation');
+        if (fragmentsEl) fragmentsEl.textContent = `+${fragCount}`;
+        if (fragmentsLabel) fragmentsLabel.textContent = fragCount === 1 ? 'New fragment' : 'New fragments';
+        if (lessonsPill) lessonsPill.innerHTML = `<i class="fa-solid fa-graduation-cap"></i> ${lessonCount} Lessons`;
+        if (distEl) distEl.innerHTML = `<i class="fa-solid fa-clock"></i> SOUL synced`;
+    }
+
+    function renderMemoryTiers(memory) {
+        if (!memory) return;
+        const rules = memory.core?.absolute_rules || [];
+        const relationships = memory.core?.relationships || {};
+        const coreItems = 1 + rules.length + Object.keys(relationships).length;
+        const tierCounts = {
+            core: coreItems,
+            m30: (memory.tiers?.m30 || []).length,
+            m90: (memory.tiers?.m90 || []).length,
+            m365: (memory.tiers?.m365 || []).length,
+            lessons: (memory.lessons?.lessons || []).length,
+        };
+
+        const metaLabels = {
+            core: `${tierCounts.core} items - SOUL & Rules`,
+            m30: `${tierCounts.m30} items - Recent Context`,
+            m90: `${tierCounts.m90} items - Project Knowledge`,
+            m365: `${tierCounts.m365} items - Hardened Facts`,
+            lessons: `${tierCounts.lessons} Extracted Patterns`,
+        };
+
+        Object.entries(metaLabels).forEach(([tier, text]) => {
+            const el = document.querySelector(`.tier-meta[data-tier-meta="${tier}"]`);
+            if (el) el.textContent = text;
+        });
+
+        const overview = document.getElementById('memoryOverview');
+        if (overview) {
+            const totalTiered = tierCounts.m30 + tierCounts.m90 + tierCounts.m365;
+            overview.innerHTML = `Rules: ${rules.length}<br>Lessons: ${tierCounts.lessons}<br>Tiered memories: ${totalTiered}`;
+        }
+    }
+
+    function getActiveMemoryTier() {
+        const active = document.querySelector('.tier-item.active');
+        return active?.dataset.tier || 'core';
+    }
+
+    function memoryTitleForTier(tier) {
+        switch (tier) {
+            case 'core':
+                return 'SOUL.md';
+            case 'm30':
+                return 'M30 Short-term';
+            case 'm90':
+                return 'M90 Mid-term';
+            case 'm365':
+                return 'M365 Long-term';
+            case 'lessons':
+                return 'Lessons';
+            default:
+                return 'Memory';
+        }
+    }
+    function renderEconomy(status) {
+        lastStatus = status;
+        const cpu = Number(status?.cpu_usage ?? 0);
+        const mem = Number(status?.memory_percent ?? 0);
+        const caps = Number(status?.capabilities ?? 0);
+        const uptime = Number(status?.uptime_secs ?? 0);
+        const econVal = document.getElementById('economy-metric');
+        const econSub = document.getElementById('economy-subtitle');
+        const econCap = document.getElementById('economy-capabilities');
+        const econUp = document.getElementById('economy-uptime');
+        const balance = document.getElementById('balance-display');
+        if (econVal) econVal.textContent = `${mem.toFixed(1)}%`;
+        if (econSub) econSub.textContent = 'Memory usage';
+        if (econCap) econCap.textContent = `Capabilities ${caps}/17`;
+        if (econUp) econUp.innerHTML = `<i class="fa-solid fa-handshake"></i> Uptime ${formatDuration(uptime)}`;
+        if (balance) balance.innerHTML = `<i class="fa-solid fa-microchip"></i> v${escapeHtml(status?.version || '?')} • CPU ${cpu.toFixed(1)}%`;
     }
 
     function highlightSidebarSelection() {
@@ -1258,10 +1642,11 @@
             </div>
         `).join('');
 
-        const remoteSection = remoteAgents.length > 0
+        const onlineRemote = remoteAgents.filter(agent => normalizeAgentStatus(agent.status) === 'online');
+        const remoteSection = onlineRemote.length > 0
             ? `
-                <div class="group-title" style="margin:14px 0 8px 0;"><span>?? Remote Registry (${remoteAgents.length}) ??</span></div>
-                ${remoteAgents.map(agent => `
+                <div class="group-title" style="margin:14px 0 8px 0;"><span>Remote Registry (${onlineRemote.length})</span></div>
+                ${onlineRemote.map(agent => `
                     <div class="device-item" data-agent-id="${agent.id}" data-agent-name="${agent.name}">
                         <div class="status-dot ${normalizeAgentStatus(agent.status) === 'online' ? 'online' : 'offline'}"></div>
                         <span>${agent.name}</span>
@@ -1269,10 +1654,10 @@
                 `).join('')}
             `
             : '';
-
         container.innerHTML = localHtml + remoteSection;
+        container.querySelectorAll('.device-item span').forEach(span => setTranslatedText(span, span.textContent));
         const title = document.getElementById('sidebarGroupTitle');
-        if (title) title.textContent = `?뱚 Local Agents (${localAgents.length})`;
+        if (title) title.textContent = `Local Agents (${localAgents.length})`;
         highlightSidebarSelection();
     }
 
@@ -1317,10 +1702,19 @@
             const res = await apiFetch(`${API}/api/agents`);
             if (!res.ok) return;
             const data = await res.json();
+            const showOffline = document.getElementById('marketShowOffline')?.checked;
 
             const localAgents = data.local_agents || [];
             const remoteAgents = data.registered_agents || [];
             cachedAgents = [...localAgents, ...remoteAgents];
+
+            const statLocal = document.getElementById('stat-local-online');
+            const statRemote = document.getElementById('stat-remote-online');
+            const statMax = document.getElementById('stat-max-agents');
+            const onlineRemote = remoteAgents.filter(a => normalizeAgentStatus(a.status) === 'online').length;
+            if (statLocal) statLocal.textContent = `${localAgents.length}`;
+            if (statRemote) statRemote.textContent = `${onlineRemote}`;
+            if (statMax) statMax.textContent = `${data.max_agents_for_tier || data.max_agents || data.active_agents_total || cachedAgents.length}`;
 
             if (!cachedAgents.some(agent => agent.id === selectedAgentId)) {
                 selectedAgentId = localAgents[0]?.id || 'local';
@@ -1385,12 +1779,18 @@
     navItems.forEach(item => {
         item.addEventListener('click', () => {
             if(!item.dataset.target) return;
-            
+
+            const targetView = document.getElementById(item.dataset.target);
+            if (!targetView) {
+                console.error(`Missing target view: ${item.dataset.target}`);
+                showToast(`View not found: ${item.dataset.target}`, 'error');
+                return;
+            }
+
             navItems.forEach(n => n.classList.remove('active'));
             item.classList.add('active');
-            
+
             views.forEach(v => v.classList.remove('active'));
-            const targetView = document.getElementById(item.dataset.target);
             targetView.classList.add('active');
 
             // Visual feedback based on view
@@ -1415,8 +1815,14 @@
     async function fetchStatus() {
         try {
             const res = await apiFetch(`${API}/api/status`);
-            await res.json();
-        } catch(e) {}
+            if (res.ok) {
+                const status = await res.json();
+                renderEconomy(status);
+                appendSessionLog('Status updated', 'info');
+            }
+        } catch(e) {
+            appendSessionLog('Failed to load status', 'error');
+        }
 
         await refreshAgentsUI();
     }
@@ -1432,6 +1838,60 @@
         showToast(`Connected to ${selectedAgentName}`, 'success');
     });
 
+    function contextFromTask(task) {
+        const title = task?.title || 'No active context';
+        const status = String(task?.status || 'todo').toLowerCase();
+        const priority = String(task?.priority || 'normal').toLowerCase();
+        const progress = status.includes('done') ? 100 : status.includes('progress') ? 60 : 10;
+
+        const badges = [];
+        if (priority.includes('high') || priority.includes('urgent')) {
+            badges.push({ text: 'Risk: L2', className: 'badge-gold' });
+        } else if (priority.includes('low')) {
+            badges.push({ text: 'Risk: L0', className: 'badge-green' });
+        } else {
+            badges.push({ text: 'Risk: L1', className: 'badge-blue' });
+        }
+        if (task?.assignee) {
+            badges.push({ text: `Assignee: ${task.assignee}`, className: 'badge' });
+        }
+        if (task?.status) {
+            badges.push({ text: String(task.status), className: 'badge' });
+        }
+
+        return { title, progress, badges };
+    }
+
+    function contextFromTasks(tasks, agentId) {
+        if (!Array.isArray(tasks) || tasks.length === 0) {
+            return { title: 'No active context', progress: 0, badges: [] };
+        }
+        const agentTasks = agentId ? tasks.filter(t => String(t.assignee || '') === String(agentId)) : tasks;
+        const pool = agentTasks.length ? agentTasks : tasks;
+        const inProgress = pool.find(t => String(t.status || '').toLowerCase().includes('progress'));
+        const todo = pool.find(t => String(t.status || '').toLowerCase().includes('todo') || String(t.status || '').toLowerCase().includes('backlog'));
+        const done = pool.find(t => String(t.status || '').toLowerCase().includes('done'));
+        return contextFromTask(inProgress || todo || done || pool[0]);
+    }
+
+    function renderContextBlock(context) {
+        const titleEl = document.getElementById('context-title');
+        const progressEl = document.getElementById('context-progress');
+        const badgesEl = document.getElementById('context-badges');
+
+        if (titleEl) setTranslatedText(titleEl, context.title || 'No active context');
+        if (progressEl) progressEl.style.width = `${Math.max(0, Math.min(100, context.progress || 0))}%`;
+        if (badgesEl) {
+            badgesEl.innerHTML = '';
+            (context.badges || []).forEach(badge => {
+                const span = document.createElement('span');
+                span.className = `badge ${badge.className || ''}`.trim();
+                setTranslatedText(span, badge.text || '');
+                badgesEl.appendChild(span);
+            });
+        }
+    }
+
     // Handle Context Panel Update
     async function updateContextPanel(id, type) {
         const panel = document.getElementById('context-panel');
@@ -1439,30 +1899,58 @@
         panel.style.width = '320px';
         
         let name = id;
-        let repScore = (Math.random()*10 + 85).toFixed(1);
+        let repScore = null;
         let profile = "Unknown";
         let status = "online";
+        let address = null;
+        let port = null;
         
+        let contextPayload = contextFromTasks(lastTasks, selectedAgentId);
+
         if (type === 'Agent' || type === 'Device') {
             try {
-                // Try fetching real agent profile
                 const res = await apiFetch(`${API}/api/agents/${id}`);
                 if (res.ok) {
                     const data = await res.json();
-                    name = data.name;
-                    repScore = data.reputation_score.toFixed(1);
-                    profile = data.profile;
-                    status = data.status;
+            const showOffline = document.getElementById('marketShowOffline')?.checked;
+                    name = data.name || id;
+                    repScore = typeof data.reputation_score === 'number' ? data.reputation_score : null;
+                    profile = data.profile || 'all';
+                    status = data.status || 'offline';
+                    address = data.address || null;
+                    port = data.port || null;
                 }
-            } catch(e) {}
+            } catch(e) {
+                appendSessionLog('Context panel fallback used', 'warn');
+            }
+        } else if (type === 'Task') {
+            const task = (lastTasks || []).find(t => String(t.id) === String(id) || String(t.title) === String(id));
+            if (task) {
+                name = task.title || id;
+                status = task.status || 'active';
+                contextPayload = contextFromTask(task);
+            } else {
+                contextPayload = { title: String(id || 'Task'), progress: 0, badges: [] };
+            }
         }
         
-        // Update Header
         const headerName = panel.querySelector('.context-header div');
-        headerName.innerHTML = `<div class="status-dot ${status === 'online' ? 'online' : 'offline'}"></div> ${name}`;
+        headerName.innerHTML = `<div class="status-dot ${status === 'online' ? 'online' : 'offline'}"></div> ${escapeHtml(name)}`;
         
-        // Update Identity Block
+        const scoreText = repScore == null ? '--' : Number(repScore).toFixed(1);
         const idBlock = panel.querySelector('.info-block:nth-child(1)');
+        const details = [];
+        if (type !== 'Task' && profile) details.push(`Profile: ${profile}`);
+        if (type !== 'Task' && address) details.push(`Addr: ${address}${port ? `:${port}` : ''}`);
+        if (type === 'Task') {
+            const task = (lastTasks || []).find(t => String(t.id) === String(id) || String(t.title) === String(id));
+            if (task?.assignee) details.push(`Assignee: ${task.assignee}`);
+            if (task?.priority) details.push(`Priority: ${task.priority}`);
+        }
+        const detailsHtml = details.length
+            ? `<div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">${details.map(escapeHtml).join(' • ')}</div>`
+            : '';
+
         idBlock.innerHTML = `
             <h4>${type} Identity</h4>
             <div class="nft-card">
@@ -1470,21 +1958,26 @@
                     <span>${type === 'Task' ? 'Task ID' : 'Passport NFT'}</span>
                     <i class="fa-brands fa-ethereum" style="color:var(--accent-purple)"></i>
                 </div>
-                <div style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted); margin-bottom:8px;">${id}</div>
+                <div style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted); margin-bottom:8px;">${escapeHtml(id)}</div>
+                ${detailsHtml}
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <span class="badge ${status === 'online' ? 'badge-green' : 'badge-red'}">${status.toUpperCase()}</span>
-                    <span style="font-weight:600; color:var(--accent-gold)"><i class="fa-solid fa-star"></i> ${repScore}</span>
+                    <span style="font-weight:600; color:var(--accent-gold)"><i class="fa-solid fa-star"></i> ${scoreText}</span>
                 </div>
             </div>
         `;
 
-        // Add a log entry for interaction
+        renderContextBlock(contextPayload);
+        
         const logContainer = panel.querySelector('.info-block:last-child div');
         const newLog = document.createElement('div');
         newLog.className = 'log-entry';
         const now = new Date();
-        newLog.innerHTML = `<span class="log-time">${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')}</span> <span>Selected ${type}: ${name}</span>`;
+        newLog.innerHTML = `<span class="log-time">${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')}</span> <span>Selected ${escapeHtml(type)}: ${escapeHtml(name)}</span>`;
         logContainer.prepend(newLog);
+        while (logContainer.children.length > 10) {
+            logContainer.removeChild(logContainer.lastChild);
+        }
     }
 
     // Native HTML5 Drag and Drop for Kanban Board (P4-1-3)
@@ -1581,12 +2074,12 @@
         tier.addEventListener('click', () => {
             document.querySelectorAll('.tier-item').forEach(t => t.classList.remove('active'));
             tier.classList.add('active');
-            const tierName = tier.querySelector('h4').textContent;
-            
-            // Update memory content header
-            document.querySelector('.memory-content h3').textContent = `?쭬 ${tierName}`;
-            fetchMemory(); // Refresh for the selected tier
-            showToast(`Loading: ${tierName}`, 'info');
+            const tierKey = tier.dataset.tier || 'core';
+
+            const titleEl = document.getElementById('memoryContentTitle');
+            if (titleEl) titleEl.textContent = memoryTitleForTier(tierKey);
+            fetchMemory();
+            showToast(`Loading: ${memoryTitleForTier(tierKey)}`, 'info');
         });
     });
 
@@ -1594,29 +2087,39 @@
         try {
             const query = selectedAgentId ? `?assignee=${encodeURIComponent(selectedAgentId)}` : '';
             const res = await apiFetch(`${API}/api/tasks${query}`);
+            if (!res.ok) throw new Error(`tasks ${res.status}`);
             const tasks = await res.json();
             
-            // Clear current cards
             document.querySelectorAll('#col-todo .kanban-cards, #col-progress .kanban-cards, #col-done .kanban-cards')
                 .forEach(c => c.innerHTML = '');
             
             tasks.forEach(task => {
                 const col = document.getElementById(`col-${taskColumnId(task.status)}`) || document.getElementById('col-todo');
                 const container = col.querySelector('.kanban-cards');
-                
                 const card = document.createElement('div');
                 card.className = 'task-card';
                 card.draggable = true;
                 card.id = `task-${task.id}`;
-                card.dataset.id = task.id;
+                card.dataset.id = task.id;                const titleText = task.title || '';
+                const priorityText = task.priority || 'Normal';
+                const assigneeText = task.assignee || '-';
+                const createdDate = new Date(task.created_at).toLocaleDateString();
+                const priorityNorm = String(priorityText).toLowerCase();
+                const isHigh = priorityNorm.includes('high') || priorityNorm.includes('urgent') || priorityNorm.includes('\uB192');
                 card.innerHTML = `
-                    <div class="task-title">${task.title}</div>
-                    <span class="badge ${task.priority === 'High' ? 'badge-red' : 'badge-blue'}">Prio: ${task.priority}</span>
+                    <div class="task-title"></div>
+                    <span class="badge ${isHigh ? 'badge-red' : 'badge-blue'}">Prio: <span class="task-priority"></span></span>
                     <div class="task-meta">
-                        <span>Assignee: ${task.assignee || '-'}</span>
-                        <span>${new Date(task.created_at).toLocaleDateString()}</span>
+                        <span>Assignee: <span class="task-assignee"></span></span>
+                        <span>${createdDate}</span>
                     </div>
                 `;
+                const titleEl = card.querySelector('.task-title');
+                const prioEl = card.querySelector('.task-priority');
+                const assigneeEl = card.querySelector('.task-assignee');
+                setTranslatedText(titleEl, titleText);
+                setTranslatedText(prioEl, priorityText);
+                setTranslatedText(assigneeEl, assigneeText);
                 card.ondragstart = drag;
                 card.ondblclick = () => quickAssignTask(task.id);
                 container.appendChild(card);
@@ -1628,8 +2131,12 @@
             document.querySelector('#col-todo .kanban-header .badge').textContent = todoCount;
             document.querySelector('#col-progress .kanban-header .badge').textContent = progCount;
             document.querySelector('#col-done .kanban-header .badge').textContent = doneCount;
+
+            renderTaskOverview(tasks);
+            appendSessionLog('Tasks synced', 'info');
         } catch(e) {
             showToast("Failed to load tasks", "error");
+            appendSessionLog('Task fetch failed', 'error');
         }
     }
 
@@ -1666,41 +2173,375 @@
     async function fetchMemory() {
         try {
             const res = await apiFetch(`${API}/api/memory`);
+            if (!res.ok) throw new Error(`memory ${res.status}`);
             const memory = await res.json();
-            
-            const activeTier = document.querySelector('.tier-item.active h4').textContent;
-            const contentArea = document.querySelector('.memory-content .memory-entry');
-            
-            if (activeTier.includes("Core")) {
-                contentArea.innerHTML = `
-                    <div style="color:var(--primary-400); margin-bottom:10px;">[SOUL Definition]</div>
-                    "${memory.core.soul.content}"<br><br>
-                    <div style="color:var(--accent-gold); margin-bottom:10px;">[Absolute Rules]</div>
-                    ${memory.core.absolute_rules.map(r => `??${r}`).join('<br>')}
-                `;
-            } else if (activeTier.includes("Lessons")) {
-                contentArea.innerHTML = memory.lessons.lessons.length > 0 
-                    ? memory.lessons.lessons.map(l => `<div style="margin-bottom:12px;">??Pattern: ${l.pattern}<br><small style="color:var(--text-muted)">Effectiveness: ${l.effectiveness}</small></div>`).join('')
-                    : "No lessons distilled yet.";
+            lastMemory = memory;
+            renderMemoryOverview(memory);
+            renderMemoryTiers(memory);
+
+            const activeTier = getActiveMemoryTier();
+            const contentArea = document.getElementById('memoryEntry');
+            if (!contentArea) return;
+            contentArea.innerHTML = '';
+
+            if (activeTier === 'core') {
+                const soulLabel = document.createElement('div');
+                soulLabel.style.color = 'var(--primary-400)';
+                soulLabel.style.marginBottom = '10px';
+                soulLabel.textContent = '[SOUL Definition]';
+
+                const soulContent = document.createElement('div');
+                soulContent.style.marginBottom = '16px';
+                setTranslatedText(soulContent, `"${memory.core?.soul?.content || ''}"`);
+
+                const rulesLabel = document.createElement('div');
+                rulesLabel.style.color = 'var(--accent-gold)';
+                rulesLabel.style.marginBottom = '10px';
+                rulesLabel.textContent = '[Absolute Rules]';
+
+                const rulesList = document.createElement('ul');
+                rulesList.style.paddingLeft = '16px';
+                rulesList.style.margin = '0';
+
+                const rules = memory.core?.absolute_rules || [];
+                if (rules.length === 0) {
+                    const empty = document.createElement('div');
+                    empty.style.color = 'var(--text-muted)';
+                    empty.textContent = 'No rules defined yet.';
+                    contentArea.append(soulLabel, soulContent, rulesLabel, empty);
+                } else {
+                    rules.forEach(rule => {
+                        const li = document.createElement('li');
+                        li.style.marginBottom = '6px';
+                        setTranslatedText(li, rule);
+                        rulesList.appendChild(li);
+                    });
+                    contentArea.append(soulLabel, soulContent, rulesLabel, rulesList);
+                }
+            } else if (activeTier === 'lessons') {
+                const lessons = memory.lessons?.lessons || [];
+                if (lessons.length === 0) {
+                    const empty = document.createElement('div');
+                    empty.style.color = 'var(--text-muted)';
+                    empty.textContent = 'No lessons distilled yet.';
+                    contentArea.appendChild(empty);
+                } else {
+                    lessons.forEach(lesson => {
+                        const item = document.createElement('div');
+                        item.style.marginBottom = '12px';
+
+                        const title = document.createElement('div');
+                        title.style.fontWeight = '600';
+                        setTranslatedText(title, lesson.pattern || '');
+
+                        const meta = document.createElement('div');
+                        meta.style.fontSize = '11px';
+                        meta.style.color = 'var(--text-muted)';
+                        meta.textContent = `Effectiveness: ${lesson.effectiveness ?? '-'}`;
+
+                        item.appendChild(title);
+                        item.appendChild(meta);
+                        contentArea.appendChild(item);
+                    });
+                }
             } else {
-                // Tiered memory (M30, M90, etc)
-                const tierKey = activeTier.split(' ')[0].toLowerCase(); // m30, m90...
-                const memories = memory.tiers[tierKey] || [];
-                contentArea.innerHTML = memories.length > 0
-                    ? memories.map(m => `<div style="padding:10px; border-bottom:1px solid var(--surface-700);">${m.content}<br><small style="color:var(--text-muted)">${new Date(m.created_at).toLocaleString()}</small></div>`).join('')
-                    : "No memories in this tier.";
+                const tierKey = activeTier;
+                const memories = memory.tiers?.[tierKey] || [];
+                if (memories.length === 0) {
+                    const empty = document.createElement('div');
+                    empty.style.color = 'var(--text-muted)';
+                    empty.textContent = 'No memories in this tier.';
+                    contentArea.appendChild(empty);
+                } else {
+                    memories.forEach(m => {
+                        const row = document.createElement('div');
+                        row.style.padding = '10px';
+                        row.style.borderBottom = '1px solid var(--surface-700)';
+
+                        const content = document.createElement('div');
+                        setTranslatedText(content, m.content || '');
+
+                        const meta = document.createElement('div');
+                        meta.style.fontSize = '11px';
+                        meta.style.color = 'var(--text-muted)';
+                        meta.textContent = new Date(m.created_at).toLocaleString();
+
+                        row.appendChild(content);
+                        row.appendChild(meta);
+                        contentArea.appendChild(row);
+                    });
+                }
             }
+
+            appendSessionLog('Memory synced', 'info');
         } catch(e) {
             showToast("Failed to load memory", "error");
+            appendSessionLog('Memory fetch failed', 'error');
         }
     }
 
+    function showMemoryEditModal(mode) {
+        const modal = document.getElementById('memoryEditModal');
+        if (!modal) return;
+        const tierValue = document.getElementById('memoryEditTierValue');
+        const coreSection = document.getElementById('memoryEditCore');
+        const tierSection = document.getElementById('memoryEditTier');
+        const lessonSection = document.getElementById('memoryEditLesson');
+        const subtitle = document.getElementById('memoryEditSubtitle');
+
+        const activeTier = getActiveMemoryTier();
+        const selectedMode = mode || (activeTier === 'core' ? 'core' : activeTier === 'lessons' ? 'lesson' : 'tier');
+
+        if (tierValue) tierValue.value = selectedMode;
+        if (coreSection) coreSection.style.display = selectedMode === 'core' ? 'block' : 'none';
+        if (tierSection) tierSection.style.display = selectedMode === 'tier' ? 'block' : 'none';
+        if (lessonSection) lessonSection.style.display = selectedMode === 'lesson' ? 'block' : 'none';
+        if (subtitle) subtitle.textContent = selectedMode === 'core'
+            ? 'Update SOUL definition and rules.'
+            : selectedMode === 'lesson'
+                ? 'Publish a new lesson pattern.'
+                : 'Add a new memory entry.';
+
+        if (selectedMode === 'core' && lastMemory) {
+            const soulInput = document.getElementById('memorySoulInput');
+            const rulesInput = document.getElementById('memoryRulesInput');
+            if (soulInput) soulInput.value = lastMemory.core?.soul?.content || '';
+            if (rulesInput) rulesInput.value = (lastMemory.core?.absolute_rules || []).join('\n');
+        }
+
+        if (selectedMode === 'tier') {
+            const tierSelect = document.getElementById('memoryTierSelect');
+            const contentInput = document.getElementById('memoryTierContentInput');
+            if (tierSelect) tierSelect.value = ['m30', 'm90', 'm365'].includes(activeTier) ? activeTier : 'm30';
+            if (contentInput) contentInput.value = '';
+        }
+
+        if (selectedMode === 'lesson') {
+            const patternInput = document.getElementById('lessonPatternInput');
+            const effectInput = document.getElementById('lessonEffectInput');
+            if (patternInput) patternInput.value = '';
+            if (effectInput && !effectInput.value) effectInput.value = '0.7';
+        }
+
+        modal.style.display = 'flex';
+    }
+
+    function hideMemoryEditModal() {
+        const modal = document.getElementById('memoryEditModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    async function submitMemoryEdit() {
+        const mode = document.getElementById('memoryEditTierValue')?.value || 'core';
+        const submitBtn = document.getElementById('memoryEditSubmitBtn');
+        const originalBtn = submitBtn?.innerHTML || '';
+
+        try {
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+            }
+
+            if (mode === 'core') {
+                const soul = document.getElementById('memorySoulInput')?.value?.trim() || '';
+                const rulesRaw = document.getElementById('memoryRulesInput')?.value || '';
+                const rules = rulesRaw.split('\n').map(r => r.trim()).filter(Boolean);
+
+                const res = await apiFetch(`${API}/api/memory/core`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ soul, rules }),
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                showToast('Core memory updated', 'success');
+            } else if (mode === 'lesson') {
+                const pattern = document.getElementById('lessonPatternInput')?.value?.trim() || '';
+                const effectiveness = parseFloat(document.getElementById('lessonEffectInput')?.value || '0.7');
+                if (!pattern) {
+                    showToast('Lesson pattern is required', 'error');
+                    return;
+                }
+                const res = await apiFetch(`${API}/api/memory/lessons`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pattern, effectiveness }),
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                showToast('Lesson published', 'success');
+            } else {
+                const tier = document.getElementById('memoryTierSelect')?.value || 'm30';
+                const content = document.getElementById('memoryTierContentInput')?.value?.trim() || '';
+                if (!content) {
+                    showToast('Memory content is required', 'error');
+                    return;
+                }
+                const res = await apiFetch(`${API}/api/memory/tier`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tier, content, importance: 1 }),
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                showToast('Memory entry added', 'success');
+            }
+
+            hideMemoryEditModal();
+            fetchMemory();
+        } catch (e) {
+            showToast(`Failed to update memory: ${e?.message || 'unknown error'}`, 'error');
+        } finally {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalBtn;
+            }
+        }
+    }
+
+    function showMemoryHistoryModal(title, subtitle) {
+        const modal = document.getElementById('memoryHistoryModal');
+        const titleEl = document.getElementById('memoryHistoryTitle');
+        const subtitleEl = document.getElementById('memoryHistorySubtitle');
+        if (titleEl) titleEl.textContent = title || 'Memory History';
+        if (subtitleEl) subtitleEl.textContent = subtitle || 'Memory timeline entries.';
+        if (modal) modal.style.display = 'flex';
+    }
+
+    function hideMemoryHistoryModal() {
+        const modal = document.getElementById('memoryHistoryModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    function formatMemoryAction(custom) {
+        const action = custom?.data?.action;
+        if (action === 'core_update') return 'Core Memory Updated';
+        if (action === 'tier_add') return 'Memory Added';
+        if (action === 'lesson_add') return 'Lesson Published';
+        return 'Memory Update';
+    }
+
+    function renderMemoryTimeline(list, entries) {
+        if (!entries.length) {
+            list.innerHTML = '<div style="color:var(--text-muted)">No memory activity yet.</div>';
+            return;
+        }
+
+        const groups = new Map();
+        entries.forEach(entry => {
+            const date = new Date(entry.timestamp);
+            const dateKey = date.toISOString().slice(0, 10);
+            if (!groups.has(dateKey)) groups.set(dateKey, []);
+            groups.get(dateKey).push(entry);
+        });
+
+        const orderedDates = Array.from(groups.keys()).sort((a, b) => {
+            return new Date(b).getTime() - new Date(a).getTime();
+        });
+
+        list.innerHTML = '';
+        orderedDates.forEach(dateKey => {
+            const dateLabel = document.createElement('div');
+            dateLabel.className = 'memory-history-date';
+            dateLabel.textContent = new Date(dateKey).toLocaleDateString();
+            list.appendChild(dateLabel);
+
+            const dayEntries = groups.get(dateKey)
+                .slice()
+                .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+            dayEntries.forEach(entry => {
+                const item = document.createElement('div');
+                item.className = 'memory-history-item';
+
+                const custom = entry.activity_type?.Custom || null;
+                const action = formatMemoryAction(custom);
+                const time = new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const header = document.createElement('h4');
+                header.innerHTML = `<span>${escapeHtml(action)}</span><span style="color:var(--text-muted); font-weight:500;">${time}</span>`;
+
+                const meta = document.createElement('div');
+                meta.className = 'memory-history-meta';
+                const tier = custom?.data?.tier ? custom.data.tier.toUpperCase() : null;
+                meta.textContent = tier ? `Tier: ${tier}` : 'Memory';
+
+                const body = document.createElement('p');
+                setTranslatedText(body, entry.content || '');
+
+                item.appendChild(header);
+                item.appendChild(meta);
+                item.appendChild(body);
+                list.appendChild(item);
+            });
+        });
+    }
+
+    async function loadMemoryHistory(mode, query) {
+        const list = document.getElementById('memoryHistoryList');
+        if (!list) return;
+        list.innerHTML = '<div style="color:var(--text-muted)">Loading...</div>';
+
+        try {
+            let entries = [];
+            if (mode === 'search') {
+                const res = await apiFetch(`${API}/api/activities/search`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query, limit: 20 }),
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                entries = data.entries || [];
+            } else if (mode === 'memory') {
+                const res = await apiFetch(`${API}/api/activities?limit=200&type=custom`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                const rawEntries = data.entries || [];
+                entries = rawEntries.filter(entry => {
+                    const custom = entry.activity_type?.Custom;
+                    return custom && String(custom.category || '').toLowerCase() === 'memory';
+                });
+                renderMemoryTimeline(list, entries);
+                return;
+            } else {
+                let url = `${API}/api/activities?limit=20`;
+                if (mode === 'distillation') url += '&type=custom';
+                if (mode === 'git') url += '&type=file_edit';
+                const res = await apiFetch(url);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                entries = data.entries || [];
+            }
+
+            if (entries.length === 0) {
+                list.innerHTML = '<div style="color:var(--text-muted)">No entries found.</div>';
+                return;
+            }
+
+            list.innerHTML = '';
+            entries.forEach(entry => {
+                const item = document.createElement('div');
+                item.className = 'memory-history-item';
+
+                const typeKey = entry.activity_type ? Object.keys(entry.activity_type)[0] : 'activity';
+                const header = document.createElement('h4');
+                header.textContent = `${typeKey} • ${new Date(entry.timestamp).toLocaleString()}`;
+
+                const body = document.createElement('p');
+                setTranslatedText(body, entry.content || '');
+
+                item.appendChild(header);
+                item.appendChild(body);
+                list.appendChild(item);
+            });
+        } catch (e) {
+            list.innerHTML = `<div style="color:var(--risk-l3)">Failed to load entries (${e?.message || 'unknown error'}).</div>`;
+        }
+    }
     // Task Interactions
     document.addEventListener('click', (e) => {
         const taskCard = e.target.closest('.task-card');
         if (taskCard) {
-            const title = taskCard.querySelector('.task-title').textContent;
-            updateContextPanel(title, 'Task');
+            const title = taskCard.querySelector('.task-title')?.textContent || 'Task';
+            const taskId = taskCard.dataset.id || title;
+            updateContextPanel(taskId, 'Task');
             showToast(`Inspecting Task: ${title}`, 'info');
         }
     });
@@ -1799,6 +2640,7 @@
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
             const data = await res.json();
+            const showOffline = document.getElementById('marketShowOffline')?.checked;
             const agents = extractAgentList(data)
                 .filter(a => a && typeof a === 'object')
                 .map((a, idx) => ({
@@ -1810,7 +2652,8 @@
                     profile: String(a.profile || 'Worker'),
                     source: String(a.source || 'remote'),
                     capabilities: normalizeCapabilities(a.capabilities),
-                }));
+                }))
+                .filter(a => a.source === 'local' || a.status === 'online' || showOffline);
 
             if (agents.length === 0) {
                 grid.innerHTML = '<div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--text-muted);">No agents found. Use "Discover" or "Add Agent".</div>';
@@ -1846,6 +2689,7 @@
                     </div>
                 `;
             }).join('');
+            grid.querySelectorAll('.agent-card h3').forEach(h => setTranslatedText(h, h.textContent));
         } catch (e) {
             console.error("Failed to fetch marketplace agents:", e);
             const reason = escapeHtml(e?.message || 'unknown error');
@@ -1989,7 +2833,66 @@
             hideNewTaskModal();
         }
     });
-    // ?? Integrated Chat Logic ??
+
+    const memoryEditBtn = document.getElementById('memoryEditBtn');
+    if (memoryEditBtn) {
+        memoryEditBtn.addEventListener('click', () => showMemoryEditModal());
+    }
+
+    const memoryPublishBtn = document.getElementById('memoryPublishBtn');
+    if (memoryPublishBtn) {
+        memoryPublishBtn.addEventListener('click', () => showMemoryEditModal('lesson'));
+    }
+
+    const distillationBtn = document.getElementById('distillationBtn');
+    if (distillationBtn) {
+        distillationBtn.addEventListener('click', () => {
+            showMemoryHistoryModal('Memory Timeline', 'Memory-specific activity entries.');
+            loadMemoryHistory('memory');
+        });
+    }
+
+    const gitLogBtn = document.getElementById('gitLogBtn');
+    if (gitLogBtn) {
+        gitLogBtn.addEventListener('click', () => {
+            showMemoryHistoryModal('Git Activity', 'Recent file edit activities.');
+            loadMemoryHistory('git');
+        });
+    }
+
+    const memorySearchInput = document.getElementById('memorySearchInput');
+    if (memorySearchInput) {
+        memorySearchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const query = memorySearchInput.value.trim();
+                if (query) {
+                    showMemoryHistoryModal(`Search: ${query}`, 'Search results from recent activity.');
+                    loadMemoryHistory('search', query);
+                }
+            }
+        });
+    }
+
+    const memoryEditModal = document.getElementById('memoryEditModal');
+    if (memoryEditModal) {
+        memoryEditModal.addEventListener('click', (e) => {
+            if (e.target === memoryEditModal) hideMemoryEditModal();
+        });
+    }
+
+    const memoryHistoryModal = document.getElementById('memoryHistoryModal');
+    if (memoryHistoryModal) {
+        memoryHistoryModal.addEventListener('click', (e) => {
+            if (e.target === memoryHistoryModal) hideMemoryHistoryModal();
+        });
+    }
+
+    const marketShowOffline = document.getElementById('marketShowOffline');
+    if (marketShowOffline) {
+        marketShowOffline.addEventListener('change', fetchMarketplaceAgents);
+    }
+
+    // Integrated Chat Logic
     const API = window.location.origin;
     const chatArea = document.getElementById('chatArea');
     const chatInput = document.getElementById('chatInput');
@@ -2057,6 +2960,7 @@
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
             const data = await res.json();
+            const showOffline = document.getElementById('marketShowOffline')?.checked;
             addMsg('agent', data.message, data);
         } catch (err) {
             if (err.message !== "Rate limited") {
@@ -2083,7 +2987,7 @@
         if (role === 'agent' && data) {
             const provider = data.provider || 'AI';
             const confidence = data.confidence ? (data.confidence * 100).toFixed(0) : '?';
-            metaHtml = `<div class="msg-info">${privacyIcon} ${provider} 쨌 ${confidence}% accuracy 쨌 ${new Date().toLocaleTimeString()}</div>`;
+            metaHtml = `<div class="msg-info">${privacyIcon} ${provider} - ${confidence}% accuracy - ${new Date().toLocaleTimeString()}</div>`;
             
             // Handle execution results if present
             if (data.exec_result) {
@@ -2126,15 +3030,49 @@
             : allQuickActions.filter(a => a.profile === currentProfileFilter || a.profile === 'System');
 
         filtered.forEach(action => {
+            const icon = iconForQuickAction(action);
             const btn = document.createElement('button');
-            btn.className = `qa-btn ${action.needs_confirmation ? 'confirm' : ''}`;
-            btn.innerHTML = `<i class="fa-solid fa-bolt" style="font-size:9px;margin-right:4px"></i> ${action.label}`;
+            btn.className = `qa-btn qa-icon ${action.needs_confirmation ? 'confirm' : ''}`;
+            btn.dataset.tooltip = action.label || action.command || 'Quick Action';
+            btn.title = action.label || action.command || 'Quick Action';
+            btn.innerHTML = `<i class="fa-solid ${icon}"></i>`;
             btn.onclick = () => {
                 chatInput.value = action.command;
                 sendChatMessage();
             };
             chatQuickActions.appendChild(btn);
         });
+    }
+
+    function iconForQuickAction(action) {
+        const label = String(action.label || '').toLowerCase();
+        const command = String(action.command || '').toLowerCase();
+        const hay = `${label} ${command}`;
+
+        if (hay.includes('cpu')) return 'fa-microchip';
+        if (hay.includes('memory')) return 'fa-memory';
+        if (hay.includes('disk') || hay.includes('storage')) return 'fa-hard-drive';
+        if (hay.includes('network')) return 'fa-network-wired';
+        if (hay.includes('port')) return 'fa-plug';
+        if (hay.includes('service')) return 'fa-sliders';
+        if (hay.includes('uptime')) return 'fa-clock';
+        if (hay.includes('docker')) return 'fa-docker';
+        if (hay.includes('git') && hay.includes('pull')) return 'fa-arrow-down';
+        if (hay.includes('git') && hay.includes('push')) return 'fa-arrow-up';
+        if (hay.includes('git')) return 'fa-code-branch';
+        if (hay.includes('build')) return 'fa-hammer';
+        if (hay.includes('test')) return 'fa-vial';
+        if (hay.includes('lint') || hay.includes('clippy')) return 'fa-broom';
+        if (hay.includes('format')) return 'fa-paintbrush';
+        if (hay.includes('deploy') || hay.includes('release')) return 'fa-rocket';
+        if (hay.includes('restart')) return 'fa-rotate';
+        if (hay.includes('backup') || hay.includes('db')) return 'fa-database';
+        if (hay.includes('security') || hay.includes('audit')) return 'fa-shield-halved';
+        if (hay.includes('report') || hay.includes('analytics')) return 'fa-chart-line';
+        if (hay.includes('campaign') || hay.includes('marketing')) return 'fa-bullhorn';
+        if (hay.includes('help') || hay.includes('command')) return 'fa-terminal';
+        if (hay.includes('status')) return 'fa-heart-pulse';
+        return 'fa-bolt';
     }
 
     document.getElementById('chatProfiles').addEventListener('click', (e) => {
@@ -2146,7 +3084,7 @@
         }
     });
 
-    // ?? WebSocket for real-time events ??
+    // WebSocket for real-time events
     function initWebSocket() {
         const wsPort = parseInt(window.location.port || '9444') + 1;
         const ws = new WebSocket(`ws://${window.location.hostname}:${wsPort}`);
@@ -2165,26 +3103,32 @@
 
                 switch (type) {
                     case 'Alert':
-                        addMsg('system', `?슚 ALERT: ${payload.message}`);
+                        addMsg('system', `ALERT: ${payload.message}`);
+                        appendSessionLog(`Alert: ${payload.message}`, 'warn');
                         break;
                     case 'CommandStarted':
-                        addMsg('system', `??EXECUTING: ${payload.command}`);
+                        addMsg('system', `[EXECUTING] ${payload.command}`);
+                        appendSessionLog(`Executing: ${payload.command}`, 'info');
                         break;
                     case 'CommandCompleted':
-                        const status = payload.success ? '??Success' : '??Failed';
-                        addMsg('system', `?뢾 ${status}: Command finished in ${payload.duration_ms}ms (code: ${payload.exit_code ?? '?'})`);
+                        const status = payload.success ? 'Success' : 'Failed';
+                        addMsg('system', `[${status}] Command finished in ${payload.duration_ms}ms (code: ${payload.exit_code ?? '?'})`);
+                        appendSessionLog(`Command ${status.toLowerCase()}: ${payload.command}`, payload.success ? 'info' : 'error');
                         break;
                     case 'PeerConnected':
-                        addMsg('system', `?뵕 Peer connected: ${payload.device_name || payload.peer_id}`);
+                        addMsg('system', `Peer connected: ${payload.device_name || payload.peer_id}`);
+                        appendSessionLog(`Peer connected: ${payload.device_name || payload.peer_id}`, 'info');
                         break;
                     case 'PeerDisconnected':
-                        addMsg('system', `?뵆 Peer disconnected: ${payload.peer_id}`);
+                        addMsg('system', `Peer disconnected: ${payload.peer_id}`);
+                        appendSessionLog(`Peer disconnected: ${payload.peer_id}`, 'warn');
                         break;
                     case 'StatusChange':
-                        addMsg('system', `?뱻 Status changed: ${payload.previous} ??${payload.current}`);
+                        addMsg('system', `Status changed: ${payload.previous} -> ${payload.current}`);
+                        appendSessionLog(`Status: ${payload.previous} -> ${payload.current}`, 'info');
                         break;
                     case 'MetricUpdate':
-                        // Optionally update dashboard stats here if needed
+                        if (payload.status) renderEconomy(payload.status);
                         break;
                 }
             } catch (_) {}
@@ -2212,6 +3156,7 @@
                 const res = await fetch(`${API}/api/health`, { cache: 'no-store' });
                 if (!res.ok) throw new Error(`health ${res.status}`);
                 const data = await res.json();
+            const showOffline = document.getElementById('marketShowOffline')?.checked;
                 const uptime = Number(data.uptime_secs || 0);
 
                 // If server came back after downtime, reload to get newest bundled HTML/JS.
@@ -2246,4 +3191,43 @@
 </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

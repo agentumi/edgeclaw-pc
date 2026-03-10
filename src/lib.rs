@@ -128,6 +128,11 @@ impl AgentEngine {
         &self.memory_engine
     }
 
+    /// Return the storage path for persisted memory state.
+    pub fn memory_storage_path(&self) -> std::path::PathBuf {
+        self.config.storage_dir().join("memory.md")
+    }
+
     pub fn reputation_score(&self) -> f64 {
         let rep = self
             .reputation_engine
@@ -237,15 +242,26 @@ impl AgentEngine {
                 board
             }),
             memory_engine: Mutex::new({
-                let mut engine = crate::memory_engine::MemoryEngine::new();
-                engine.core.update_soul("나는 EdgeClaw 데스크탑 에이전트입니다. 사용자의 보안과 효율적인 자산 관리를 최우선으로 합니다.");
-                engine
-                    .core
-                    .add_rule("모든 민감 데이터는 로컬 Sanctum 모드에서만 처리한다.");
-                engine
-                    .core
-                    .add_rule("외부 요청은 반드시 RBAC 검증을 거친다.");
-                engine
+                let memory_path = config.storage_dir().join("memory.md");
+                if let Ok(Some(engine)) =
+                    crate::memory_engine::MemoryEngine::load_from_markdown_file(&memory_path)
+                {
+                    engine
+                } else if let Ok(Some(engine)) =
+                    crate::memory_engine::MemoryEngine::load_from_markdown_file(
+                        std::path::Path::new("MEMORY.md"),
+                    )
+                {
+                    engine
+                } else if let Ok(Some(engine)) =
+                    crate::memory_engine::MemoryEngine::load_from_markdown_file(
+                        std::path::Path::new("memory.md"),
+                    )
+                {
+                    engine
+                } else {
+                    crate::memory_engine::MemoryEngine::new()
+                }
             }),
             reputation_engine: Mutex::new({
                 let mut rep = crate::reputation::ReputationEngine::new();
@@ -1185,5 +1201,12 @@ mod tests {
         // Chat should work even without identity (uses "unknown" for audit)
         let response = engine.chat("p1", "hello");
         assert!(response.is_ok());
+    }
+
+    #[test]
+    fn test_memory_storage_path() {
+        let engine = test_engine();
+        let path = engine.memory_storage_path();
+        assert_eq!(path.file_name().and_then(|s| s.to_str()), Some("memory.md"));
     }
 }

@@ -131,6 +131,7 @@ pub enum TemplateDomain {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TemplateVariable {
     pub name: String,
+    #[serde(rename = "type")]
     pub var_type: VariableType,
     #[serde(default)]
     pub description: String,

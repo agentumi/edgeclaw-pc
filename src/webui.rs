@@ -584,6 +584,9 @@ async fn handle_http(
             let body = extract_body(&request);
             handle_chat(&mut stream, &engine, &body, cors_origin).await
         }
+        ("GET", "/api/config") => {
+            handle_config_get(&mut stream, &engine, cors_origin).await
+        }
         ("POST", "/api/agent/mode") => {
             let body = extract_body(&request);
             handle_agent_mode(&mut stream, &engine, &body, cors_origin).await
@@ -594,6 +597,15 @@ async fn handle_http(
         }
         ("GET", "/api/memory/graph") => {
             handle_memory_graph(&mut stream, &engine, cors_origin).await
+        }
+        ("GET", "/api/missions") => {
+            handle_missions_list(&mut stream, &engine, cors_origin).await
+        }
+        ("GET", "/api/v1/mission/active") => {
+            handle_mission_active(&mut stream, &engine, cors_origin).await
+        }
+        ("GET", "/api/infra/summary") | ("GET", "/api/v1/infra/summary") => {
+            handle_infra_summary(&mut stream, &engine, cors_origin).await
         }
         _ if method == "GET" && path.starts_with("/api/memory/search") => {
             let query_str = full_uri
@@ -725,9 +737,6 @@ async fn handle_http(
             handle_session_detail(&mut stream, &engine, session_id, cors_origin).await
         }
         // ─── Phase 4: Missing API endpoints ──────────────────────────
-        ("GET", "/api/missions") => {
-            handle_missions_list(&mut stream, &engine, cors_origin).await
-        }
         ("POST", "/api/automations") => {
             let body = extract_body(&request);
             handle_automation_create(&mut stream, &engine, &body, cors_origin).await
@@ -741,9 +750,6 @@ async fn handle_http(
                 .and_then(|s| s.strip_suffix("/run"))
                 .unwrap_or("");
             handle_automation_run(&mut stream, &engine, automation_id, cors_origin).await
-        }
-        ("GET", "/api/infra/summary") => {
-            handle_infra_summary(&mut stream, &engine, cors_origin).await
         }
         ("GET", "/api/agents/graph") => {
             handle_agents_graph(&mut stream, &engine, cors_origin).await
@@ -1343,6 +1349,50 @@ async fn handle_memory_graph(
         serde_json::to_vec(&body).unwrap_or_default()
     };
     send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// GET /api/v1/mission/active — Get current active mission
+async fn handle_mission_active(
+    stream: &mut TcpStream,
+    _engine: &AgentEngine,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    // Mock for now, in a real impl this would check the scheduler/queue
+    let json = serde_json::json!({
+        "id": "m_123",
+        "name": "Market Analysis Report",
+        "state": "Running",
+        "progress": 0.68,
+        "eta_sec": 240,
+        "current_step_id": "s_2",
+        "steps": [
+            {"id": "s_1", "index": 1, "name": "Gather market data", "state": "Completed"},
+            {"id": "s_2", "index": 2, "name": "Run ML analysis", "state": "Running"},
+            {"id": "s_3", "index": 3, "name": "Generate final report", "state": "Pending"}
+        ],
+        "created_at": chrono::Utc::now() - chrono::Duration::minutes(15),
+        "updated_at": chrono::Utc::now()
+    });
+    let body = serde_json::to_vec(&json).unwrap_or_default();
+    send_response(stream, 200, "application/json", &body, cors_origin).await
+}
+
+/// GET /api/v1/infra/summary — Get infrastructure health
+async fn handle_infra_summary(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let sys = engine.get_system_info();
+    let json = serde_json::json!({
+        "cpu_pct": sys.cpu_usage,
+        "ram_pct": sys.memory_usage_percent,
+        "containers": 12, // Mock container count
+        "uptime_sec": sys.uptime_secs,
+        "updated_at": chrono::Utc::now()
+    });
+    let body = serde_json::to_vec(&json).unwrap_or_default();
+    send_response(stream, 200, "application/json", &body, cors_origin).await
 }
 
 /// GET /api/memory/search?q= — Full text search across all memory tiers
@@ -2089,6 +2139,25 @@ async fn handle_audit_verify(
     });
     let json = serde_json::to_vec(&body).unwrap_or_default();
     send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// GET /api/config — Get current agent configuration
+async fn handle_config_get(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let config = engine.config();
+    let json = serde_json::json!({
+        "agent": config.agent,
+        "security": config.security,
+        "execution": config.execution,
+        "ai": config.ai,
+        "webui": config.webui,
+        "blockchain": config.blockchain,
+    });
+    let body = serde_json::to_vec(&json).unwrap_or_default();
+    send_response(stream, 200, "application/json", &body, cors_origin).await
 }
 
 /// PUT /api/config — Update agent config (TOML body).
@@ -3837,26 +3906,6 @@ async fn handle_automation_run(
     send_response(stream, 200, "application/json", &json, cors_origin).await
 }
 
-/// GET /api/infra/summary — Returns infrastructure metrics summary
-async fn handle_infra_summary(
-    stream: &mut TcpStream,
-    engine: &Arc<AgentEngine>,
-    cors_origin: &str,
-) -> Result<(), AgentError> {
-    let sys_info = engine.get_system_info();
-    let caps = engine.get_capabilities();
-    let uptime = engine.uptime_secs();
-    let summary = serde_json::json!({
-        "cpu_percent": sys_info.cpu_usage,
-        "ram_percent": sys_info.memory_usage_percent,
-        "uptime_secs": uptime,
-        "containers": 0,
-        "version": env!("CARGO_PKG_VERSION"),
-        "capabilities": caps
-    });
-    let json = serde_json::to_vec(&summary).unwrap_or_default();
-    send_response(stream, 200, "application/json", &json, cors_origin).await
-}
 
 /// GET /api/agents/graph — Returns agent graph nodes and edges
 async fn handle_agents_graph(

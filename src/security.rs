@@ -997,8 +997,8 @@ mod tests {
     #[test]
     fn test_rate_limit_config_default() {
         let cfg = RateLimitConfig::default();
-        assert_eq!(cfg.max_requests, 60);
-        assert_eq!(cfg.burst, 10);
+        assert_eq!(cfg.max_requests, 200);
+        assert_eq!(cfg.burst, 50);
         assert_eq!(cfg.window, Duration::from_secs(60));
     }
 

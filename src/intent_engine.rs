@@ -202,13 +202,13 @@ impl IntentEngine {
             (IntentType::EmailAutomation, vec![
                 "이메일", "email", "메일", "편지"
             ]),
-            // CI/CD
-            (IntentType::CiCdPipeline, vec![
-                "ci", "cd", "pipeline", "파이프라인", "빌드", "deploy", "배포"
-            ]),
             // Deployment
             (IntentType::Deployment, vec![
-                "production", "릴리스"
+                "production", "릴리스", "deploy"
+            ]),
+            // CI/CD
+            (IntentType::CiCdPipeline, vec![
+                "ci", "cd", "pipeline", "파이프라인", "빌드", "배포"
             ]),
             // Content Creation
             (IntentType::ContentCreation, vec![

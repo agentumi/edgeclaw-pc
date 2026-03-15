@@ -23,11 +23,11 @@ struct Cli {
     config: String,
 
     /// Override base storage directory
-    #[arg(short, long, global = true)]
+    #[arg(long, global = true)]
     storage_path: Option<String>,
 
     /// Override ECNP listen port
-    #[arg(short, long, global = true)]
+    #[arg(long, global = true)]
     port: Option<u16>,
 
     /// Override WebUI listen port

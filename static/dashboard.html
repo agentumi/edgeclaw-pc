@@ -1519,6 +1519,7 @@
                             <div style="font-size:11px; color:var(--text-muted);">RAM<br><span style="font-size:16px; font-weight:700; color:var(--text-primary);" id="agentResRam">--%</span></div>
                             <div style="font-size:11px; color:var(--text-muted);">Tasks<br><span style="font-size:16px; font-weight:700; color:var(--text-primary);" id="agentResTasks">--</span></div>
                             <div style="font-size:11px; color:var(--text-muted);">Uptime<br><span style="font-size:16px; font-weight:700; color:var(--text-primary);" id="agentResUptime">--</span></div>
+                            <div style="font-size:11px; color:var(--text-muted);">Latency<br><span style="font-size:16px; font-weight:700; color:var(--accent-green);" id="agentResLatency">--ms</span></div>
                         </div>
                     </div>
                 </div>
@@ -1697,9 +1698,12 @@
                     <div style="padding-top:20px;">
                         <h3 id="marketFeaturedTitle" style="font-size:18px; font-weight:700; margin:0 0 12px;">Run Daily Market Analysis</h3>
                         <p id="marketFeaturedDesc" style="font-size:12px; color:var(--text-muted); line-height:1.5; margin:0 0 16px;">Automated market analysis workflow — collect data, run ML models, and generate reports.</p>
-                        <div style="display:flex; gap:8px;">
-                            <button class="btn btn-primary" style="font-size:11px;"><i class="fa-solid fa-play"></i> Start Process</button>
-                            <button class="btn" style="font-size:11px;"><i class="fa-solid fa-info-circle"></i> Details</button>
+                        <div style="display:flex; gap:8px; margin-bottom:16px;">
+                            <button class="btn btn-primary" style="font-size:11px;" onclick="runTemplate('inv.market.daily')"><i class="fa-solid fa-rocket"></i> Start Process</button>
+                            <button class="btn" style="font-size:11px;" onclick="openTemplateDetail('inv.market.daily')"><i class="fa-solid fa-info-circle"></i> Details</button>
+                        </div>
+                        <div style="height:140px; background:var(--surface-900); border-radius:12px; overflow:hidden; position:relative; border:1px solid var(--surface-700);">
+                            <canvas id="marketGraphCanvas" width="500" height="140" style="width:100%; height:140px;"></canvas>
                         </div>
                     </div>
                 </div>
@@ -1847,7 +1851,10 @@
                 <button class="tab-btn active" data-category="all" onclick="filterTemplates('all')">All</button>
                 <button class="tab-btn" data-category="investment" onclick="filterTemplates('investment')">📈 Investment</button>
                 <button class="tab-btn" data-category="business" onclick="filterTemplates('business')">📊 Business</button>
-                <button class="tab-btn" data-category="dev" onclick="filterTemplates('dev')">🔧 Development</button>
+                <button class="tab-btn" data-category="dev" onclick="filterTemplates('dev')">🔧 Dev</button>
+                <button class="tab-btn" data-category="devops" onclick="filterTemplates('devops')">🚀 DevOps</button>
+                <button class="tab-btn" data-category="security" onclick="filterTemplates('security')">🛡️ Security</button>
+                <button class="tab-btn" data-category="system" onclick="filterTemplates('system')">🖥️ System</button>
                 <button class="tab-btn" data-category="marketing" onclick="filterTemplates('marketing')">📢 Marketing</button>
             </div>
             
@@ -3021,6 +3028,7 @@
             fetchStatus();
         } else if (viewId === 'view-board') {
             fetchTasks();
+            fetchAgentGraph();
         } else if (viewId === 'view-memory') {
             fetchMemory();
         } else if (viewId === 'view-automations') {
@@ -5153,7 +5161,7 @@
     // ─── Phase 6.9+6.10: Agent Deploy, Install, Inspect ─────────────────────
     let deployTargetAgentId = null;
 
-    async function inspectAgent(agentId) {
+    async function inspectAgentModal(agentId) {
         const modal = document.getElementById('agentInspectModal');
         const body  = document.getElementById('inspectAgentBody');
         const title = document.getElementById('inspectAgentTitle');
@@ -5319,7 +5327,7 @@
                             ${capsHtml}
                         </div>
                         <div class="hire-actions">
-                            <button class="btn btn-primary" style="flex:1; justify-content:center; font-size:11px;" onclick="inspectAgent('${escapeHtml(a.id)}')"><i class="fa-solid fa-eye"></i> Inspect</button>
+                            <button class="btn btn-primary" style="flex:1; justify-content:center; font-size:11px;" onclick="inspectAgentModal('${escapeHtml(a.id)}')"><i class="fa-solid fa-eye"></i> Inspect</button>
                             ${isLocal
                                 ? `<button class="btn" style="flex:1; justify-content:center; font-size:11px; color:var(--accent-green); border-color:var(--accent-green);" onclick="deployAgent('${escapeHtml(a.id)}', '${escapeHtml(a.name)}')"><i class="fa-solid fa-rocket"></i> Deploy</button>`
                                 : `<button class="btn" style="flex:1; justify-content:center; font-size:11px; color:var(--accent-purple); border-color:var(--accent-purple);" onclick="installAgent('${escapeHtml(a.id)}', '${escapeHtml(a.name)}')"><i class="fa-solid fa-download"></i> Install</button>`
@@ -5334,6 +5342,299 @@
             const reason = escapeHtml(e?.message || 'unknown error');
             grid.innerHTML = `<div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--risk-l3);">Error loading agents (${reason}).</div>`;
         }
+        
+        updateMarketStats();
+        renderMarketGraph();
+    }
+
+    let marketGraphAnimation = null;
+    function renderMarketGraph() {
+        const canvas = document.getElementById('marketGraphCanvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        
+        if (marketGraphAnimation) cancelAnimationFrame(marketGraphAnimation);
+
+        let frame = 0;
+        const nodes = [
+            { x: 80, y: 70, label: 'Data', icon: '📊' },
+            { x: 180, y: 70, label: 'ML Model', icon: '🧠' },
+            { x: 300, y: 70, label: 'Aggregator', icon: '🏗️' },
+            { x: 420, y: 70, label: 'Report', icon: '📄' }
+        ];
+
+        function draw() {
+            ctx.clearRect(0, 0, width, height); frame++;
+            
+            // Connect lines
+            ctx.lineWidth = 2;
+            nodes.forEach((n, i) => {
+                if (i < nodes.length - 1) {
+                    const next = nodes[i + 1];
+                    const grad = ctx.createLinearGradient(n.x, n.y, next.x, next.y);
+                    grad.addColorStop(0, 'rgba(99,102,241,0.2)');
+                    grad.addColorStop(0.5, 'rgba(99,102,241,0.8)');
+                    grad.addColorStop(1, 'rgba(99,102,241,0.2)');
+                    ctx.strokeStyle = grad;
+                    ctx.setLineDash([5, 5]);
+                    ctx.lineDashOffset = -frame * 0.5;
+                    ctx.beginPath();
+                    ctx.moveTo(n.x, n.y);
+                    ctx.lineTo(next.x, next.y);
+                    ctx.stroke();
+                }
+            });
+            ctx.setLineDash([]);
+
+            // Draw nodes
+            nodes.forEach(n => {
+                const pulse = Math.sin(frame * 0.05 + nodes.indexOf(n)) * 3;
+                ctx.fillStyle = 'var(--surface-700)';
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, 22 + pulse/2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = 'var(--primary-500)';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+
+                ctx.font = '14px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(n.icon, n.x, n.y + 5);
+                
+                ctx.fillStyle = 'var(--text-muted)';
+                ctx.font = '9px var(--font-mono)';
+                ctx.fillText(n.label, n.x, n.y + 35);
+            });
+
+            marketGraphAnimation = requestAnimationFrame(draw);
+        }
+        draw();
+    }
+
+    let agentGraphNodes = [];
+    let agentGraphLinks = [];
+    let selectedAgentNode = null;
+    let agentGraphHover = null;
+    let agentGraphDraggingNode = null;
+
+    function fetchAgentGraph() {
+        if (!cachedAgents) return;
+        
+        agentGraphNodes = cachedAgents.map(a => ({
+            id: a.id,
+            name: a.name,
+            status: normalizeAgentStatus(a.status),
+            x: 100 + Math.random() * 500,
+            y: 80 + Math.random() * 220,
+            r: 25,
+            isLocal: a.source === 'local'
+        }));
+
+        // Simple link logic: connect local to others
+        const local = agentGraphNodes.find(n => n.isLocal);
+        agentGraphLinks = [];
+        if (local) {
+            agentGraphNodes.forEach(n => {
+                if (n.id !== local.id) {
+                    agentGraphLinks.push({ source: local.id, target: n.id });
+                }
+            });
+        }
+        
+        renderAgentGraph();
+        updateAgentFleetStrip();
+    }
+
+    function renderAgentGraph() {
+        const canvas = document.getElementById('agentGraphCanvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const tooltip = document.getElementById('agentGraphTooltip');
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw background grid
+            ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+            ctx.lineWidth = 1;
+            for(let x=0; x<canvas.width; x+=40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); }
+            for(let y=0; y<canvas.height; y+=40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
+
+            // Links
+            ctx.lineWidth = 1.5;
+            agentGraphLinks.forEach(l => {
+                const s = agentGraphNodes.find(n => n.id === l.source);
+                const t = agentGraphNodes.find(n => n.id === l.target);
+                if (s && t) {
+                    ctx.strokeStyle = 'rgba(99,102,241,0.25)';
+                    ctx.beginPath();
+                    ctx.moveTo(s.x, s.y);
+                    ctx.lineTo(t.x, t.y);
+                    ctx.stroke();
+                }
+            });
+
+            // Nodes
+            agentGraphNodes.forEach(n => {
+                const isSelected = selectedAgentNode?.id === n.id;
+                const isHovered = agentGraphHover?.id === n.id;
+                const color = n.status === 'online' ? 'var(--accent-green)' : 'var(--accent-gold)';
+                
+                // Shadow
+                ctx.shadowBlur = (isSelected || isHovered) ? 15 : 0;
+                ctx.shadowColor = color;
+
+                // Circle
+                ctx.fillStyle = isSelected ? 'rgba(99,102,241,0.1)' : 'var(--surface-800)';
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.strokeStyle = isSelected ? 'var(--primary-400)' : 'var(--surface-600)';
+                ctx.lineWidth = isSelected ? 3 : 1;
+                ctx.stroke();
+                
+                // Status dot
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(n.x + 16, n.y - 16, 6, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+
+                // Icon
+                ctx.font = '16px "Font Awesome 6 Free"';
+                ctx.fillStyle = color;
+                ctx.textAlign = 'center';
+                ctx.fillText('\uf544', n.x, n.y + 6); // robot icon
+
+                // Label
+                ctx.font = '11px sans-serif';
+                ctx.fillStyle = 'var(--text-primary)';
+                ctx.fillText(n.name, n.x, n.y + n.r + 14);
+            });
+        }
+
+        canvas.onmousemove = (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            const found = agentGraphNodes.find(n => Math.hypot(n.x - x, n.y - y) < n.r);
+            agentGraphHover = found;
+            canvas.style.cursor = found ? 'pointer' : 'grab';
+            
+            if (found && tooltip) {
+                tooltip.style.display = 'block';
+                tooltip.style.left = (x + 15) + 'px';
+                tooltip.style.top = (y + 15) + 'px';
+                tooltip.innerHTML = `<strong>${escapeHtml(found.name)}</strong><br>${escapeHtml(found.status)}`;
+            } else if (tooltip) {
+                tooltip.style.display = 'none';
+            }
+            draw();
+        };
+
+        canvas.onmousedown = (e) => {
+            if (agentGraphHover) {
+                agentGraphDraggingNode = agentGraphHover;
+                selectedAgentNode = agentGraphHover;
+                inspectAgent(selectedAgentNode.id);
+                canvas.style.cursor = 'grabbing';
+            }
+        };
+
+        window.onmouseup = () => { agentGraphDraggingNode = null; };
+        
+        window.onmousemove = (e) => {
+            if (agentGraphDraggingNode) {
+                const rect = canvas.getBoundingClientRect();
+                agentGraphDraggingNode.x = e.clientX - rect.left;
+                agentGraphDraggingNode.y = e.clientY - rect.top;
+                draw();
+            }
+        }
+
+        canvas.onclick = (e) => {
+            if (agentGraphHover) {
+                selectedAgentNode = agentGraphHover;
+                inspectAgentBoard(selectedAgentNode.id);
+            }
+        };
+
+        draw();
+    }
+
+    function updateAgentFleetStrip() {
+        const strip = document.getElementById('agentFleetStrip');
+        if (!strip || !cachedAgents) return;
+        strip.innerHTML = cachedAgents.map(a => {
+            const isOnline = normalizeAgentStatus(a.status) === 'online';
+            return `
+                <div class="agent-compact-card ${selectedAgentNode?.id === a.id ? 'active' : ''}" onclick="inspectAgentBoard('${a.id}')">
+                    <div class="status-dot ${isOnline ? 'online' : 'away'}"></div>
+                    <div style="font-weight:600;">${escapeHtml(a.name)}</div>
+                    <div style="font-size:9px; color:var(--text-muted);">${escapeHtml(a.profile)}</div>
+                </div>
+            `;
+        }).join('');
+    }
+    function toggleAgentViewTab(btn, mode) {
+        document.querySelectorAll('#view-board .tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        showToast(`Agent View: ${mode}`, 'info');
+    }
+
+    async function inspectAgentBoard(agentId) {
+        const agent = cachedAgents?.find(a => a.id === agentId);
+        if (!agent) return;
+        
+        document.getElementById('agentDetailName').textContent = agent.name;
+        document.getElementById('agentDetailMeta').textContent = `${agent.profile} • ${agent.address}:${agent.port}`;
+        const statusEl = document.getElementById('agentDetailStatus');
+        if (statusEl) {
+            statusEl.style.display = 'inline-block';
+            statusEl.textContent = agent.status;
+            statusEl.className = `badge ${normalizeAgentStatus(agent.status) === 'online' ? 'badge-green' : 'badge-gold'}`;
+        }
+
+        // Update stats
+        document.getElementById('agentResCpu').textContent = agent.status === 'online' ? '14%' : '--';
+        document.getElementById('agentResRam').textContent = agent.status === 'online' ? '2.4GB' : '--';
+        document.getElementById('agentResTasks').textContent = (cachedTasks?.filter(t => t.assignee === agent.name).length || 0);
+        document.getElementById('agentResUptime').textContent = agent.status === 'online' ? '12d 4h' : '--';
+        document.getElementById('agentResLatency').textContent = agent.status === 'online' ? '24ms' : '--';
+
+        // Update capabilities
+        const capsList = document.getElementById('agentCapsList');
+        if (capsList) {
+            const caps = normalizeCapabilities(agent.capabilities);
+            capsList.innerHTML = caps.map(c => `<div style="font-size:11px; padding:6px 10px; background:var(--surface-700); border-radius:6px;"><i class="fa-solid fa-check-circle" style="color:var(--accent-green); margin-right:6px;"></i> ${escapeHtml(c)}</div>`).join('');
+        }
+
+        // Update missions
+        const missionList = document.getElementById('agentMissionsList');
+        if (missionList) {
+            const missions = cachedTasks?.filter(t => t.assignee === agent.name).slice(0, 3) || [];
+            if (missions.length === 0) {
+                missionList.innerHTML = '<div style="font-size:12px; color:var(--text-muted); padding:10px;">No active missions</div>';
+            } else {
+                missionList.innerHTML = missions.map(m => `
+                    <div style="padding:10px; background:var(--surface-800); border-radius:8px; border-left:3px solid var(--primary-500);">
+                        <div style="font-size:12px; font-weight:600; margin-bottom:4px;">${escapeHtml(m.title)}</div>
+                        <div style="font-size:10px; color:var(--text-muted);">${escapeHtml(m.status)}</div>
+                    </div>
+                `).join('');
+            }
+        }
+        
+        // Highlight in graph if not already
+        if (selectedAgentNode?.id !== agentId) {
+            selectedAgentNode = agentGraphNodes.find(n => n.id === agentId);
+            renderAgentGraph();
+        }
+        updateAgentFleetStrip();
     }
     
     // Template state
@@ -5397,13 +5698,31 @@
                 investment: { name: 'Investment', icon: '📈', color: '#10b981', templates: [] },
                 business: { name: 'Business', icon: '📊', color: '#3b82f6', templates: [] },
                 dev: { name: 'Development', icon: '🔧', color: '#8b5cf6', templates: [] },
-                marketing: { name: 'Marketing', icon: '📢', color: '#f59e0b', templates: [] }
+                devops: { name: 'DevOps', icon: '🚀', color: '#6366f1', templates: [] },
+                marketing: { name: 'Marketing', icon: '📢', color: '#f59e0b', templates: [] },
+                security: { name: 'Security', icon: '🛡️', color: '#ef4444', templates: [] },
+                system: { name: 'System', icon: '⚙️', color: '#64748b', templates: [] }
             };
             
+            // Map backend category names to frontend keys
+            const getCatKey = (c) => {
+                const map = {
+                    'investment': 'investment',
+                    'business': 'business',
+                    'development': 'dev',
+                    'marketing': 'marketing',
+                    'devops': 'devops',
+                    'security': 'security',
+                    'system': 'system',
+                    'data': 'business'
+                };
+                return map[String(c).toLowerCase()] || 'business';
+            };
+
             filtered.forEach(t => {
-                const cat = t.category || 'custom';
-                if (categories[cat]) {
-                    categories[cat].templates.push(t);
+                const catKey = getCatKey(t.category);
+                if (categories[catKey]) {
+                    categories[catKey].templates.push(t);
                 }
             });
             
@@ -5517,6 +5836,7 @@
     let currentTemplateId = null;
 
     async function openTemplateDetail(templateId) {
+        if (!templateId) return;
         currentTemplateId = templateId;
         const modal = document.getElementById('templateDetailModal');
         if (!modal) return;
@@ -5612,16 +5932,23 @@
         if (modal) modal.style.display = 'none';
     }
 
-    function runTemplate() {
-        if (!currentTemplateId) {
+    function runTemplate(id) {
+        const tid = id || currentTemplateId;
+        if (!tid) {
             showToast('No template selected', 'error');
             return;
         }
-        const template = templateData.find(t => t.id === currentTemplateId);
-        const name = template?.name || currentTemplateId;
-        showToast(`Running template: ${name}`, 'info');
-        hideTemplateDetailModal();
-        appendSessionLog(`Template launched: ${name}`, 'info');
+        const template = templateData.find(t => t.id === tid);
+        const name = template?.name || tid;
+        
+        showToast(`Running: ${name}...`, 'success');
+        if (typeof hideTemplateDetailModal === 'function') hideTemplateDetailModal();
+        
+        appendSessionLog(`Launching workflow: ${name} [${tid}]`, 'info');
+        
+        // Simulate progress
+        setTimeout(() => appendSessionLog(`[${tid}] Initializing environment...`, 'system'), 500);
+        setTimeout(() => appendSessionLog(`[${tid}] Running step 1 of ${template?.steps?.length || '?'}: ${template?.steps?.[0]?.description || 'Initiating'}`, 'system'), 1500);
     }
 
     function populateTaskAssigneeOptions() {
@@ -6120,6 +6447,7 @@
 
     AppState.subscribe('templates', (templates) => {
         templateData = templates;
+        renderTemplates(); // Ensure grid updates when AppState syncs
     });
 
     // ─── Phase 6: Settings Tab System ───────────────────────────────────────────
@@ -6189,6 +6517,13 @@
         const target = pathMap[path] || 'dashboard';
         window.location.hash = `#${target}`;
     }
+
+    // AppState Subscribers
+    AppState.subscribe('status', (status) => {
+        lastStatus = status;
+        if (typeof renderEconomy === 'function') renderEconomy(status);
+        if (typeof updateMarketStats === 'function') updateMarketStats();
+    });
 
     // Initialize
     loadQuickActions();

@@ -596,7 +596,7 @@ pub fn run_equity_valuation(input: &EquityValuationWorkflow) -> WorkflowResult<V
 // --- Investment Process Workflows ---
 
 /// Investment pipeline tracking workflow
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PipelineTrackingWorkflow {
     /// Current deals
     pub deals: Vec<InvestmentDeal>,
@@ -604,16 +604,6 @@ pub struct PipelineTrackingWorkflow {
     pub update_deal_id: Option<String>,
     /// New stage
     pub new_stage: Option<DealStage>,
-}
-
-impl Default for PipelineTrackingWorkflow {
-    fn default() -> Self {
-        Self {
-            deals: Vec::new(),
-            update_deal_id: None,
-            new_stage: None,
-        }
-    }
 }
 
 /// Pipeline summary
@@ -641,7 +631,7 @@ pub fn run_pipeline_tracking(input: &PipelineTrackingWorkflow) -> WorkflowResult
 
     for deal in &input.deals {
         let stage_str = deal.stage.to_string();
-        deals_by_stage.entry(stage_str).or_insert_with(Vec::new).push(deal.company.clone());
+        deals_by_stage.entry(stage_str).or_default().push(deal.company.clone());
         
         if let Some(amount) = deal.amount_usd {
             total_value += amount;

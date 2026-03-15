@@ -1300,7 +1300,7 @@ async fn handle_memory_graph(
                     "id": mem.id.to_string(),
                     "label": label,
                     "type": tier_name,
-                    "size": 8 + (mem.reference_count as u32 * 3).min(20),
+                    "size": 8 + (mem.reference_count * 3).min(20),
                     "importance": mem.importance,
                     "reference_count": mem.reference_count,
                     "created_at": mem.created_at.to_rfc3339()

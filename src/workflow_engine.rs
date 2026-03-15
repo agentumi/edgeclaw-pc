@@ -116,20 +116,15 @@ pub struct TemplateMetadata {
 }
 
 /// Template domain (business, development, marketing, investment)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TemplateDomain {
     Business,
     Development,
     Marketing,
     Investment,
+    #[default]
     Custom,
-}
-
-impl Default for TemplateDomain {
-    fn default() -> Self {
-        Self::Custom
-    }
 }
 
 /// Input variable definition
@@ -255,19 +250,14 @@ fn default_timeout() -> u64 {
     30000
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum LogLevel {
     Debug,
+    #[default]
     Info,
     Warn,
     Error,
-}
-
-impl Default for LogLevel {
-    fn default() -> Self {
-        Self::Info
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -690,7 +680,10 @@ impl TemplateRegistry {
     pub fn list(&self, domain: Option<TemplateDomain>) -> Vec<&WorkflowTemplate> {
         self.templates
             .values()
-            .filter(|t| domain.map_or(true, |d| t.template.domain == d))
+            .filter(|t| match domain {
+                Some(d) => t.template.domain == d,
+                None => true,
+            })
             .collect()
     }
     

@@ -320,7 +320,8 @@ impl ActivityCollector {
             | AgentEvent::Heartbeat { .. }
             | AgentEvent::MetricUpdate { .. }
             | AgentEvent::CommandOutput { .. }
-            | AgentEvent::ActivityRecorded { .. } => None,
+            | AgentEvent::ActivityRecorded { .. }
+            | AgentEvent::MemoryUpdated => None,
         }
     }
 }

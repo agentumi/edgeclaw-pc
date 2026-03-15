@@ -130,6 +130,9 @@ pub enum AgentEvent {
         /// Importance level for client-side filtering
         importance: u8,
     },
+
+    /// Memory engine contents were updated (Core, Tier, or Lesson)
+    MemoryUpdated,
 }
 
 /// Output stream type
@@ -421,6 +424,7 @@ mod tests {
                 source: "cargo".into(),
                 stack_trace: None,
             },
+            AgentEvent::MemoryUpdated,
         ];
 
         for event in events {

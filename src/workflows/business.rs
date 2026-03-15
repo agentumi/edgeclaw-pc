@@ -97,7 +97,7 @@ pub fn run_monthly_finance_report(config: &ReportConfig) -> Result<String, Strin
 }
 
 /// Run expense approval workflow
-pub fn run_expense_approval(request: &ApprovalRequest) -> Result<ApprovalResult, String> {
+pub fn run_expense_approval(_request: &ApprovalRequest) -> Result<ApprovalResult, String> {
     Ok(ApprovalResult {
         request_id: format!("EXP-{}", uuid::Uuid::new_v4()),
         status: ApprovalStatus::Pending,
@@ -108,7 +108,7 @@ pub fn run_expense_approval(request: &ApprovalRequest) -> Result<ApprovalResult,
 }
 
 /// Run vacation approval workflow
-pub fn run_vacation_approval(request: &ApprovalRequest) -> Result<ApprovalResult, String> {
+pub fn run_vacation_approval(_request: &ApprovalRequest) -> Result<ApprovalResult, String> {
     Ok(ApprovalResult {
         request_id: format!("VAC-{}", uuid::Uuid::new_v4()),
         status: ApprovalStatus::Pending,
@@ -119,7 +119,7 @@ pub fn run_vacation_approval(request: &ApprovalRequest) -> Result<ApprovalResult
 }
 
 /// Run purchase approval workflow
-pub fn run_purchase_approval(request: &ApprovalRequest) -> Result<ApprovalResult, String> {
+pub fn run_purchase_approval(_request: &ApprovalRequest) -> Result<ApprovalResult, String> {
     Ok(ApprovalResult {
         request_id: format!("PUR-{}", uuid::Uuid::new_v4()),
         status: ApprovalStatus::Pending,

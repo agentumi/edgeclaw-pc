@@ -383,7 +383,7 @@ pub struct RiskReportResult {
 }
 
 /// Run risk report workflow
-pub fn run_risk_report(input: &RiskReportWorkflow) -> WorkflowResult<RiskReportResult> {
+pub fn run_risk_report(_input: &RiskReportWorkflow) -> WorkflowResult<RiskReportResult> {
     let start = std::time::Instant::now();
     
     // Calculate simplified risk metrics (placeholder implementation)

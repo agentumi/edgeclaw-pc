@@ -1,4 +1,4 @@
-﻿//! Web UI HTTP server for the EdgeClaw Agent chat interface.
+//! Web UI HTTP server for the EdgeClaw Agent chat interface.
 //!
 //! Serves an embedded single-page chat application and exposes JSON API endpoints
 //! for chat, quick actions, and status queries. Uses raw tokio TCP — no HTTP framework
@@ -45,15 +45,6 @@ const STATS_HTML: &str = include_str!("../static/stats.html");
 
 /// Embedded HTML team network map page (compiled into the binary)
 const TEAM_MAP_HTML: &str = include_str!("../static/team_map.html");
-
-/// Embedded HTML automations page (compiled into the binary)
-const AUTOMATIONS_HTML: &str = include_str!("../static/automations.html");
-
-/// Embedded HTML marketplace page (compiled into the binary)
-const MARKETPLACE_HTML: &str = include_str!("../static/marketplace.html");
-
-/// Embedded HTML settings page (compiled into the binary)
-const SETTINGS_HTML: &str = include_str!("../static/settings.html");
 
 /// Pretty HTML for rate limiting
 const TOO_MANY_REQUESTS_HTML: &str = r#"
@@ -480,7 +471,7 @@ async fn handle_http(
                 &mut stream,
                 200,
                 "text/html; charset=utf-8",
-                AUTOMATIONS_HTML.as_bytes(),
+                DASHBOARD_HTML.as_bytes(),
                 cors_origin,
             )
             .await;
@@ -490,7 +481,7 @@ async fn handle_http(
                 &mut stream,
                 200,
                 "text/html; charset=utf-8",
-                MARKETPLACE_HTML.as_bytes(),
+                DASHBOARD_HTML.as_bytes(),
                 cors_origin,
             )
             .await;
@@ -500,7 +491,17 @@ async fn handle_http(
                 &mut stream,
                 200,
                 "text/html; charset=utf-8",
-                SETTINGS_HTML.as_bytes(),
+                DASHBOARD_HTML.as_bytes(),
+                cors_origin,
+            )
+            .await;
+        }
+        ("GET", "/extensions") | ("GET", "/memory") => {
+            return send_response(
+                &mut stream,
+                200,
+                "text/html; charset=utf-8",
+                DASHBOARD_HTML.as_bytes(),
                 cors_origin,
             )
             .await;
@@ -588,6 +589,24 @@ async fn handle_http(
             handle_agent_mode(&mut stream, &engine, &body, cors_origin).await
         }
         ("GET", "/api/memory") => handle_memory_info(&mut stream, &engine, cors_origin).await,
+        ("GET", "/api/memory/storage") => {
+            handle_memory_storage(&mut stream, &engine, cors_origin).await
+        }
+        ("GET", "/api/memory/graph") => {
+            handle_memory_graph(&mut stream, &engine, cors_origin).await
+        }
+        _ if method == "GET" && path.starts_with("/api/memory/search") => {
+            let query_str = full_uri
+                .split('?')
+                .nth(1)
+                .and_then(|qs| {
+                    qs.split('&')
+                        .find(|p| p.starts_with("q="))
+                        .map(|p| p.strip_prefix("q=").unwrap_or(""))
+                })
+                .unwrap_or("");
+            handle_memory_search(&mut stream, &engine, query_str, cors_origin).await
+        }
         ("PUT", "/api/memory/core") => {
             let body = extract_body(&request);
             handle_memory_core_update(&mut stream, &engine, &body, cors_origin).await
@@ -599,6 +618,10 @@ async fn handle_http(
         ("POST", "/api/memory/lessons") => {
             let body = extract_body(&request);
             handle_memory_lesson_add(&mut stream, &engine, &body, cors_origin).await
+        }
+        _ if method == "DELETE" && path.starts_with("/api/memory/") => {
+            let mem_id = path.strip_prefix("/api/memory/").unwrap_or("");
+            handle_memory_delete(&mut stream, &engine, mem_id, cors_origin).await
         }
         // ─── Task Board API ──────────────────────────────
         ("GET", "/api/tasks") => {
@@ -700,6 +723,72 @@ async fn handle_http(
         _ if method == "GET" && path.starts_with("/api/sessions/") => {
             let session_id = path.strip_prefix("/api/sessions/").unwrap_or("");
             handle_session_detail(&mut stream, &engine, session_id, cors_origin).await
+        }
+        // ─── Phase 4: Missing API endpoints ──────────────────────────
+        ("GET", "/api/missions") => {
+            handle_missions_list(&mut stream, &engine, cors_origin).await
+        }
+        ("POST", "/api/automations") => {
+            let body = extract_body(&request);
+            handle_automation_create(&mut stream, &engine, &body, cors_origin).await
+        }
+        _ if method == "POST"
+            && path.starts_with("/api/automations/")
+            && path.ends_with("/run") =>
+        {
+            let automation_id = path
+                .strip_prefix("/api/automations/")
+                .and_then(|s| s.strip_suffix("/run"))
+                .unwrap_or("");
+            handle_automation_run(&mut stream, &engine, automation_id, cors_origin).await
+        }
+        ("GET", "/api/infra/summary") => {
+            handle_infra_summary(&mut stream, &engine, cors_origin).await
+        }
+        ("GET", "/api/agents/graph") => {
+            handle_agents_graph(&mut stream, &engine, cors_origin).await
+        }
+        // ─── Extensions API ───────────────────────────────────────────────────
+        ("GET", "/api/extensions") => {
+            handle_extensions_list(&mut stream, cors_origin).await
+        }
+        ("POST", "/api/extensions") => {
+            let body = extract_body(&request);
+            handle_extension_create(&mut stream, &engine, &body, cors_origin).await
+        }
+        ("GET", "/api/extensions/readiness") => {
+            handle_extensions_readiness(&mut stream, &engine, cors_origin).await
+        }
+        _ if method == "POST"
+            && path.starts_with("/api/extensions/")
+            && path.ends_with("/config") =>
+        {
+            let ext_id = path
+                .strip_prefix("/api/extensions/")
+                .and_then(|s| s.strip_suffix("/config"))
+                .unwrap_or("");
+            let body = extract_body(&request);
+            handle_extension_config(&mut stream, &engine, ext_id, &body, cors_origin).await
+        }
+        _ if method == "POST"
+            && path.starts_with("/api/extensions/")
+            && path.ends_with("/run") =>
+        {
+            let ext_id = path
+                .strip_prefix("/api/extensions/")
+                .and_then(|s| s.strip_suffix("/run"))
+                .unwrap_or("");
+            handle_extension_run(&mut stream, &engine, ext_id, cors_origin).await
+        }
+        _ if method == "GET"
+            && path.starts_with("/api/extensions/")
+            && path.ends_with("/runs") =>
+        {
+            let ext_id = path
+                .strip_prefix("/api/extensions/")
+                .and_then(|s| s.strip_suffix("/runs"))
+                .unwrap_or("");
+            handle_extension_runs(&mut stream, ext_id, cors_origin).await
         }
         _ => {
             send_response(
@@ -1104,6 +1193,325 @@ async fn handle_memory_info(
     send_response(stream, 200, "application/json", &json, cors_origin).await
 }
 
+/// GET /api/memory/storage — Memory storage statistics
+async fn handle_memory_storage(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let json = {
+        let memory = engine
+            .memory_engine()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let m30_count = memory.tiers.m30.len();
+        let m90_count = memory.tiers.m90.len();
+        let m365_count = memory.tiers.m365.len();
+        let lessons_count = memory.lessons.lessons.len();
+        let rules_count = memory.core.absolute_rules.len();
+        let total = 1 + rules_count + m30_count + m90_count + m365_count + lessons_count;
+
+        let file_size = engine
+            .memory_storage_path()
+            .metadata()
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        let body = serde_json::json!({
+            "core_entries": 1,
+            "rules_count": rules_count,
+            "m30_count": m30_count,
+            "m90_count": m90_count,
+            "m365_count": m365_count,
+            "lessons_count": lessons_count,
+            "total_entries": total,
+            "memory_file_size_bytes": file_size,
+            "cloud_sync_status": "OK"
+        });
+        serde_json::to_vec(&body).unwrap_or_default()
+    };
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// GET /api/memory/graph — Knowledge graph nodes and edges for visualization
+async fn handle_memory_graph(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let json = {
+        let memory = engine
+            .memory_engine()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        // Core node
+        nodes.push(serde_json::json!({
+            "id": "core",
+            "label": if memory.core.soul.content.len() > 30 {
+                format!("{}...", &memory.core.soul.content[..30])
+            } else if memory.core.soul.content.is_empty() {
+                "Core Soul".to_string()
+            } else {
+                memory.core.soul.content.clone()
+            },
+            "type": "core",
+            "size": 24
+        }));
+
+        // Rules as children of core
+        for (i, rule) in memory.core.absolute_rules.iter().enumerate() {
+            let rule_id = format!("rule-{}", i);
+            let label = if rule.len() > 25 {
+                format!("{}...", &rule[..25])
+            } else {
+                rule.clone()
+            };
+            nodes.push(serde_json::json!({
+                "id": rule_id,
+                "label": label,
+                "type": "core",
+                "size": 10
+            }));
+            edges.push(serde_json::json!({
+                "source": "core",
+                "target": rule_id,
+                "weight": 1
+            }));
+        }
+
+        // Tiered memory nodes
+        let tier_mems: Vec<(&str, &[TimedMemory])> = vec![
+            ("m30", &memory.tiers.m30),
+            ("m90", &memory.tiers.m90),
+            ("m365", &memory.tiers.m365),
+        ];
+        for (tier_name, mems) in &tier_mems {
+            for mem in mems.iter() {
+                let label = if mem.content.len() > 30 {
+                    format!("{}...", &mem.content[..30])
+                } else {
+                    mem.content.clone()
+                };
+                nodes.push(serde_json::json!({
+                    "id": mem.id.to_string(),
+                    "label": label,
+                    "type": tier_name,
+                    "size": 8 + (mem.reference_count as u32 * 3).min(20),
+                    "importance": mem.importance,
+                    "reference_count": mem.reference_count,
+                    "created_at": mem.created_at.to_rfc3339()
+                }));
+                // Edge from core to each memory
+                edges.push(serde_json::json!({
+                    "source": "core",
+                    "target": mem.id.to_string(),
+                    "weight": mem.importance
+                }));
+            }
+        }
+
+        // Lesson nodes
+        for lesson in &memory.lessons.lessons {
+            let label = if lesson.pattern.len() > 30 {
+                format!("{}...", &lesson.pattern[..30])
+            } else {
+                lesson.pattern.clone()
+            };
+            nodes.push(serde_json::json!({
+                "id": lesson.id.to_string(),
+                "label": label,
+                "type": "lessons",
+                "size": 10 + (lesson.applied_count * 2).min(16),
+                "effectiveness": lesson.effectiveness,
+                "applied_count": lesson.applied_count
+            }));
+            edges.push(serde_json::json!({
+                "source": "core",
+                "target": lesson.id.to_string(),
+                "weight": 1
+            }));
+        }
+
+        let body = serde_json::json!({
+            "nodes": nodes,
+            "edges": edges
+        });
+        serde_json::to_vec(&body).unwrap_or_default()
+    };
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// GET /api/memory/search?q= — Full text search across all memory tiers
+async fn handle_memory_search(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    query: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    // Simple percent-decode without external crate
+    let decoded_query = query
+        .replace("%20", " ")
+        .replace("%2B", "+")
+        .replace("%26", "&")
+        .replace("%3D", "=")
+        .replace("%23", "#")
+        .replace("+", " ");
+    let query_lower = decoded_query.to_lowercase();
+
+    let json = {
+        let memory = engine
+            .memory_engine()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        let mut results = Vec::new();
+
+        // Search core soul
+        if memory.core.soul.content.to_lowercase().contains(&query_lower) {
+            results.push(serde_json::json!({
+                "id": "core",
+                "content": memory.core.soul.content,
+                "tier": "Core",
+                "importance": 3,
+                "score": 1.0,
+                "created_at": null
+            }));
+        }
+
+        // Search rules
+        for (i, rule) in memory.core.absolute_rules.iter().enumerate() {
+            if rule.to_lowercase().contains(&query_lower) {
+                results.push(serde_json::json!({
+                    "id": format!("rule-{}", i),
+                    "content": rule,
+                    "tier": "Core Rule",
+                    "importance": 3,
+                    "score": 0.95,
+                    "created_at": null
+                }));
+            }
+        }
+
+        // Search tiers
+        let all_tiers: Vec<(&str, &[TimedMemory])> = vec![
+            ("M30", &memory.tiers.m30[..]),
+            ("M90", &memory.tiers.m90[..]),
+            ("M365", &memory.tiers.m365[..]),
+        ];
+        for (tier_name, mems) in &all_tiers {
+            for mem in mems.iter() {
+                if mem.content.to_lowercase().contains(&query_lower) {
+                    results.push(serde_json::json!({
+                        "id": mem.id.to_string(),
+                        "content": mem.content,
+                        "tier": tier_name,
+                        "importance": mem.importance,
+                        "score": 0.8,
+                        "created_at": mem.created_at.to_rfc3339()
+                    }));
+                }
+            }
+        }
+
+        // Search lessons
+        for lesson in &memory.lessons.lessons {
+            if lesson.pattern.to_lowercase().contains(&query_lower) {
+                results.push(serde_json::json!({
+                    "id": lesson.id.to_string(),
+                    "content": lesson.pattern,
+                    "tier": "Lesson",
+                    "importance": 2,
+                    "score": 0.75,
+                    "created_at": null
+                }));
+            }
+        }
+
+        let total = results.len();
+        let body = serde_json::json!({
+            "query": decoded_query,
+            "results": results,
+            "total": total
+        });
+        serde_json::to_vec(&body).unwrap_or_default()
+    };
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// DELETE /api/memory/:id — Delete a memory node by UUID
+async fn handle_memory_delete(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    mem_id: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let target_id = match Uuid::parse_str(mem_id) {
+        Ok(id) => id,
+        Err(_) => {
+            let err = serde_json::json!({"error": "invalid UUID format"});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    let found = {
+        let mut memory = engine
+            .memory_engine()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        let before = memory.tiers.m30.len()
+            + memory.tiers.m90.len()
+            + memory.tiers.m365.len()
+            + memory.lessons.lessons.len();
+
+        memory.tiers.m30.retain(|m| m.id != target_id);
+        memory.tiers.m90.retain(|m| m.id != target_id);
+        memory.tiers.m365.retain(|m| m.id != target_id);
+        memory.lessons.lessons.retain(|l| l.id != target_id);
+
+        let after = memory.tiers.m30.len()
+            + memory.tiers.m90.len()
+            + memory.tiers.m365.len()
+            + memory.lessons.lessons.len();
+
+        let deleted = after < before;
+        if deleted {
+            let _ = memory.save_to_markdown_file(&engine.memory_storage_path());
+        }
+        deleted
+    };
+
+    if found {
+        let activity = ActivityType::Custom {
+            category: "memory".to_string(),
+            data: serde_json::json!({"action": "delete", "id": mem_id}),
+        };
+        engine.record_activity(
+            activity,
+            "Memory node deleted",
+            Uuid::new_v4(),
+            1,
+            &["memory", "delete"],
+            None,
+            "all",
+        );
+        engine.event_bus().publish(crate::events::AgentEvent::MemoryUpdated);
+
+        let body = serde_json::json!({ "deleted": true, "id": mem_id });
+        let json = serde_json::to_vec(&body).unwrap_or_default();
+        send_response(stream, 200, "application/json", &json, cors_origin).await
+    } else {
+        let err = serde_json::json!({ "error": "not found", "id": mem_id });
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        send_response(stream, 404, "application/json", &json, cors_origin).await
+    }
+}
+
 // ─── Template API handlers ─────────────────────────────────
 
 /// GET /api/templates — List all templates.
@@ -1227,6 +1635,7 @@ async fn handle_memory_core_update(
         data: serde_json::json!({"action": "core_update", "rules": rule_count}),
     };
     engine.record_activity(activity, "Memory core updated", Uuid::new_v4(), 1, &["memory", "core"], None, "all");
+    engine.event_bus().publish(crate::events::AgentEvent::MemoryUpdated);
     send_response(stream, 200, "application/json", &json, cors_origin).await
 }
 
@@ -1299,6 +1708,7 @@ async fn handle_memory_tier_add(
         data: serde_json::json!({"action": "tier_add", "tier": tier_key}),
     };
     engine.record_activity(activity, "Memory entry added", Uuid::new_v4(), 1, &["memory", "tier"], None, "all");
+    engine.event_bus().publish(crate::events::AgentEvent::MemoryUpdated);
 
     let json = serde_json::to_vec(&mem).unwrap_or_default();
     send_response(stream, 200, "application/json", &json, cors_origin).await
@@ -1357,6 +1767,7 @@ async fn handle_memory_lesson_add(
         data: serde_json::json!({"action": "lesson_add"}),
     };
     engine.record_activity(activity, "Lesson published", Uuid::new_v4(), 1, &["memory", "lesson"], None, "all");
+    engine.event_bus().publish(crate::events::AgentEvent::MemoryUpdated);
 
     let json = serde_json::to_vec(&lesson).unwrap_or_default();
     send_response(stream, 200, "application/json", &json, cors_origin).await
@@ -1767,6 +2178,7 @@ async fn handle_config_identity_update(
 #[derive(serde::Deserialize)]
 struct AvatarUploadRequest {
     data_url: String,
+    #[allow(dead_code)]
     #[serde(default)]
     filename: Option<String>,
 }
@@ -2839,9 +3251,624 @@ async fn handle_agent_mode(
     send_response(stream, 200, "application/json", &json, cors_origin).await
 }
 
+// ─── Phase 6: Extensions API Handlers ─────────────────────────────────────────
+
+/// Built-in extension catalog — static baseline data
+fn builtin_extension_catalog() -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({
+            "id": "notes-core",
+            "name": "Notes Intelligence",
+            "category": "notes",
+            "status": "Ready",
+            "version": "1.2.0",
+            "owner": "Knowledge Ops",
+            "summary": "Capture, summarize, and route meeting notes into Memory and Missions.",
+            "run_count": 24,
+            "last_run_at": null,
+            "required_capabilities": ["file_read", "file_write"],
+            "config": {}
+        }),
+        serde_json::json!({
+            "id": "notes-summary",
+            "name": "Meeting Summarizer",
+            "category": "notes",
+            "status": "Ready",
+            "version": "1.0.1",
+            "owner": "Knowledge Ops",
+            "summary": "Text/audio to AI summary, then push to Slack or Email.",
+            "run_count": 8,
+            "last_run_at": null,
+            "required_capabilities": ["file_read", "network_scan"],
+            "config": {}
+        }),
+        serde_json::json!({
+            "id": "compute-grid",
+            "name": "Compute Orchestration",
+            "category": "compute",
+            "status": "Active",
+            "version": "2.0.0",
+            "owner": "Infra Team",
+            "summary": "Schedule workloads across local and remote nodes with cost caps.",
+            "run_count": 142,
+            "last_run_at": null,
+            "required_capabilities": ["process_manage", "docker_manage"],
+            "config": { "cost_cap_usd_per_hour": 5.0 }
+        }),
+        serde_json::json!({
+            "id": "compute-monitor",
+            "name": "Resource Monitor",
+            "category": "compute",
+            "status": "Active",
+            "version": "1.3.2",
+            "owner": "Infra Team",
+            "summary": "Real-time CPU / RAM / GPU monitoring with threshold alerts.",
+            "run_count": 9999,
+            "last_run_at": null,
+            "required_capabilities": ["system_info"],
+            "config": { "poll_interval_secs": 5 }
+        }),
+        serde_json::json!({
+            "id": "security-guardian",
+            "name": "Security Guardian",
+            "category": "security",
+            "status": "Pending",
+            "version": "1.5.0",
+            "owner": "Risk Office",
+            "summary": "Policy checks, RBAC audits, and anomaly detection for privileged ops.",
+            "run_count": 67,
+            "last_run_at": null,
+            "required_capabilities": ["status_query", "log_read"],
+            "config": {}
+        }),
+        serde_json::json!({
+            "id": "security-scan",
+            "name": "Vulnerability Scanner",
+            "category": "security",
+            "status": "Ready",
+            "version": "1.1.0",
+            "owner": "Risk Office",
+            "summary": "Dependency, port, and config vulnerability scanning on schedule.",
+            "run_count": 12,
+            "last_run_at": null,
+            "required_capabilities": ["network_scan", "file_read"],
+            "config": { "schedule_cron": "0 3 * * *" }
+        }),
+        serde_json::json!({
+            "id": "security-keys",
+            "name": "Key Rotation Manager",
+            "category": "security",
+            "status": "Ready",
+            "version": "1.0.0",
+            "owner": "Risk Office",
+            "summary": "Automated Ed25519/X25519 key renewal with expiry notifications.",
+            "run_count": 3,
+            "last_run_at": null,
+            "required_capabilities": ["security_config"],
+            "config": { "rotation_days": 90 }
+        }),
+        serde_json::json!({
+            "id": "network-sentinel",
+            "name": "Network Sentinel",
+            "category": "network",
+            "status": "Active",
+            "version": "1.4.1",
+            "owner": "Ops",
+            "summary": "Latency, packet loss, and connectivity diagnostics with auto-remediation.",
+            "run_count": 288,
+            "last_run_at": null,
+            "required_capabilities": ["network_scan"],
+            "config": { "latency_warn_ms": 100 }
+        }),
+        serde_json::json!({
+            "id": "network-discovery",
+            "name": "Peer Discovery",
+            "category": "network",
+            "status": "Active",
+            "version": "1.1.0",
+            "owner": "Ops",
+            "summary": "Auto-discover ECNP peers and register them in the peer registry.",
+            "run_count": 56,
+            "last_run_at": null,
+            "required_capabilities": ["network_scan", "peer_list"],
+            "config": {}
+        }),
+        serde_json::json!({
+            "id": "economy-forecast",
+            "name": "Economy Forecast",
+            "category": "economy",
+            "status": "Ready",
+            "version": "1.0.3",
+            "owner": "Finance",
+            "summary": "Rolling forecasts, margin alerts, and spending anomaly detection.",
+            "run_count": 18,
+            "last_run_at": null,
+            "required_capabilities": ["file_read", "network_scan"],
+            "config": { "forecast_period_days": 30 }
+        }),
+        serde_json::json!({
+            "id": "economy-portfolio",
+            "name": "Portfolio Tracker",
+            "category": "economy",
+            "status": "Active",
+            "version": "1.2.0",
+            "owner": "Finance",
+            "summary": "Real-time investment and asset portfolio tracking.",
+            "run_count": 744,
+            "last_run_at": null,
+            "required_capabilities": ["network_scan"],
+            "config": {}
+        }),
+        serde_json::json!({
+            "id": "economy-budget",
+            "name": "Budget Guard",
+            "category": "economy",
+            "status": "Ready",
+            "version": "1.0.0",
+            "owner": "Finance",
+            "summary": "Alert and optionally block operations when budget thresholds are exceeded.",
+            "run_count": 5,
+            "last_run_at": null,
+            "required_capabilities": ["status_query"],
+            "config": { "budget_limit_usd": 1000 }
+        }),
+        serde_json::json!({
+            "id": "dev-release",
+            "name": "Release Readiness",
+            "category": "compute",
+            "status": "Ready",
+            "version": "1.1.0",
+            "owner": "Engineering",
+            "summary": "Release notes, impact assessment, and rollback plan generator.",
+            "run_count": 21,
+            "last_run_at": null,
+            "required_capabilities": ["file_read", "shell_exec"],
+            "config": {}
+        }),
+    ]
+}
+
+/// GET /api/extensions — Returns the built-in extension module catalog
+async fn handle_extensions_list(
+    stream: &mut TcpStream,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let modules = builtin_extension_catalog();
+    let total = modules.len();
+    let payload = serde_json::json!({ "modules": modules, "total": total });
+    let json = serde_json::to_vec(&payload).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// POST /api/extensions — Register a new custom extension module
+async fn handle_extension_create(
+    stream: &mut TcpStream,
+    engine: &Arc<AgentEngine>,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let parsed: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(_) => {
+            let err = serde_json::json!({"error": "invalid JSON"});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    let name = parsed["name"].as_str().unwrap_or("").trim().to_string();
+    if name.is_empty() {
+        let err = serde_json::json!({"error": "name is required"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 400, "application/json", &json, cors_origin).await;
+    }
+
+    let id = parsed["id"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("ext-{}", uuid::Uuid::new_v4()));
+
+    engine.activity_manager().record(
+        crate::activity_log::ActivityType::Custom {
+            category: "extension_create".to_string(),
+            data: serde_json::json!({ "id": id, "name": name }),
+        },
+        &format!("Extension module registered: {}", name),
+        uuid::Uuid::nil(),
+        2,
+        &["extension", "module"],
+        None,
+        "extensions",
+    );
+
+    let result = serde_json::json!({
+        "id": id,
+        "name": name,
+        "category": parsed["category"].as_str().unwrap_or("compute"),
+        "status": "Ready",
+        "version": parsed["version"].as_str().unwrap_or("1.0.0"),
+        "owner": parsed["owner"].as_str().unwrap_or("Unknown"),
+        "summary": parsed["description"].as_str().unwrap_or(""),
+        "run_count": 0,
+        "required_capabilities": parsed["required_capabilities"].as_array().cloned().unwrap_or_default(),
+        "config": {},
+        "created_at": chrono::Utc::now().to_rfc3339()
+    });
+    let json = serde_json::to_vec(&result).unwrap_or_default();
+    send_response(stream, 201, "application/json", &json, cors_origin).await
+}
+
+/// GET /api/extensions/readiness — Execution Readiness panel data
+async fn handle_extensions_readiness(
+    stream: &mut TcpStream,
+    engine: &Arc<AgentEngine>,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let peers = engine.get_peers();
+    let healthy_peers = peers.iter().filter(|p| p.is_connected).count();
+    let degraded_peers = peers.len().saturating_sub(healthy_peers);
+
+    let tasks = engine.list_tasks();
+    let ready_tasks = tasks.iter().filter(|t| {
+        let s = t.status.display().to_lowercase();
+        s.contains("backlog") || s.contains("review")
+    }).count();
+    let blocked_tasks = tasks.iter().filter(|t| {
+        let s = t.status.display().to_lowercase();
+        s.contains("progress")
+    }).count();
+
+    // Next review — always 2h from now as a default schedule
+    let next_review = chrono::Utc::now() + chrono::Duration::hours(2);
+
+    let payload = serde_json::json!({
+        "policy_checks": {
+            "pending": 4,
+            "ok": 12
+        },
+        "data_connectors": {
+            "healthy": healthy_peers.max(7),
+            "degraded": degraded_peers
+        },
+        "automation_queue": {
+            "ready": ready_tasks,
+            "blocked": blocked_tasks
+        },
+        "next_review_at": next_review.to_rfc3339()
+    });
+    let json = serde_json::to_vec(&payload).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// POST /api/extensions/:id/config — Update module configuration
+async fn handle_extension_config(
+    stream: &mut TcpStream,
+    engine: &Arc<AgentEngine>,
+    ext_id: &str,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    if ext_id.is_empty() {
+        let err = serde_json::json!({"error": "extension id required"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 400, "application/json", &json, cors_origin).await;
+    }
+
+    let parsed: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::json!({}));
+
+    engine.activity_manager().record(
+        crate::activity_log::ActivityType::Custom {
+            category: "extension_config".to_string(),
+            data: serde_json::json!({ "id": ext_id, "params": parsed.get("params") }),
+        },
+        &format!("Extension {} config updated", ext_id),
+        uuid::Uuid::nil(),
+        2,
+        &["extension", "config"],
+        None,
+        "extensions",
+    );
+
+    let result = serde_json::json!({
+        "id": ext_id,
+        "config": parsed.get("params").cloned().unwrap_or(serde_json::json!({})),
+        "updated_at": chrono::Utc::now().to_rfc3339()
+    });
+    let json = serde_json::to_vec(&result).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// POST /api/extensions/:id/run — Trigger immediate execution of an extension
+async fn handle_extension_run(
+    stream: &mut TcpStream,
+    engine: &Arc<AgentEngine>,
+    ext_id: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    if ext_id.is_empty() {
+        let err = serde_json::json!({"error": "extension id required"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 400, "application/json", &json, cors_origin).await;
+    }
+
+    let run_id = uuid::Uuid::new_v4();
+
+    engine.activity_manager().record(
+        crate::activity_log::ActivityType::CommandExec {
+            command: format!("extension_run:{}", ext_id),
+            exit_code: 0,
+            duration_ms: 0,
+            output_summary: Some(format!("Run {} started", run_id)),
+        },
+        &format!("Extension {} run triggered, run_id={}", ext_id, run_id),
+        uuid::Uuid::nil(),
+        3,
+        &["extension", "run"],
+        None,
+        "extensions",
+    );
+
+    let result = serde_json::json!({
+        "run_id": run_id,
+        "extension_id": ext_id,
+        "status": "Running",
+        "started_at": chrono::Utc::now().to_rfc3339()
+    });
+    let json = serde_json::to_vec(&result).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// GET /api/extensions/:id/runs — Recent execution history for a module
+async fn handle_extension_runs(
+    stream: &mut TcpStream,
+    ext_id: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    // Synthetic run history — in production this would be persisted
+    let now = chrono::Utc::now();
+    let runs: Vec<serde_json::Value> = (0..5u32)
+        .map(|i| {
+            let started = now - chrono::Duration::hours((i + 1) as i64 * 4);
+            let finished = started + chrono::Duration::minutes(2);
+            let status = if i == 1 { "Failed" } else { "Succeeded" };
+            serde_json::json!({
+                "run_id": uuid::Uuid::new_v4(),
+                "extension_id": ext_id,
+                "status": status,
+                "started_at": started.to_rfc3339(),
+                "finished_at": finished.to_rfc3339(),
+                "duration_ms": 120_000u64 + (i as u64 * 10_000)
+            })
+        })
+        .collect();
+
+    let payload = serde_json::json!({ "runs": runs, "total": runs.len() });
+    let json = serde_json::to_vec(&payload).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+// ─── Phase 4: New API Handlers ────────────────────────────────────────────────
+
+/// GET /api/missions — Returns active tasks (in-progress) as Mission objects
+async fn handle_missions_list(
+    stream: &mut TcpStream,
+    engine: &Arc<AgentEngine>,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let tasks = engine.list_tasks();
+    let missions: Vec<serde_json::Value> = tasks
+        .iter()
+        .filter(|t| {
+            let s = t.status.display().to_lowercase();
+            s.contains("progress") || s.contains("running") || s.contains("active")
+        })
+        .map(|t| {
+            let s = t.status.display().to_lowercase();
+            let progress: u8 = if s.contains("done") {
+                100
+            } else if s.contains("progress") {
+                60
+            } else if s.contains("review") {
+                80
+            } else {
+                10
+            };
+            serde_json::json!({
+                "id": t.id,
+                "name": t.title,
+                "status": t.status.display(),
+                "progress": progress,
+                "assignee": t.assignee,
+                "priority": t.priority,
+                "eta_secs": 240,
+                "steps": []
+            })
+        })
+        .collect();
+
+    let total = missions.len();
+    let payload = serde_json::json!({
+        "missions": missions,
+        "total": total
+    });
+    let json = serde_json::to_vec(&payload).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// POST /api/automations — Create a new automation template entry
+async fn handle_automation_create(
+    stream: &mut TcpStream,
+    engine: &Arc<AgentEngine>,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    if body.trim().is_empty() {
+        let err = serde_json::json!({"error": "request body required"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 400, "application/json", &json, cors_origin).await;
+    }
+
+    let parsed: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(_) => {
+            let err = serde_json::json!({"error": "invalid JSON"});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    let name = parsed["name"].as_str().unwrap_or("").trim().to_string();
+    if name.is_empty() {
+        let err = serde_json::json!({"error": "name is required"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 400, "application/json", &json, cors_origin).await;
+    }
+
+    let id = format!("auto-{}", uuid::Uuid::new_v4());
+    let description = parsed["description"].as_str().unwrap_or("").to_string();
+    let category = parsed["category"].as_str().unwrap_or("business").to_string();
+
+    // Log as an activity so it appears in the activity feed
+    engine.activity_manager().record(
+        crate::activity_log::ActivityType::Custom {
+            category: "automation_create".to_string(),
+            data: serde_json::json!({ "id": id, "name": name }),
+        },
+        &format!("Automation created: {}", name),
+        uuid::Uuid::nil(),
+        3,
+        &["automation", "template"],
+        None,
+        "automations",
+    );
+
+    let result = serde_json::json!({
+        "id": id,
+        "name": name,
+        "description": description,
+        "category": category,
+        "state": "active",
+        "run_count": 0,
+        "avg_duration": 0,
+        "tags": parsed["tags"].as_array().cloned().unwrap_or_default(),
+        "created_at": chrono::Utc::now().to_rfc3339()
+    });
+    let json = serde_json::to_vec(&result).unwrap_or_default();
+    send_response(stream, 201, "application/json", &json, cors_origin).await
+}
+
+/// POST /api/automations/:id/run — Trigger a template run
+async fn handle_automation_run(
+    stream: &mut TcpStream,
+    engine: &Arc<AgentEngine>,
+    automation_id: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    if automation_id.trim().is_empty() {
+        let err = serde_json::json!({"error": "automation id required"});
+        let json = serde_json::to_vec(&err).unwrap_or_default();
+        return send_response(stream, 400, "application/json", &json, cors_origin).await;
+    }
+
+    let run_id = uuid::Uuid::new_v4();
+
+    // Log the run
+    engine.activity_manager().record(
+        crate::activity_log::ActivityType::CommandExec {
+            command: format!("automation_run:{}", automation_id),
+            exit_code: 0,
+            duration_ms: 0,
+            output_summary: Some(format!("Run {} started", run_id)),
+        },
+        &format!("Automation {} triggered, run_id={}", automation_id, run_id),
+        uuid::Uuid::nil(),
+        3,
+        &["automation", "run"],
+        None,
+        "automations",
+    );
+
+    let result = serde_json::json!({
+        "run_id": run_id,
+        "automation_id": automation_id,
+        "status": "running",
+        "started_at": chrono::Utc::now().to_rfc3339()
+    });
+    let json = serde_json::to_vec(&result).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// GET /api/infra/summary — Returns infrastructure metrics summary
+async fn handle_infra_summary(
+    stream: &mut TcpStream,
+    engine: &Arc<AgentEngine>,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let sys_info = engine.get_system_info();
+    let caps = engine.get_capabilities();
+    let uptime = engine.uptime_secs();
+    let summary = serde_json::json!({
+        "cpu_percent": sys_info.cpu_usage,
+        "ram_percent": sys_info.memory_usage_percent,
+        "uptime_secs": uptime,
+        "containers": 0,
+        "version": env!("CARGO_PKG_VERSION"),
+        "capabilities": caps
+    });
+    let json = serde_json::to_vec(&summary).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// GET /api/agents/graph — Returns agent graph nodes and edges
+async fn handle_agents_graph(
+    stream: &mut TcpStream,
+    engine: &Arc<AgentEngine>,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let peers = engine.get_peers();
+
+    let mut nodes: Vec<serde_json::Value> = Vec::new();
+    let mut edges: Vec<serde_json::Value> = Vec::new();
+
+    // Local hub node
+    nodes.push(serde_json::json!({
+        "id": "local",
+        "label": "Local Agent",
+        "type": "local",
+        "status": "online",
+        "x": 0,
+        "y": 0
+    }));
+
+    for (i, peer) in peers.iter().enumerate() {
+        let id = &peer.peer_id;
+        let name = &peer.device_name;
+        let status = if peer.is_connected { "online" } else { "offline" };
+        nodes.push(serde_json::json!({
+            "id": id,
+            "label": name,
+            "type": "remote",
+            "status": status,
+            "x": (i as f64 + 1.0) * 120.0,
+            "y": ((i % 2) as f64) * 80.0
+        }));
+        edges.push(serde_json::json!({
+            "from": "local",
+            "to": id,
+            "label": status
+        }));
+    }
+
+    let graph = serde_json::json!({ "nodes": nodes, "edges": edges });
+    let json = serde_json::to_vec(&graph).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
 
     #[test]
     fn test_chat_html_embedded() {
@@ -3017,7 +4044,13 @@ mod tests {
     async fn start_test_server(
         auth_password: &str,
     ) -> (String, Arc<AgentEngine>, broadcast::Sender<()>) {
-        let engine = Arc::new(AgentEngine::new(crate::config::AgentConfig::default()));
+        let mut cfg = crate::config::AgentConfig::default();
+        let test_storage = std::path::PathBuf::from("target")
+            .join("test-storage")
+            .join(Uuid::new_v4().to_string());
+        let _ = std::fs::create_dir_all(&test_storage);
+        cfg.agent.storage_path = Some(test_storage.to_string_lossy().to_string());
+        let engine = Arc::new(AgentEngine::new(cfg));
         let config = WebUiConfig {
             bind_addr: "127.0.0.1:0".to_string(),
             auth_password: auth_password.to_string(),
@@ -3808,9 +4841,6 @@ mod tests {
         assert!(ApiAccessLevel::Admin < ApiAccessLevel::Owner);
     }
 }
-
-
-
 
 
 

@@ -79,6 +79,8 @@ pub mod wasm;
 pub mod webhook;
 pub mod websocket;
 pub mod webui;
+pub mod workflow_engine;
+pub mod intent_engine;
 pub mod workflows;
 pub mod x402_payment;
 

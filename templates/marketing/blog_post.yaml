@@ -1,0 +1,158 @@
+# Blog Post Generation Template
+# Marketing Domain Template
+
+template:
+  id: "mkt_blog_post"
+  name: "블로그 포스트 작성"
+  version: "1.0.0"
+  domain: "marketing"
+  category: "content"
+  description: "주제 입력 → LLM으로 초안 작성 → SEO 최적화 → 스케줄"
+  
+  metadata:
+    author: "EdgeClaw Team"
+    created_at: "2026-02-01"
+    updated_at: "2026-03-10"
+    usage_count: 1876
+    rating: 4.6
+    tags: ["blog", "content", "seo", "ai"]
+
+variables:
+  - name: "topic"
+    type: "string"
+    description: "블로그 주제"
+    required: true
+    
+  - name: "target_length"
+    type: "enum"
+    description: "목표 글자 수"
+    default: "medium"
+    required: false
+    options: ["short", "medium", "long"]
+    
+  - name: "tone"
+    type: "enum"
+    description: "글쓰기 톤"
+    default: "professional"
+    required: false
+    options: ["professional", "casual", "technical", "friendly"]
+    
+  - name: "seo_keywords"
+    type: "array"
+    description: "SEO 키워드"
+    required: false
+    
+  - name: "publish_date"
+    type: "string"
+    description: "게시 예정일"
+    required: false
+
+workflow:
+  nodes:
+    - id: "research_topic"
+      type: "action"
+      action: "WebResearch"
+      params:
+        query: "{{topic}}"
+        sources: 5
+      outputs:
+        - "research_data"
+        
+    - id: "generate_outline"
+      type: "action"
+      action: "LLMAnalysis"
+      params:
+        prompt: "다음 주제에 대한 블로그 글 구조를 만들어주세요: {{topic}}"
+        model: "llama3"
+        temperature: 0.7
+      outputs:
+        - "outline"
+        
+    - id: "write_draft"
+      type: "action"
+      action: "LLMAnalysis"
+      params:
+        prompt: "다음 구조로 블로그 글을 작성해주세요:\n{{outline}}\n\n톤: {{tone}}\n목표 글자수: {{target_length}}\n핵심 키워드: {{seo_keywords}}"
+        model: "llama3"
+        temperature: 0.8
+      outputs:
+        - "draft"
+        
+    - id: "seo_optimize"
+      type: "transform"
+      transform: "SEOOptimizer"
+      inputs:
+        - "draft"
+      outputs:
+        - "optimized_content"
+        
+    - id: "generate_meta"
+      type: "action"
+      action: "LLMAnalysis"
+      params:
+        prompt: "다음 내용에 대한 SEO 메타 description과 title을 생성해주세요: {{optimized_content}}"
+        model: "llama3"
+        temperature: 0.5
+      outputs:
+        - "meta_tags"
+        
+    - id: "create_featured_image"
+      type: "action"
+      action: "GenerateImage"
+      params:
+        prompt: "Blog featured image for: {{topic}}"
+        style: "modern"
+      outputs:
+        - "featured_image"
+        
+    - id: "schedule_post"
+      type: "conditional"
+      condition: "{{publish_date}}"
+      true_nodes:
+        - "publish_scheduled"
+      false_nodes: []
+      
+    - id: "publish_scheduled"
+      type: "action"
+      action: "SchedulePost"
+      params:
+        platform: "wordpress"
+        title: "{{meta_tags.title}}"
+        content: "{{optimized_content}}"
+        featured_image: "{{featured_image}}"
+        publish_date: "{{publish_date}}"
+      outputs:
+        - "publish_url"
+
+  edges:
+    - from: "research_topic"
+      to: "generate_outline"
+    - from: "generate_outline"
+      to: "write_draft"
+    - from: "write_draft"
+      to: "seo_optimize"
+    - from: "seo_optimize"
+      to: "generate_meta"
+    - from: "generate_meta"
+      to: "create_featured_image"
+    - from: "create_featured_image"
+      to: "schedule_post"
+
+requirements:
+  permissions:
+    - "web:read"
+    - "llm:generate"
+    - "image:generate"
+    - "cms:write"
+  resources:
+    cpu: "500m"
+    memory: "1Gi"
+    timeout_sec: 300
+
+options:
+  retry_policy:
+    max_attempts: 2
+    backoff_ms: 2000
+  notification:
+    on_complete: true
+    on_error: true

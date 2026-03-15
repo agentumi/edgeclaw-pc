@@ -1,0 +1,123 @@
+# Monthly Finance Report Template
+# Business Domain Template
+
+template:
+  id: "biz_monthly_finance"
+  name: "월간 재무보고서 생성"
+  version: "1.0.0"
+  domain: "business"
+  category: "report"
+  description: "ERP 데이터 추출 → 재무제표 생성 → PDF 변환 → 알림"
+  
+  metadata:
+    author: "EdgeClaw Team"
+    created_at: "2026-01-20"
+    updated_at: "2026-03-10"
+    usage_count: 892
+    rating: 4.7
+    tags: ["finance", "report", "monthly", "erp"]
+
+variables:
+  - name: "month"
+    type: "enum"
+    description: "대상 월"
+    default: "this_month"
+    required: true
+    options: ["this_month", "last_month", "custom"]
+    
+  - name: "include_pdf"
+    type: "boolean"
+    description: "PDF 생성"
+    default: true
+    required: false
+    
+  - name: "recipients"
+    type: "array"
+    description: "수신자 이메일"
+    required: true
+
+workflow:
+  nodes:
+    - id: "extract_erp_data"
+      type: "action"
+      action: "DatabaseQuery"
+      params:
+        query: "SELECT * FROM erp_finance WHERE month = :month"
+        connection: "erp_production"
+      outputs:
+        - "finance_data"
+        
+    - id: "generate_balance_sheet"
+      type: "transform"
+      transform: "GenerateBalanceSheet"
+      inputs:
+        - "finance_data"
+      outputs:
+        - "balance_sheet"
+        
+    - id: "generate_income_statement"
+      type: "transform"
+      transform: "GenerateIncomeStatement"
+      inputs:
+        - "finance_data"
+      outputs:
+        - "income_statement"
+        
+    - id: "create_pdf"
+      type: "conditional"
+      condition: "{{include_pdf}}"
+      true_nodes:
+        - "render_pdf"
+      false_nodes: []
+      
+    - id: "render_pdf"
+      type: "action"
+      action: "PDFGenerator"
+      params:
+        template: "templates/finance_monthly.html"
+        data:
+          balance_sheet: "{{balance_sheet}}"
+          income_statement: "{{income_statement}}"
+        output: "reports/finance_{{month}}.pdf"
+      outputs:
+        - "pdf_file"
+        
+    - id: "send_alert"
+      type: "action"
+      action: "SendEmail"
+      params:
+        to: "{{recipients}}"
+        subject: "월간 재무보고서 - {{month}}"
+        body: "월간 재무보고서를 확인해주세요."
+        attachment: "{{pdf_file}}"
+
+  edges:
+    - from: "extract_erp_data"
+      to: "generate_balance_sheet"
+    - from: "extract_erp_data"
+      to: "generate_income_statement"
+    - from: "generate_balance_sheet"
+      to: "create_pdf"
+    - from: "generate_income_statement"
+      to: "create_pdf"
+    - from: "render_pdf"
+      to: "send_alert"
+
+requirements:
+  permissions:
+    - "database:read"
+    - "email:send"
+    - "file:write"
+  resources:
+    cpu: "1000m"
+    memory: "2Gi"
+    timeout_sec: 600
+
+options:
+  retry_policy:
+    max_attempts: 2
+    backoff_ms: 2000
+  notification:
+    on_start: true
+    on_complete: true
+    on_error: true

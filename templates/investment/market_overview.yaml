@@ -1,0 +1,186 @@
+# Market Overview Report Template
+# Investment Domain Template
+
+template:
+  id: "inv_market_overview"
+  name: "시장 개요 리포트"
+  version: "1.0.0"
+  domain: "investment"
+  category: "analysis"
+  description: "산업 데이터 → 성장률/PESTEL 분석 → 요약"
+  
+  metadata:
+    author: "EdgeClaw Team"
+    created_at: "2026-02-05"
+    updated_at: "2026-03-10"
+    usage_count: 987
+    rating: 4.7
+    tags: ["investment", "market", "analysis", "report"]
+
+variables:
+  - name: "industry"
+    type: "string"
+    description: "산업 분야"
+    required: true
+    
+  - name: "analysis_type"
+    type: "enum"
+    description: "분석 유형"
+    default: "comprehensive"
+    required: false
+    options: ["overview", "competitive", "comprehensive"]
+    
+  - name: "include_forecast"
+    type: "boolean"
+    description: "예측 포함"
+    default: true
+    required: false
+    
+  - name: "recipients"
+    type: "array"
+    description: "수신자 이메일"
+    required: false
+
+workflow:
+  nodes:
+    - id: "fetch_market_data"
+      type: "action"
+      action: "APICall"
+      params:
+        url: "https://api.marketdata.com/v1/industry/{{industry}}"
+        method: "GET"
+      outputs:
+        - "market_data"
+        
+    - id: "fetch_competitor_data"
+      type: "action"
+      action: "WebScraper"
+      params:
+        url: "https://example.com/competitors/{{industry}}"
+        selector: ".company-card"
+      outputs:
+        - "competitor_data"
+        
+    - id: "analyze_growth"
+      type: "transform"
+      transform: "CalculateGrowthRate"
+      inputs:
+        - "market_data"
+      outputs:
+        - "growth_analysis"
+        
+    - id: "pestel_analysis"
+      type: "action"
+      action: "LLMAnalysis"
+      params:
+        prompt: "다음 산업에 대한 PESTEL 분석을 수행해주세요: {{industry}}\n\n시장 데이터: {{market_data}}"
+        model: "llama3"
+        temperature: 0.6
+      outputs:
+        - "pestel_result"
+        
+    - id: "swot_analysis"
+      type: "action"
+      action: "LLMAnalysis"
+      params:
+        prompt: "다음 산업의 SWOT 분석을 수행해주세요: {{industry}}"
+        model: "llama3"
+        temperature: 0.6
+      outputs:
+        - "swot_result"
+        
+    - id: "generate_forecast"
+      type: "conditional"
+      condition: "{{include_forecast}}"
+      true_nodes:
+        - "create_forecast"
+      false_nodes: []
+      
+    - id: "create_forecast"
+      type: "transform"
+      transform: "TimeSeriesForecast"
+      inputs:
+        - "market_data"
+      outputs:
+        - "forecast_data"
+        
+    - id: "create_charts"
+      type: "action"
+      action: "CreateChart"
+      params:
+        type: "multi"
+        data:
+          growth: "{{growth_analysis}}"
+          forecast: "{{forecast_data}}"
+      outputs:
+        - "charts"
+        
+    - id: "compile_report"
+      type: "action"
+      action: "RenderMarkdown"
+      params:
+        template: "templates/investment/market_overview.md"
+        data:
+          industry: "{{industry}}"
+          growth: "{{growth_analysis}}"
+          pestel: "{{pestel_result}}"
+          swot: "{{swot_result}}"
+          forecast: "{{forecast_data}}"
+          charts: "{{charts}}"
+      outputs:
+        - "report_file"
+        
+    - id: "send_report"
+      type: "conditional"
+      condition: "{{recipients}}"
+      true_nodes:
+        - "email_report"
+      false_nodes: []
+      
+    - id: "email_report"
+      type: "action"
+      action: "SendEmail"
+      params:
+        to: "{{recipients}}"
+        subject: "시장 개요 리포트 - {{industry}}"
+        attachment: "{{report_file}}"
+
+  edges:
+    - from: "fetch_market_data"
+      to: "analyze_growth"
+    - from: "fetch_competitor_data"
+      to: "pestel_analysis"
+    - from: "analyze_growth"
+      to: "swot_analysis"
+    - from: "pestel_analysis"
+      to: "swot_analysis"
+    - from: "swot_analysis"
+      to: "generate_forecast"
+    - from: "create_forecast"
+      to: "create_charts"
+    - from: "analyze_growth"
+      to: "create_charts"
+    - from: "create_charts"
+      to: "compile_report"
+    - from: "compile_report"
+      to: "send_report"
+
+requirements:
+  permissions:
+    - "api:read"
+    - "web:read"
+    - "llm:analyze"
+    - "email:send"
+  resources:
+    cpu: "1000m"
+    memory: "2Gi"
+    timeout_sec: 600
+
+options:
+  retry_policy:
+    max_attempts: 2
+    backoff_ms: 2000
+  notification:
+    on_start: true
+    on_complete: true
+    on_error: true

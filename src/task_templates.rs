@@ -273,6 +273,9 @@ impl TemplateRegistry {
         registry.templates.extend(security_templates());
         registry.templates.extend(system_templates());
         registry.templates.extend(data_templates());
+        // Add domain-specific templates
+        registry.templates.extend(crate::workflows::investment::get_templates());
+        registry.templates.extend(crate::workflows::business::get_templates());
         registry
     }
 

@@ -1,0 +1,171 @@
+# CI Pipeline Template
+# Development Domain Template
+
+template:
+  id: "dev_ci_pipeline"
+  name: "CI 파이프라인"
+  version: "1.0.0"
+  domain: "development"
+  category: "cicd"
+  description: "코드 푸시 → 빌드 → 테스트 → 정적 분석 → 리포트"
+  
+  metadata:
+    author: "EdgeClaw Team"
+    created_at: "2026-01-10"
+    updated_at: "2026-03-10"
+    usage_count: 3241
+    rating: 4.9
+    tags: ["ci", "build", "test", "pipeline"]
+
+variables:
+  - name: "branch"
+    type: "string"
+    description: "대상 브랜치"
+    default: "main"
+    required: true
+    
+  - name: "run_tests"
+    type: "boolean"
+    description: "테스트 실행"
+    default: true
+    required: false
+    
+  - name: "run_lint"
+    type: "boolean"
+    description: "린트 실행"
+    default: true
+    required: false
+    
+  - name: "notify_channel"
+    type: "string"
+    description: "알림 채널"
+    default: "slack"
+    required: false
+
+workflow:
+  nodes:
+    - id: "checkout_code"
+      type: "action"
+      action: "GitClone"
+      params:
+        repo: "{{git_repo}}"
+        branch: "{{branch}}"
+      outputs:
+        - "code_dir"
+        
+    - id: "install_dependencies"
+      type: "action"
+      action: "RunCommand"
+      params:
+        command: "npm install"
+        working_dir: "{{code_dir}}"
+        timeout: 300
+      outputs:
+        - "node_modules"
+        
+    - id: "run_build"
+      type: "action"
+      action: "RunCommand"
+      params:
+        command: "npm run build"
+        working_dir: "{{code_dir}}"
+        timeout: 600
+      outputs:
+        - "build_artifact"
+        
+    - id: "run_tests"
+      type: "conditional"
+      condition: "{{run_tests}}"
+      true_nodes:
+        - "execute_tests"
+      false_nodes: []
+      
+    - id: "execute_tests"
+      type: "action"
+      action: "RunCommand"
+      params:
+        command: "npm test -- --coverage"
+        working_dir: "{{code_dir}}"
+        timeout: 600
+      outputs:
+        - "test_results"
+        
+    - id: "run_lint"
+      type: "conditional"
+      condition: "{{run_lint}}"
+      true_nodes:
+        - "execute_lint"
+      false_nodes: []
+      
+    - id: "execute_lint"
+      type: "action"
+      action: "RunCommand"
+      params:
+        command: "npm run lint"
+        working_dir: "{{code_dir}}"
+        timeout: 120
+      outputs:
+        - "lint_results"
+        
+    - id: "security_scan"
+      type: "action"
+      action: "SecurityScan"
+      params:
+        target: "{{code_dir}}"
+        type: "dependencies"
+      outputs:
+        - "security_report"
+        
+    - id: "upload_artifact"
+      type: "action"
+      action: "UploadArtifact"
+      params:
+        artifact: "{{build_artifact}}"
+        destination: "s3://edgeclaw-builds/{{branch}}/{{commit_sha}}"
+      outputs:
+        - "artifact_url"
+        
+    - id: "send_notification"
+      type: "action"
+      action: "Notify"
+      params:
+        channel: "{{notify_channel}}"
+        message: "CI Pipeline completed for {{branch}}"
+        status: "{{pipeline_status}}"
+
+  edges:
+    - from: "checkout_code"
+      to: "install_dependencies"
+    - from: "install_dependencies"
+      to: "run_build"
+    - from: "run_build"
+      to: "run_tests"
+    - from: "run_build"
+      to: "run_lint"
+    - from: "run_tests"
+      to: "security_scan"
+    - from: "run_lint"
+      to: "security_scan"
+    - from: "security_scan"
+      to: "upload_artifact"
+    - from: "upload_artifact"
+      to: "send_notification"
+
+requirements:
+  permissions:
+    - "git:read"
+    - "exec:run"
+    - "storage:write"
+  resources:
+    cpu: "2000m"
+    memory: "4Gi"
+    timeout_sec: 900
+
+options:
+  retry_policy:
+    max_attempts: 2
+    backoff_ms: 3000
+  notification:
+    on_start: true
+    on_complete: true
+    on_error: true

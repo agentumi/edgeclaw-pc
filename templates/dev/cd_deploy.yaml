@@ -1,0 +1,153 @@
+# CD Deploy Pipeline Template
+# Development Domain Template
+
+template:
+  id: "dev_cd_deploy"
+  name: "CD 배포 파이프라인"
+  version: "1.0.0"
+  domain: "development"
+  category: "cicd"
+  description: "빌드 → 스테이징 검증 → 프로덕션 배포 → 알림"
+  
+  metadata:
+    author: "EdgeClaw Team"
+    created_at: "2026-01-12"
+    updated_at: "2026-03-10"
+    usage_count: 2156
+    rating: 4.8
+    tags: ["cd", "deploy", "kubernetes", "pipeline"]
+
+variables:
+  - name: "environment"
+    type: "enum"
+    description: "배포 환경"
+    default: "staging"
+    required: true
+    options: ["staging", "production"]
+    
+  - name: "version"
+    type: "string"
+    description: "배포 버전"
+    required: true
+    
+  - name: "rollback_on_failure"
+    type: "boolean"
+    description: "실패 시 자동 롤백"
+    default: true
+    required: false
+
+workflow:
+  nodes:
+    - id: "fetch_artifact"
+      type: "action"
+      action: "DownloadArtifact"
+      params:
+        source: "s3://edgeclaw-builds/{{version}}"
+      outputs:
+        - "artifact"
+        
+    - id: "deploy_staging"
+      type: "conditional"
+      condition: "{{environment}} == 'staging'"
+      true_nodes:
+        - "update_staging"
+      false_nodes: []
+      
+    - id: "update_staging"
+      type: "action"
+      action: "K8sDeploy"
+      params:
+        manifest: "k8s/staging.yaml"
+        namespace: "staging"
+        image: "edgeclaw/app:{{version}}"
+      outputs:
+        - "staging_result"
+        
+    - id: "verify_staging"
+      type: "action"
+      action: "HealthCheck"
+      params:
+        url: "https://staging.edgeclaw.com/health"
+        timeout: 60
+      outputs:
+        - "health_status"
+        
+    - id: "deploy_production"
+      type: "conditional"
+      condition: "{{environment}} == 'production'"
+      true_nodes:
+        - "blue_green_switch"
+      false_nodes: []
+      
+    - id: "blue_green_switch"
+      type: "action"
+      action: "K8sBlueGreen"
+      params:
+        service: "edgeclaw-production"
+        new_version: "{{version}}"
+      outputs:
+        - "deploy_result"
+        
+    - id: "smoke_test"
+      type: "action"
+      action: "RunCommand"
+      params:
+        command: "./scripts/smoke-tests.sh"
+        timeout: 120
+      outputs:
+        - "test_result"
+        
+    - id: "notify_success"
+      type: "action"
+      action: "Notify"
+      params:
+        channel: "slack"
+        message: "Deployment {{version}} to {{environment}} completed successfully"
+        
+    - id: "rollback"
+      type: "conditional"
+      condition: "{{rollback_on_failure}} AND {{deploy_result.status}} == 'failed'"
+      true_nodes:
+        - "perform_rollback"
+      false_nodes: []
+      
+    - id: "perform_rollback"
+      type: "action"
+      action: "K8sRollback"
+      params:
+        namespace: "{{environment}}"
+        revision: "{{previous_revision}}"
+
+  edges:
+    - from: "fetch_artifact"
+      to: "deploy_staging"
+    - from: "deploy_staging"
+      to: "verify_staging"
+    - from: "verify_staging"
+      to: "deploy_production"
+    - from: "deploy_production"
+      to: "smoke_test"
+    - from: "smoke_test"
+      to: "notify_success"
+    - from: "deploy_result"
+      to: "rollback"
+
+requirements:
+  permissions:
+    - "storage:read"
+    - "k8s:deploy"
+    - "exec:run"
+  resources:
+    cpu: "1000m"
+    memory: "2Gi"
+    timeout_sec: 600
+
+options:
+  retry_policy:
+    max_attempts: 1
+    backoff_ms: 5000
+  notification:
+    on_start: true
+    on_progress: true
+    on_complete: true
+    on_error: true

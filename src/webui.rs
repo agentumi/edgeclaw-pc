@@ -1522,7 +1522,7 @@ async fn handle_templates_list(
 ) -> Result<(), AgentError> {
     use crate::task_templates::TemplateRegistry;
     let registry = TemplateRegistry::default_library();
-    let templates: Vec<serde_json::Value> = registry
+    let mut templates: Vec<serde_json::Value> = registry
         .list()
         .iter()
         .map(|t| {
@@ -1535,9 +1535,27 @@ async fn handle_templates_list(
                 "capability": t.capability,
                 "builtin": t.builtin,
                 "estimated_secs": t.estimated_secs,
+                "type": "sequential"
             })
         })
         .collect();
+
+    // Add YAML-based workflow templates
+    use crate::workflow_engine::TemplateRegistry as WorkflowRegistry;
+    let wf_registry = WorkflowRegistry::new();
+    for t in wf_registry.list(None) {
+        templates.push(serde_json::json!({
+            "id": t.template.id,
+            "name": t.template.name,
+            "description": t.template.description,
+            "category": t.template.category,
+            "tags": t.template.metadata.tags,
+            "capability": "workflow:exec",
+            "builtin": false,
+            "estimated_secs": t.requirements.resources.timeout_sec,
+            "type": "dag"
+        }));
+    }
 
     let body = serde_json::json!({
         "templates": templates,
@@ -1557,37 +1575,57 @@ async fn handle_template_detail(
     use crate::task_templates::TemplateRegistry;
     let registry = TemplateRegistry::default_library();
 
-    match registry.get(template_id) {
-        Some(t) => {
-            let body = serde_json::json!({
-                "id": t.id,
-                "name": t.name,
-                "description": t.description,
-                "category": t.category.to_string(),
-                "tags": t.tags,
-                "capability": t.capability,
-                "required_role": t.required_role.to_string(),
-                "builtin": t.builtin,
-                "estimated_secs": t.estimated_secs,
-                "steps": t.steps.iter().map(|s| {
-                    serde_json::json!({
-                        "order": s.order,
-                        "description": s.description,
-                        "command": s.command,
-                        "args": s.args,
-                        "timeout_secs": s.timeout_secs,
-                    })
-                }).collect::<Vec<_>>(),
-            });
-            let json = serde_json::to_vec(&body).unwrap_or_default();
-            send_response(stream, 200, "application/json", &json, cors_origin).await
-        }
-        None => {
-            let err = serde_json::json!({ "error": format!("template '{}' not found", template_id) });
-            let json = serde_json::to_vec(&err).unwrap_or_default();
-            send_response(stream, 404, "application/json", &json, cors_origin).await
-        }
+    if let Some(t) = registry.get(template_id) {
+        let body = serde_json::json!({
+            "id": t.id,
+            "name": t.name,
+            "description": t.description,
+            "category": t.category.to_string(),
+            "tags": t.tags,
+            "capability": t.capability,
+            "required_role": t.required_role.to_string(),
+            "builtin": t.builtin,
+            "estimated_secs": t.estimated_secs,
+            "type": "sequential",
+            "steps": t.steps.iter().map(|s| {
+                serde_json::json!({
+                    "order": s.order,
+                    "description": s.description,
+                    "command": s.command,
+                    "args": s.args,
+                    "timeout_secs": s.timeout_secs,
+                })
+            }).collect::<Vec<_>>(),
+        });
+        let json = serde_json::to_vec(&body).unwrap_or_default();
+        return send_response(stream, 200, "application/json", &json, cors_origin).await;
     }
+
+    // Try workflow registry
+    use crate::workflow_engine::TemplateRegistry as WorkflowRegistry;
+    let wf_registry = WorkflowRegistry::new();
+    if let Some(t) = wf_registry.get(template_id) {
+        let body = serde_json::json!({
+            "id": t.template.id,
+            "name": t.template.name,
+            "description": t.template.description,
+            "category": t.template.category,
+            "tags": t.template.metadata.tags,
+            "capability": "workflow:exec",
+            "builtin": false,
+            "estimated_secs": t.requirements.resources.timeout_sec,
+            "type": "dag",
+            "version": t.template.version,
+            "variables": t.variables,
+            "workflow": t.workflow,
+        });
+        let json = serde_json::to_vec(&body).unwrap_or_default();
+        return send_response(stream, 200, "application/json", &json, cors_origin).await;
+    }
+
+    let err = serde_json::json!({ "error": format!("template '{}' not found", template_id) });
+    let json = serde_json::to_vec(&err).unwrap_or_default();
+    send_response(stream, 404, "application/json", &json, cors_origin).await
 }
 
 #[derive(serde::Deserialize)]

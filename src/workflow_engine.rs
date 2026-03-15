@@ -660,8 +660,35 @@ impl TemplateRegistry {
     
     /// Load built-in templates
     fn load_builtin_templates(&mut self) {
-        // Templates are loaded from external files at runtime
-        // This prevents compilation issues with include_str! macro
+        // Load from default directory if it exists
+        let _ = self.load_directory(std::path::Path::new("templates"));
+    }
+
+    /// Load all YAML templates from a directory recursively
+    pub fn load_directory(&mut self, path: &std::path::Path) -> Result<usize> {
+        if !path.exists() || !path.is_dir() {
+            return Ok(0);
+        }
+
+        let mut count = 0;
+        self.walk_dir(path, &mut count);
+        Ok(count)
+    }
+
+    fn walk_dir(&mut self, dir: &std::path::Path, count: &mut usize) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    self.walk_dir(&path, count);
+                } else if path.extension().is_some_and(|ext| ext == "yaml" || ext == "yml") {
+                    if let Ok(template) = parse_template_file(&path) {
+                        self.templates.insert(template.template.id.clone(), template);
+                        *count += 1;
+                    }
+                }
+            }
+        }
     }
     
     /// Register a template from YAML string

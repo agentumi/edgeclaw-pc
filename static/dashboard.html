@@ -5640,6 +5640,24 @@
     // Template state
     let templateData = [];
     let currentTemplateCategory = 'all';
+
+    const getCatKey = (t) => {
+        if (!t) return 'business';
+        const c = String(t.category || '').toLowerCase();
+        const id = String(t.id || '').toLowerCase();
+        const tags = (t.tags || []).map(tg => String(tg).toLowerCase());
+        
+        if (c === 'marketing' || id.startsWith('mkt') || tags.includes('marketing')) return 'marketing';
+        if (c === 'development' || c === 'dev' || id.startsWith('dev') || tags.includes('development')) return 'dev';
+        if (c === 'devops' || id.startsWith('devops') || tags.includes('devops')) return 'devops';
+        if (c === 'security' || id.startsWith('sec') || tags.includes('security')) return 'security';
+        if (c === 'system' || id.startsWith('sys') || tags.includes('system')) return 'system';
+        if (c === 'investment' || id.startsWith('inv') || tags.includes('investment')) return 'investment';
+        if (c === 'business' || id.startsWith('biz') || tags.includes('business')) return 'business';
+        if (c === 'data') return 'business';
+        
+        return 'business';
+    };
     
     async function fetchTemplates() {
         const grid = document.getElementById('templateGrid');
@@ -5653,6 +5671,8 @@
             const raw = data.templates || data.items || data;
             templateData = Array.isArray(raw) ? raw : [];
             
+            // Sync to AppState
+            AppState.set('templates', templateData);
             renderTemplates();
         } catch (e) {
             console.error("Failed to fetch templates:", e);
@@ -5673,7 +5693,7 @@
         
         // Category filter
         if (currentTemplateCategory !== 'all') {
-            filtered = filtered.filter(t => t.category === currentTemplateCategory);
+            filtered = filtered.filter(t => getCatKey(t) === currentTemplateCategory);
         }
         
         // Search filter
@@ -5704,23 +5724,8 @@
                 system: { name: 'System', icon: '⚙️', color: '#64748b', templates: [] }
             };
             
-            // Map backend category names to frontend keys
-            const getCatKey = (c) => {
-                const map = {
-                    'investment': 'investment',
-                    'business': 'business',
-                    'development': 'dev',
-                    'marketing': 'marketing',
-                    'devops': 'devops',
-                    'security': 'security',
-                    'system': 'system',
-                    'data': 'business'
-                };
-                return map[String(c).toLowerCase()] || 'business';
-            };
-
             filtered.forEach(t => {
-                const catKey = getCatKey(t.category);
+                const catKey = getCatKey(t);
                 if (categories[catKey]) {
                     categories[catKey].templates.push(t);
                 }
@@ -5747,6 +5752,22 @@
         } else {
             grid.innerHTML = filtered.map(t => renderTemplateCard(t)).join('');
         }
+
+        // Update tab buttons with counts
+        const allCount = templateData.length;
+        const counts = { all: allCount };
+        templateData.forEach(t => {
+            const k = getCatKey(t);
+            counts[k] = (counts[k] || 0) + 1;
+        });
+
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            const cat = btn.dataset.category;
+            const count = counts[cat] || 0;
+            const baseText = btn.textContent.split(' (')[0];
+            btn.textContent = `${baseText} (${count})`;
+            btn.classList.toggle('active', cat === currentTemplateCategory);
+        });
     }
     
     function renderTemplateCard(t) {
@@ -5893,26 +5914,35 @@
             successEl.textContent = rate !== undefined ? `${(rate * 100).toFixed(0)}%` : '—';
         }
 
-        // Parameters
+        // Parameters / Variables
         if (paramsEl) {
-            const params = template.parameters || template.params;
-            if (params && typeof params === 'object' && Object.keys(params).length > 0) {
-                paramsEl.innerHTML = Object.entries(params).map(([key, val]) =>
-                    `<div style="margin-bottom:4px;"><span style="color:var(--primary-400);">${escapeHtml(key)}</span>: ${escapeHtml(typeof val === 'object' ? JSON.stringify(val) : String(val))}</div>`
-                ).join('');
+            const params = template.variables || template.parameters || template.params;
+            if (params && (Array.isArray(params) || typeof params === 'object')) {
+                if (Array.isArray(params)) {
+                    paramsEl.innerHTML = params.map(p => 
+                        `<div style="margin-bottom:6px; border-bottom:1px solid var(--surface-700); padding-bottom:4px;">
+                            <div style="font-weight:600; color:var(--primary-400);">${escapeHtml(p.name)} <span style="font-weight:400; font-size:10px; color:var(--text-muted); opacity:0.8;">[${p.type || p.var_type || 'string'}]</span></div>
+                            <div style="font-size:11px; color:var(--text-muted);">${escapeHtml(p.description || '')}</div>
+                        </div>`
+                    ).join('');
+                } else {
+                    paramsEl.innerHTML = Object.entries(params).map(([key, val]) =>
+                        `<div style="margin-bottom:4px;"><span style="color:var(--primary-400);">${escapeHtml(key)}</span>: ${escapeHtml(typeof val === 'object' ? JSON.stringify(val) : String(val))}</div>`
+                    ).join('');
+                }
             } else {
                 paramsEl.textContent = 'No parameters defined';
             }
         }
 
-        // Steps
+        // Steps / Nodes
         if (stepsEl) {
-            const steps = template.steps || template.workflow || [];
-            if (Array.isArray(steps) && steps.length > 0) {
-                stepsEl.innerHTML = steps.map((step, idx) => {
-                    const label = typeof step === 'string' ? step : (step.name || step.action || step.description || `Step ${idx + 1}`);
+            const rawSteps = template.steps || (template.workflow && template.workflow.nodes) || [];
+            if (Array.isArray(rawSteps) && rawSteps.length > 0) {
+                stepsEl.innerHTML = rawSteps.map((s, idx) => {
+                    const label = s.name || s.action || s.description || s.id || `Step ${idx + 1}`;
                     return `
-                        <div style="display:flex; align-items:center; gap:10px; padding:8px 12px; background:var(--surface-800); border-radius:6px;">
+                        <div style="display:flex; align-items:center; gap:10px; padding:8px 12px; background:var(--surface-800); border-radius:6px; margin-bottom:4px;">
                             <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted); min-width:20px;">${idx + 1}</span>
                             <i class="fa-solid fa-circle-dot" style="font-size:8px; color:var(--primary-400);"></i>
                             <span style="font-size:12px;">${escapeHtml(label)}</span>

@@ -237,9 +237,10 @@ impl TaskTemplate {
         if self.id.is_empty() {
             return Err("template ID cannot be empty".to_string());
         }
-        if self.steps.is_empty() {
-            return Err("template must have at least one step".to_string());
-        }
+        // Allow templates without steps (e.g., API-triggered templates)
+        // if self.steps.is_empty() {
+        //     return Err("template must have at least one step".to_string());
+        // }
         for (i, step) in self.steps.iter().enumerate() {
             if step.command.is_empty() {
                 return Err(format!("step {} has empty command", i + 1));
@@ -1861,7 +1862,8 @@ mod tests {
             estimated_secs: 0,
             builtin: false,
         };
-        assert!(t.validate().is_err()); // no steps
+        // Now we allow templates without steps (API-triggered)
+        assert!(t.validate().is_ok()); // Empty steps allowed now
 
         let t2 = TaskTemplate {
             id: "".into(),
@@ -1973,7 +1975,8 @@ mod tests {
             assert!(t.builtin, "Template {} should be marked builtin", t.id);
             assert!(!t.id.is_empty());
             assert!(!t.name.is_empty());
-            assert!(!t.steps.is_empty());
+            // Allow templates without steps (API-triggered templates)
+            // assert!(!t.steps.is_empty());
         }
     }
 

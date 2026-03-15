@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automations — EdgeClaw</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #050508;
+            --bg-secondary: #0a0a0f;
+            --bg-tertiary: #12121a;
+            --bg-card: #16161f;
+            --border-color: #2a2a3a;
+            --border-active: #4f46e5;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-primary: #6366f1;
+            --accent-hover: #818cf8;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-yellow: #f59e0b;
+            --accent-blue: #3b82f6;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+        }
+        .sidebar {
+            width: 240px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border-color);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+        .logo {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--accent-primary);
+            margin-bottom: 30px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--accent-primary), #8b5cf6);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .nav-item {
+            padding: 12px 16px;
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .nav-item:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+        .nav-item.active { background: var(--accent-primary); color: white; }
+        .nav-icon { width: 20px; text-align: center; }
+        .main { flex: 1; display: flex; flex-direction: column; }
+        .header {
+            padding: 20px 30px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-secondary);
+        }
+        .header-title { font-size: 24px; font-weight: 600; }
+        .header-actions { display: flex; gap: 12px; }
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-primary { background: var(--accent-primary); color: white; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-secondary { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); }
+        .btn-secondary:hover { border-color: var(--accent-primary); }
+        .content { flex: 1; padding: 30px; overflow-y: auto; }
+        .filters {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+        .filter-select {
+            padding: 10px 16px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .search-input {
+            flex: 1;
+            min-width: 300px;
+            padding: 10px 16px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+        .search-input:focus { outline: none; border-color: var(--accent-primary); }
+        .template-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+        }
+        .template-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .template-card:hover { border-color: var(--accent-primary); transform: translateY(-2px); }
+        .template-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+        .template-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+        .template-icon.investment { background: rgba(16, 185, 129, 0.2); }
+        .template-icon.business { background: rgba(59, 130, 246, 0.2); }
+        .template-icon.dev { background: rgba(139, 92, 246, 0.2); }
+        .template-icon.marketing { background: rgba(245, 158, 11, 0.2); }
+        .template-badge {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .badge-active { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); }
+        .badge-paused { background: rgba(245, 158, 11, 0.2); color: var(--accent-yellow); }
+        .badge-error { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); }
+        .template-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+        .template-desc { color: var(--text-secondary); font-size: 14px; line-height: 1.5; margin-bottom: 16px; }
+        .template-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 12px;
+            border-top: 1px solid var(--border-color);
+        }
+        .template-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+        .tag {
+            padding: 4px 8px;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .template-stats { font-size: 12px; color: var(--text-muted); }
+        .category-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 12px;
+        }
+        .category-tab {
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+        }
+        .category-tab:hover { background: var(--bg-tertiary); }
+        .category-tab.active { background: var(--accent-primary); color: white; }
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-title { font-size: 18px; font-weight: 600; }
+        .modal-close { cursor: pointer; font-size: 24px; color: var(--text-muted); }
+        .modal-body { padding: 20px; }
+        .form-group { margin-bottom: 16px; }
+        .form-label { display: block; margin-bottom: 8px; font-size: 14px; color: var(--text-secondary); }
+        .form-input, .form-select, .form-textarea {
+            width: 100%;
+            padding: 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+        .form-textarea { min-height: 100px; resize: vertical; }
+        .form-input:focus, .form-select:focus, .form-textarea:focus {
+            outline: none; border-color: var(--accent-primary);
+        }
+        .modal-footer {
+            padding: 20px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .stat-value { font-size: 28px; font-weight: 700; color: var(--accent-primary); }
+        .stat-label { font-size: 14px; color: var(--text-muted); margin-top: 4px; }
+        .workflow-preview {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+        }
+        .workflow-step {
+            display: flex;
+            align-items: center;
+            padding: 12px 0;
+            border-left: 2px solid var(--border-color);
+            padding-left: 20px;
+            margin-left: 10px;
+            position: relative;
+        }
+        .workflow-step::before {
+            content: '';
+            position: absolute;
+            left: -6px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent-primary);
+        }
+        .step-name { font-weight: 500; }
+        .step-action { color: var(--text-muted); font-size: 13px; margin-left: 8px; }
+    </style>
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="logo">
+            <div class="logo-icon">⚡</div>
+            EdgeClaw
+        </div>
+        <div class="nav-item" onclick="navigate('dashboard')">
+            <span class="nav-icon">📊</span> Mission Control
+        </div>
+        <div class="nav-item" onclick="navigate('agents')">
+            <span class="nav-icon">🤖</span> Agents
+        </div>
+        <div class="nav-item" onclick="navigate('memory')">
+            <span class="nav-icon">🧠</span> Memory
+        </div>
+        <div class="nav-item active" onclick="navigate('automations')">
+            <span class="nav-icon">⚙️</span> Automations
+        </div>
+        <div class="nav-item" onclick="navigate('marketplace')">
+            <span class="nav-icon">🛒</span> Marketplace
+        </div>
+        <div class="nav-item" onclick="navigate('settings')">
+            <span class="nav-icon">⚙️</span> Settings
+        </div>
+    </nav>
+    
+    <main class="main">
+        <header class="header">
+            <h1 class="header-title">Automations</h1>
+            <div class="header-actions">
+                <button class="btn btn-secondary" onclick="runSelected()">
+                    ▶️ Run Now
+                </button>
+                <button class="btn btn-primary" onclick="openCreateModal()">
+                    + New Automation
+                </button>
+            </div>
+        </header>
+        
+        <div class="content">
+            <div class="stats-bar">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalCount">0</div>
+                    <div class="stat-label">Total Templates</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="activeCount">0</div>
+                    <div class="stat-label">Active</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="successRate">0%</div>
+                    <div class="stat-label">Success Rate</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="avgDuration">0s</div>
+                    <div class="stat-label">Avg Duration</div>
+                </div>
+            </div>
+            
+            <div class="category-tabs">
+                <div class="category-tab active" data-category="all" onclick="filterCategory('all')">All</div>
+                <div class="category-tab" data-category="investment" onclick="filterCategory('investment')">Investment</div>
+                <div class="category-tab" data-category="business" onclick="filterCategory('business')">Business</div>
+                <div class="category-tab" data-category="dev" onclick="filterCategory('dev')">Development</div>
+                <div class="category-tab" data-category="marketing" onclick="filterCategory('marketing')">Marketing</div>
+            </div>
+            
+            <div class="filters">
+                <input type="text" class="search-input" placeholder="Search templates..." id="searchInput" oninput="searchTemplates()">
+                <select class="filter-select" id="statusFilter" onchange="filterStatus()">
+                    <option value="all">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="paused">Paused</option>
+                </select>
+                <select class="filter-select" id="sortFilter" onchange="sortTemplates()">
+                    <option value="name">Sort by Name</option>
+                    <option value="recent">Recently Used</option>
+                    <option value="popular">Most Popular</option>
+                </select>
+            </div>
+            
+            <div class="template-grid" id="templateGrid">
+                <!-- Templates will be loaded here -->
+            </div>
+        </div>
+    </main>
+    
+    <!-- Create Modal -->
+    <div class="modal-overlay" id="createModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">New Automation</h2>
+                <span class="modal-close" onclick="closeCreateModal()">×</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Template</label>
+                    <select class="form-select" id="templateSelect" onchange="updateTemplatePreview()">
+                        <option value="">Select a template...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Name</label>
+                    <input type="text" class="form-input" id="automationName" placeholder="My Automation">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Trigger Type</label>
+                    <select class="form-select" id="triggerType">
+                        <option value="manual">Manual</option>
+                        <option value="schedule">Schedule (Cron)</option>
+                        <option value="event">Event-based</option>
+                    </select>
+                </div>
+                <div class="form-group" id="cronGroup" style="display:none;">
+                    <label class="form-label">Cron Expression</label>
+                    <input type="text" class="form-input" id="cronExpr" placeholder="0 9 * * *">
+                </div>
+                <div class="workflow-preview" id="workflowPreview">
+                    <div style="color: var(--text-muted);">Select a template to see workflow steps</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeCreateModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="createAutomation()">Create</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let templates = [];
+        let filteredTemplates = [];
+        let currentCategory = 'all';
+        
+        // Navigate between pages
+        function navigate(page) {
+            window.location.href = '/' + page;
+        }
+        
+        // Load templates from API
+        async function loadTemplates() {
+            try {
+                const response = await fetch('/api/templates');
+                const data = await response.json();
+                templates = data.templates || data.items || [];
+                filteredTemplates = [...templates];
+                renderTemplates();
+                updateStats();
+            } catch (error) {
+                console.error('Failed to load templates:', error);
+                // Load demo data if API fails
+                loadDemoData();
+            }
+        }
+        
+        function loadDemoData() {
+            templates = [
+                { id: 'inv_portfolio_rebalance', name: 'Portfolio Rebalance', category: 'investment', description: 'Automatically rebalance investment portfolio based on target allocation', tags: ['finance', 'portfolio'], icon: '📈', state: 'active', run_count: 45, avg_duration: 120 },
+                { id: 'inv_equity_valuation', name: 'Equity Valuation', category: 'investment', description: 'Run comprehensive equity valuation analysis', tags: ['finance', 'analysis'], icon: '💹', state: 'active', run_count: 32, avg_duration: 90 },
+                { id: 'biz_weekly_sales', name: 'Weekly Sales Report', category: 'business', description: 'Generate automated weekly sales performance report', tags: ['report', 'sales'], icon: '📊', state: 'active', run_count: 78, avg_duration: 30 },
+                { id: 'biz_expense_approval', name: 'Expense Approval', category: 'business', description: 'Automated expense claim approval workflow', tags: ['approval', 'expense'], icon: '✅', state: 'paused', run_count: 156, avg_duration: 15 },
+                { id: 'dev_ci_pipeline', name: 'CI Pipeline', category: 'dev', description: 'Continuous integration pipeline with testing', tags: ['ci/cd', 'devops'], icon: '🔄', state: 'active', run_count: 234, avg_duration: 300 },
+                { id: 'dev_cd_deploy', name: 'CD Deployment', category: 'dev', description: 'Continuous deployment to staging/production', tags: ['ci/cd', 'deploy'], icon: '🚀', state: 'active', run_count: 89, avg_duration: 180 },
+                { id: 'mkt_blog_post', name: 'Blog Post Generator', category: 'marketing', description: 'AI-powered blog post creation and publishing', tags: ['content', 'seo'], icon: '✍️', state: 'active', run_count: 23, avg_duration: 60 },
+                { id: 'mkt_social_schedule', name: 'Social Media Scheduler', category: 'marketing', description: 'Schedule and manage social media posts', tags: ['social', 'schedule'], icon: '📱', state: 'active', run_count: 67, avg_duration: 20 },
+            ];
+            filteredTemplates = [...templates];
+            renderTemplates();
+            updateStats();
+        }
+        
+        function renderTemplates() {
+            const grid = document.getElementById('templateGrid');
+            grid.innerHTML = filteredTemplates.map(t => `
+                <div class="template-card" onclick="openTemplateDetail('${t.id}')">
+                    <div class="template-header">
+                        <div class="template-icon ${t.category}">${t.icon || '📋'}</div>
+                        <span class="template-badge badge-${t.state}">${t.state}</span>
+                    </div>
+                    <h3 class="template-title">${t.name}</h3>
+                    <p class="template-desc">${t.description}</p>
+                    <div class="template-meta">
+                        <div class="template-tags">
+                            ${(t.tags || []).map(tag => `<span class="tag">${tag}</span>`).join('')}
+                        </div>
+                        <div class="template-stats">${t.run_count || 0} runs • ${t.avg_duration || 0}s avg</div>
+                    </div>
+                </div>
+            `).join('');
+            
+            // Populate select dropdown
+            const select = document.getElementById('templateSelect');
+            select.innerHTML = '<option value="">Select a template...</option>' + 
+                templates.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+        }
+        
+        function updateStats() {
+            document.getElementById('totalCount').textContent = templates.length;
+            document.getElementById('activeCount').textContent = templates.filter(t => t.state === 'active').length;
+            document.getElementById('successRate').textContent = '98%';
+            document.getElementById('avgDuration').textContent = '45s';
+        }
+        
+        function filterCategory(category) {
+            currentCategory = category;
+            document.querySelectorAll('.category-tab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.category === category);
+            });
+            applyFilters();
+        }
+        
+        function searchTemplates() {
+            applyFilters();
+        }
+        
+        function filterStatus() {
+            applyFilters();
+        }
+        
+        function sortTemplates() {
+            applyFilters();
+        }
+        
+        function applyFilters() {
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            const status = document.getElementById('statusFilter').value;
+            const sort = document.getElementById('sortFilter').value;
+            
+            filteredTemplates = templates.filter(t => {
+                const matchCategory = currentCategory === 'all' || t.category === currentCategory;
+                const matchSearch = t.name.toLowerCase().includes(search) || t.description.toLowerCase().includes(search);
+                const matchStatus = status === 'all' || t.state === status;
+                return matchCategory && matchSearch && matchStatus;
+            });
+            
+            if (sort === 'recent') {
+                filteredTemplates.sort((a, b) => (b.run_count || 0) - (a.run_count || 0));
+            } else if (sort === 'popular') {
+                filteredTemplates.sort((a, b) => (b.run_count || 0) - (a.run_count || 0));
+            } else {
+                filteredTemplates.sort((a, b) => a.name.localeCompare(b.name));
+            }
+            
+            renderTemplates();
+        }
+        
+        function openTemplateDetail(id) {
+            const template = templates.find(t => t.id === id);
+            if (template) {
+                alert(`Running template: ${template.name}\n\nThis would open a detailed view with:\n- Full description\n- Configuration options\n- Run history\n- Logs`);
+            }
+        }
+        
+        function openCreateModal() {
+            document.getElementById('createModal').classList.add('active');
+        }
+        
+        function closeCreateModal() {
+            document.getElementById('createModal').classList.remove('active');
+        }
+        
+        function updateTemplatePreview() {
+            const select = document.getElementById('templateSelect');
+            const templateId = select.value;
+            const preview = document.getElementById('workflowPreview');
+            
+            if (!templateId) {
+                preview.innerHTML = '<div style="color: var(--text-muted);">Select a template to see workflow steps</div>';
+                return;
+            }
+            
+            const template = templates.find(t => t.id === templateId);
+            if (template) {
+                preview.innerHTML = `
+                    <div class="workflow-step">
+                        <span class="step-name">1. Initialize</span>
+                        <span class="step-action">Setup environment</span>
+                    </div>
+                    <div class="workflow-step">
+                        <span class="step-name">2. Execute</span>
+                        <span class="step-action">Run ${template.category} workflow</span>
+                    </div>
+                    <div class="workflow-step">
+                        <span class="step-name">3. Report</span>
+                        <span class="step-action">Generate results</span>
+                    </div>
+                `;
+            }
+        }
+        
+        function createAutomation() {
+            const name = document.getElementById('automationName').value;
+            const templateId = document.getElementById('templateSelect').value;
+            
+            if (!name || !templateId) {
+                alert('Please fill in all required fields');
+                return;
+            }
+            
+            alert(`Creating automation: ${name}\nTemplate: ${templateId}\n\nThis would call POST /api/automations`);
+            closeCreateModal();
+        }
+        
+        function runSelected() {
+            alert('This would run the selected automation(s)\n\nCall: POST /api/automations/{id}/run');
+        }
+        
+        // Trigger type toggle
+        document.getElementById('triggerType').addEventListener('change', function() {
+            document.getElementById('cronGroup').style.display = 
+                this.value === 'schedule' ? 'block' : 'none';
+        });
+        
+        // Load templates on page load
+        loadTemplates();
+    </script>
+</body>
+</html>

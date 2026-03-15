@@ -46,6 +46,15 @@ const STATS_HTML: &str = include_str!("../static/stats.html");
 /// Embedded HTML team network map page (compiled into the binary)
 const TEAM_MAP_HTML: &str = include_str!("../static/team_map.html");
 
+/// Embedded HTML automations page (compiled into the binary)
+const AUTOMATIONS_HTML: &str = include_str!("../static/automations.html");
+
+/// Embedded HTML marketplace page (compiled into the binary)
+const MARKETPLACE_HTML: &str = include_str!("../static/marketplace.html");
+
+/// Embedded HTML settings page (compiled into the binary)
+const SETTINGS_HTML: &str = include_str!("../static/settings.html");
+
 /// Pretty HTML for rate limiting
 const TOO_MANY_REQUESTS_HTML: &str = r#"
 <!DOCTYPE html>
@@ -466,6 +475,36 @@ async fn handle_http(
             )
             .await;
         }
+        ("GET", "/automations") | ("GET", "/automations.html") => {
+            return send_response(
+                &mut stream,
+                200,
+                "text/html; charset=utf-8",
+                AUTOMATIONS_HTML.as_bytes(),
+                cors_origin,
+            )
+            .await;
+        }
+        ("GET", "/marketplace") | ("GET", "/marketplace.html") => {
+            return send_response(
+                &mut stream,
+                200,
+                "text/html; charset=utf-8",
+                MARKETPLACE_HTML.as_bytes(),
+                cors_origin,
+            )
+            .await;
+        }
+        ("GET", "/settings") | ("GET", "/settings.html") => {
+            return send_response(
+                &mut stream,
+                200,
+                "text/html; charset=utf-8",
+                SETTINGS_HTML.as_bytes(),
+                cors_origin,
+            )
+            .await;
+        }
         ("GET", "/metrics") => {
             return handle_metrics_prometheus(&mut stream, metrics, &engine, cors_origin).await;
         }
@@ -568,6 +607,14 @@ async fn handle_http(
         ("POST", "/api/tasks") => {
             let body = extract_body(&request);
             handle_task_create(&mut stream, &engine, &body, cors_origin).await
+        }
+        // ─── Template API ──────────────────────────────
+        ("GET", "/api/templates") => {
+            handle_templates_list(&mut stream, &engine, cors_origin).await
+        }
+        _ if method == "GET" && path.starts_with("/api/templates/") => {
+            let template_id = path.strip_prefix("/api/templates/").unwrap_or("");
+            handle_template_detail(&mut stream, &engine, template_id, cors_origin).await
         }
         _ if method == "POST" && path.starts_with("/api/tasks/") && path.ends_with("/move") => {
             let task_id = path
@@ -1055,6 +1102,84 @@ async fn handle_memory_info(
         serde_json::to_vec(&*memory).unwrap_or_default()
     };
     send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+// ─── Template API handlers ─────────────────────────────────
+
+/// GET /api/templates — List all templates.
+async fn handle_templates_list(
+    stream: &mut TcpStream,
+    _engine: &AgentEngine,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    use crate::task_templates::TemplateRegistry;
+    let registry = TemplateRegistry::default_library();
+    let templates: Vec<serde_json::Value> = registry
+        .list()
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "id": t.id,
+                "name": t.name,
+                "description": t.description,
+                "category": t.category.to_string(),
+                "tags": t.tags,
+                "capability": t.capability,
+                "builtin": t.builtin,
+                "estimated_secs": t.estimated_secs,
+            })
+        })
+        .collect();
+
+    let body = serde_json::json!({
+        "templates": templates,
+        "total": templates.len()
+    });
+    let json = serde_json::to_vec(&body).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// GET /api/templates/:id — Get template detail.
+async fn handle_template_detail(
+    stream: &mut TcpStream,
+    _engine: &AgentEngine,
+    template_id: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    use crate::task_templates::TemplateRegistry;
+    let registry = TemplateRegistry::default_library();
+
+    match registry.get(template_id) {
+        Some(t) => {
+            let body = serde_json::json!({
+                "id": t.id,
+                "name": t.name,
+                "description": t.description,
+                "category": t.category.to_string(),
+                "tags": t.tags,
+                "capability": t.capability,
+                "required_role": t.required_role.to_string(),
+                "builtin": t.builtin,
+                "estimated_secs": t.estimated_secs,
+                "steps": t.steps.iter().map(|s| {
+                    serde_json::json!({
+                        "order": s.order,
+                        "description": s.description,
+                        "command": s.command,
+                        "args": s.args,
+                        "timeout_secs": s.timeout_secs,
+                    })
+                }).collect::<Vec<_>>(),
+            });
+            let json = serde_json::to_vec(&body).unwrap_or_default();
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+        None => {
+            let err = serde_json::json!({ "error": format!("template '{}' not found", template_id) });
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            send_response(stream, 404, "application/json", &json, cors_origin).await
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]

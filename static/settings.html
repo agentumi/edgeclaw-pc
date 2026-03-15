@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings — EdgeClaw</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #050508;
+            --bg-secondary: #0a0a0f;
+            --bg-tertiary: #12121a;
+            --bg-card: #16161f;
+            --border-color: #2a2a3a;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-primary: #6366f1;
+            --accent-hover: #818cf8;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-yellow: #f59e0b;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+        }
+        .sidebar {
+            width: 240px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border-color);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+        .logo {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--accent-primary);
+            margin-bottom: 30px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--accent-primary), #8b5cf6);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .nav-item {
+            padding: 12px 16px;
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .nav-item:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+        .nav-item.active { background: var(--accent-primary); color: white; }
+        .nav-icon { width: 20px; text-align: center; }
+        .main { flex: 1; display: flex; flex-direction: column; }
+        .header {
+            padding: 20px 30px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-secondary);
+        }
+        .header-title { font-size: 24px; font-weight: 600; }
+        .content { flex: 1; padding: 30px; overflow-y: auto; }
+        .settings-layout {
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            gap: 30px;
+        }
+        .settings-nav {
+            border-right: 1px solid var(--border-color);
+            padding-right: 20px;
+        }
+        .settings-nav-item {
+            padding: 12px 16px;
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 4px;
+        }
+        .settings-nav-item:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+        .settings-nav-item.active { background: var(--bg-tertiary); color: var(--accent-primary); }
+        .settings-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-label {
+            display: block;
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+        .form-input, .form-select {
+            width: 100%;
+            padding: 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+        .form-input:focus, .form-select:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+        .form-hint {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 6px;
+        }
+        .toggle-group {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .toggle-label { font-size: 14px; }
+        .toggle {
+            width: 48px;
+            height: 26px;
+            background: var(--bg-tertiary);
+            border-radius: 13px;
+            cursor: pointer;
+            position: relative;
+            transition: all 0.2s;
+        }
+        .toggle.active { background: var(--accent-primary); }
+        .toggle::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            top: 3px;
+            left: 3px;
+            transition: all 0.2s;
+        }
+        .toggle.active::after { left: 25px; }
+        .btn {
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: var(--accent-primary); color: white; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-secondary { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 16px;
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            margin-bottom: 24px;
+        }
+        .user-avatar {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: var(--accent-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        .user-details h3 { font-size: 16px; margin-bottom: 4px; }
+        .user-details p { font-size: 13px; color: var(--text-muted); }
+        .danger-zone {
+            border-color: var(--accent-red);
+            background: rgba(239, 68, 68, 0.1);
+        }
+        .danger-zone .section-title { color: var(--accent-red); }
+    </style>
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="logo">
+            <div class="logo-icon">⚡</div>
+            EdgeClaw
+        </div>
+        <div class="nav-item" onclick="navigate('dashboard')">
+            <span class="nav-icon">📊</span> Mission Control
+        </div>
+        <div class="nav-item" onclick="navigate('agents')">
+            <span class="nav-icon">🤖</span> Agents
+        </div>
+        <div class="nav-item" onclick="navigate('memory')">
+            <span class="nav-icon">🧠</span> Memory
+        </div>
+        <div class="nav-item" onclick="navigate('automations')">
+            <span class="nav-icon">⚙️</span> Automations
+        </div>
+        <div class="nav-item" onclick="navigate('marketplace')">
+            <span class="nav-icon">🛒</span> Marketplace
+        </div>
+        <div class="nav-item active" onclick="navigate('settings')">
+            <span class="nav-icon">⚙️</span> Settings
+        </div>
+    </nav>
+    
+    <main class="main">
+        <header class="header">
+            <h1 class="header-title">Settings</h1>
+        </header>
+        
+        <div class="content">
+            <div class="settings-layout">
+                <nav class="settings-nav">
+                    <div class="settings-nav-item active" onclick="showSection('account')">Account</div>
+                    <div class="settings-nav-item" onclick="showSection('security')">Security</div>
+                    <div class="settings-nav-item" onclick="showSection('notifications')">Notifications</div>
+                    <div class="settings-nav-item" onclick="showSection('api')">API Keys</div>
+                    <div class="settings-nav-item" onclick="showSection('appearance')">Appearance</div>
+                    <div class="settings-nav-item" onclick="showSection('danger')">Danger Zone</div>
+                </nav>
+                
+                <div class="settings-content">
+                    <div class="user-info">
+                        <div class="user-avatar">JD</div>
+                        <div class="user-details">
+                            <h3>John Doe</h3>
+                            <p>john.doe@company.com • Owner</p>
+                        </div>
+                    </div>
+                    
+                    <div id="accountSection" class="settings-section">
+                        <h2 class="section-title">Account Settings</h2>
+                        <div class="form-group">
+                            <label class="form-label">Display Name</label>
+                            <input type="text" class="form-input" value="John Doe">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Email Address</label>
+                            <input type="email" class="form-input" value="john.doe@company.com">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Organization</label>
+                            <input type="text" class="form-input" value="Acme Corp">
+                        </div>
+                        <button class="btn btn-primary">Save Changes</button>
+                    </div>
+                    
+                    <div id="securitySection" class="settings-section" style="display:none;">
+                        <h2 class="section-title">Security Settings</h2>
+                        <div class="form-group">
+                            <label class="form-label">Two-Factor Authentication</label>
+                            <p class="form-hint">Add an extra layer of security to your account</p>
+                            <div class="toggle-group">
+                                <span class="toggle-label">Enable 2FA</span>
+                                <div class="toggle" onclick="this.classList.toggle('active')"></div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Session Timeout</label>
+                            <select class="form-select">
+                                <option>15 minutes</option>
+                                <option selected>30 minutes</option>
+                                <option>1 hour</option>
+                                <option>4 hours</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary">Update Security</button>
+                    </div>
+                    
+                    <div id="notificationsSection" class="settings-section" style="display:none;">
+                        <h2 class="section-title">Notification Preferences</h2>
+                        <div class="toggle-group">
+                            <span class="toggle-label">Email notifications for mission completion</span>
+                            <div class="toggle active" onclick="this.classList.toggle('active')"></div>
+                        </div>
+                        <div class="toggle-group">
+                            <span class="toggle-label">Push notifications for alerts</span>
+                            <div class="toggle active" onclick="this.classList.toggle('active')"></div>
+                        </div>
+                        <div class="toggle-group">
+                            <span class="toggle-label">Weekly summary reports</span>
+                            <div class="toggle" onclick="this.classList.toggle('active')"></div>
+                        </div>
+                        <div class="toggle-group">
+                            <span class="toggle-label">Agent status changes</span>
+                            <div class="toggle active" onclick="this.classList.toggle('active')"></div>
+                        </div>
+                        <button class="btn btn-primary">Save Preferences</button>
+                    </div>
+                    
+                    <div id="apiSection" class="settings-section" style="display:none;">
+                        <h2 class="section-title">API Keys</h2>
+                        <div class="form-group">
+                            <label class="form-label">API Key</label>
+                            <input type="password" class="form-input" value="sk_live_xxxxxxxxxxxxx" readonly>
+                            <p class="form-hint">Use this key to authenticate API requests</p>
+                        </div>
+                        <button class="btn btn-secondary">Regenerate Key</button>
+                    </div>
+                    
+                    <div id="appearanceSection" class="settings-section" style="display:none;">
+                        <h2 class="section-title">Appearance</h2>
+                        <div class="form-group">
+                            <label class="form-label">Theme</label>
+                            <select class="form-select">
+                                <option selected>Dark</option>
+                                <option>Light</option>
+                                <option>System</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Language</label>
+                            <select class="form-select">
+                                <option selected>English</option>
+                                <option>Korean</option>
+                                <option>Japanese</option>
+                                <option>Chinese</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary">Apply Changes</button>
+                    </div>
+                    
+                    <div id="dangerSection" class="settings-section danger-zone" style="display:none;">
+                        <h2 class="section-title">Danger Zone</h2>
+                        <div class="form-group">
+                            <label class="form-label">Delete Account</label>
+                            <p class="form-hint">Permanently delete your account and all associated data. This action cannot be undone.</p>
+                        </div>
+                        <button class="btn" style="background: var(--accent-red); color: white;">Delete Account</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <script>
+        function navigate(page) {
+            window.location.href = '/' + page;
+        }
+        
+        function showSection(section) {
+            document.querySelectorAll('.settings-nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            document.getElementById('accountSection').style.display = 'none';
+            document.getElementById('securitySection').style.display = 'none';
+            document.getElementById('notificationsSection').style.display = 'none';
+            document.getElementById('apiSection').style.display = 'none';
+            document.getElementById('appearanceSection').style.display = 'none';
+            document.getElementById('dangerSection').style.display = 'none';
+            
+            document.getElementById(section + 'Section').style.display = 'block';
+        }
+    </script>
+</body>
+</html>

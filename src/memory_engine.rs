@@ -425,14 +425,16 @@ mod tests {
             effectiveness: 0.9,
         });
 
-        let path = std::env::temp_dir().join(format!(
-            "edgeclaw_memory_{}.md",
-            Uuid::new_v4()
-        ));
+        let path = std::env::temp_dir().join(format!("edgeclaw_memory_{}.md", Uuid::new_v4()));
         engine.save_to_markdown_file(&path).unwrap();
-        let loaded = MemoryEngine::load_from_markdown_file(&path).unwrap().unwrap();
+        let loaded = MemoryEngine::load_from_markdown_file(&path)
+            .unwrap()
+            .unwrap();
         assert_eq!(loaded.core.soul.content, "Persisted Soul");
-        assert!(loaded.core.absolute_rules.contains(&"Persisted Rule".to_string()));
+        assert!(loaded
+            .core
+            .absolute_rules
+            .contains(&"Persisted Rule".to_string()));
         assert_eq!(loaded.lessons.lessons.len(), 1);
         let _ = std::fs::remove_file(path);
     }

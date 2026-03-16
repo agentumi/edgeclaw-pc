@@ -48,6 +48,7 @@ pub mod gateway;
 pub mod git_integration;
 pub mod identity;
 pub mod identity_passport;
+pub mod intent_engine;
 pub mod k8s;
 pub mod license;
 pub mod memory_distiller;
@@ -80,7 +81,6 @@ pub mod webhook;
 pub mod websocket;
 pub mod webui;
 pub mod workflow_engine;
-pub mod intent_engine;
 pub mod workflows;
 pub mod x402_payment;
 
@@ -110,7 +110,7 @@ pub struct AgentEngine {
     peer_manager: Mutex<PeerManager>,
     policy_engine: PolicyEngine,
     executor: Executor,
-    ai_manager: AiManager,
+    ai_manager: Mutex<AiManager>,
     audit_manager: AuditManager,
     activity_manager: Arc<ActivityManager>,
     event_bus: Arc<EventBus>,
@@ -154,7 +154,7 @@ impl AgentEngine {
             config.execution.max_timeout_secs,
             config.execution.allowed_paths.clone(),
         );
-        let ai_manager = AiManager::from_config(&config.ai);
+        let ai_manager = Mutex::new(AiManager::from_config(&config.ai));
 
         // Use persistent audit log if config dir is available
         let audit_manager = {
@@ -738,6 +738,64 @@ impl AgentEngine {
             });
         }
 
+        // Intercept model switch commands
+        if trimmed.starts_with("/model") {
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            if parts.len() > 1 {
+                let target_model = parts[1].to_string();
+                let mut mgr = self.ai_manager.lock().unwrap_or_else(|e| e.into_inner());
+                match mgr.set_model(&target_model) {
+                    Ok(_) => {
+                        return Ok(AiResponse {
+                            message: format!("AI model has been updated to: **{}**", target_model),
+                            intent: None,
+                            confidence: 1.0,
+                            provider: "system".to_string(),
+                            is_local: true,
+                        });
+                    }
+                    Err(e) => {
+                        return Ok(AiResponse {
+                            message: format!("Failed to update model: {}", e),
+                            intent: None,
+                            confidence: 1.0,
+                            provider: "system".to_string(),
+                            is_local: true,
+                        });
+                    }
+                }
+            }
+            return Ok(AiResponse {
+                message: "Usage: `/model <model_name>` (e.g., `/model llama3:8b`, `/model qwen2.5-coder:7b`)".to_string(),
+                intent: None,
+                confidence: 1.0,
+                provider: "system".to_string(),
+                is_local: true,
+            });
+        }
+
+        // Intercept model list command
+        if trimmed == "/models" || trimmed == "/list models" {
+            let mgr = self.ai_manager.lock().unwrap_or_else(|e| e.into_inner());
+            let models = mgr.list_models();
+            let msg = if models.is_empty() {
+                "No models found for the current provider.".to_string()
+            } else {
+                format!(
+                    "Available models for **{}**:\n\n- {}",
+                    mgr.provider_name(),
+                    models.join("\n- ")
+                )
+            };
+            return Ok(AiResponse {
+                message: msg,
+                intent: None,
+                confidence: 1.0,
+                provider: "system".to_string(),
+                is_local: true,
+            });
+        }
+
         let role = {
             let mgr = self.peer_manager.lock().unwrap_or_else(|e| e.into_inner());
             mgr.get_peer_role(peer_id)
@@ -765,7 +823,10 @@ impl AgentEngine {
             history,
         };
 
-        let response = self.ai_manager.process(&request)?;
+        let response = {
+            let mgr = self.ai_manager.lock().unwrap_or_else(|e| e.into_inner());
+            mgr.process(&request)?
+        };
 
         // Add to conversation history
         {
@@ -869,11 +930,12 @@ impl AgentEngine {
 
     /// Get AI provider status
     pub fn ai_status(&self) -> serde_json::Value {
+        let mgr = self.ai_manager.lock().unwrap_or_else(|e| e.into_inner());
         serde_json::json!({
-            "provider": self.ai_manager.provider_name(),
-            "available": self.ai_manager.is_available(),
-            "local": self.ai_manager.is_local(),
-            "requires_consent": self.ai_manager.requires_consent(),
+            "provider": mgr.provider_name(),
+            "available": mgr.is_available(),
+            "local": mgr.is_local(),
+            "requires_consent": mgr.requires_consent(),
         })
     }
 

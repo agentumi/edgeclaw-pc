@@ -6,6 +6,7 @@
 
 use crate::activity_log::ActivityType;
 use crate::ai::QuickAction;
+use crate::chain::{create_provider, ChainProviderConfig, ChainType, MultiChainClient};
 use crate::error::AgentError;
 use crate::memory_engine::{Lesson, MemoryTier, TimedMemory};
 use crate::metrics::MetricsRegistry;
@@ -19,6 +20,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, Mutex};
+use tokio::time::timeout;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -27,6 +29,12 @@ const CHAT_HTML: &str = include_str!("../static/chat.html");
 
 /// Embedded HTML dashboard page (compiled into the binary)
 const DASHBOARD_HTML: &str = include_str!("../static/dashboard.html");
+/// Embedded dashboard CSS
+const DASHBOARD_CSS: &str = include_str!("../static/dashboard.css");
+/// Embedded dashboard JS modules
+const DASHBOARD_CORE_JS: &str = include_str!("../static/js/dashboard/core.js");
+const DASHBOARD_CHAT_JS: &str = include_str!("../static/js/dashboard/chat.js");
+const DASHBOARD_INDEX_JS: &str = include_str!("../static/js/dashboard/index.js");
 
 /// Embedded HTML activity feed page (compiled into the binary)
 const ACTIVITY_FEED_HTML: &str = include_str!("../static/activity_feed.html");
@@ -386,6 +394,46 @@ async fn handle_http(
             )
             .await;
         }
+        ("GET", "/dashboard.css") => {
+            return send_response(
+                &mut stream,
+                200,
+                "text/css; charset=utf-8",
+                DASHBOARD_CSS.as_bytes(),
+                cors_origin,
+            )
+            .await;
+        }
+        ("GET", "/js/dashboard/core.js") => {
+            return send_response(
+                &mut stream,
+                200,
+                "application/javascript; charset=utf-8",
+                DASHBOARD_CORE_JS.as_bytes(),
+                cors_origin,
+            )
+            .await;
+        }
+        ("GET", "/js/dashboard/chat.js") => {
+            return send_response(
+                &mut stream,
+                200,
+                "application/javascript; charset=utf-8",
+                DASHBOARD_CHAT_JS.as_bytes(),
+                cors_origin,
+            )
+            .await;
+        }
+        ("GET", "/js/dashboard/index.js") => {
+            return send_response(
+                &mut stream,
+                200,
+                "application/javascript; charset=utf-8",
+                DASHBOARD_INDEX_JS.as_bytes(),
+                cors_origin,
+            )
+            .await;
+        }
         ("GET", "/chat") | ("GET", "/chat.html") => {
             return send_response(
                 &mut stream,
@@ -551,6 +599,9 @@ async fn handle_http(
         ("GET", "/api/quick-actions") => {
             handle_quick_actions(&mut stream, &engine, cors_origin).await
         }
+        ("GET", "/api/market/stats") => {
+            handle_market_stats(&mut stream, &engine, cors_origin).await
+        }
         ("GET", "/api/agents") => handle_agents_info(&mut stream, &engine, cors_origin).await,
         ("GET", "/api/metrics/history") => {
             handle_metrics_history(&mut stream, metrics, &engine, cors_origin).await
@@ -584,9 +635,7 @@ async fn handle_http(
             let body = extract_body(&request);
             handle_chat(&mut stream, &engine, &body, cors_origin).await
         }
-        ("GET", "/api/config") => {
-            handle_config_get(&mut stream, &engine, cors_origin).await
-        }
+        ("GET", "/api/config") => handle_config_get(&mut stream, &engine, cors_origin).await,
         ("POST", "/api/agent/mode") => {
             let body = extract_body(&request);
             handle_agent_mode(&mut stream, &engine, &body, cors_origin).await
@@ -598,9 +647,7 @@ async fn handle_http(
         ("GET", "/api/memory/graph") => {
             handle_memory_graph(&mut stream, &engine, cors_origin).await
         }
-        ("GET", "/api/missions") => {
-            handle_missions_list(&mut stream, &engine, cors_origin).await
-        }
+        ("GET", "/api/missions") => handle_missions_list(&mut stream, &engine, cors_origin).await,
         ("GET", "/api/v1/mission/active") => {
             handle_mission_active(&mut stream, &engine, cors_origin).await
         }
@@ -644,9 +691,7 @@ async fn handle_http(
             handle_task_create(&mut stream, &engine, &body, cors_origin).await
         }
         // ─── Template API ──────────────────────────────
-        ("GET", "/api/templates") => {
-            handle_templates_list(&mut stream, &engine, cors_origin).await
-        }
+        ("GET", "/api/templates") => handle_templates_list(&mut stream, &engine, cors_origin).await,
         _ if method == "GET" && path.starts_with("/api/templates/") => {
             let template_id = path.strip_prefix("/api/templates/").unwrap_or("");
             handle_template_detail(&mut stream, &engine, template_id, cors_origin).await
@@ -674,6 +719,13 @@ async fn handle_http(
                 .unwrap_or("");
             let body = extract_body(&request);
             handle_agent_execute(&mut stream, &engine, agent_id, &body, cors_origin).await
+        }
+        _ if method == "GET" && path.starts_with("/api/agents/") && path.ends_with("/metrics") => {
+            let agent_id = path
+                .strip_prefix("/api/agents/")
+                .and_then(|s| s.strip_suffix("/metrics"))
+                .unwrap_or("");
+            handle_agent_metrics(&mut stream, &engine, agent_id, cors_origin).await
         }
         ("POST", "/api/agents") => {
             let body = extract_body(&request);
@@ -755,9 +807,7 @@ async fn handle_http(
             handle_agents_graph(&mut stream, &engine, cors_origin).await
         }
         // ─── Extensions API ───────────────────────────────────────────────────
-        ("GET", "/api/extensions") => {
-            handle_extensions_list(&mut stream, cors_origin).await
-        }
+        ("GET", "/api/extensions") => handle_extensions_list(&mut stream, cors_origin).await,
         ("POST", "/api/extensions") => {
             let body = extract_body(&request);
             handle_extension_create(&mut stream, &engine, &body, cors_origin).await
@@ -776,20 +826,14 @@ async fn handle_http(
             let body = extract_body(&request);
             handle_extension_config(&mut stream, &engine, ext_id, &body, cors_origin).await
         }
-        _ if method == "POST"
-            && path.starts_with("/api/extensions/")
-            && path.ends_with("/run") =>
-        {
+        _ if method == "POST" && path.starts_with("/api/extensions/") && path.ends_with("/run") => {
             let ext_id = path
                 .strip_prefix("/api/extensions/")
                 .and_then(|s| s.strip_suffix("/run"))
                 .unwrap_or("");
             handle_extension_run(&mut stream, &engine, ext_id, cors_origin).await
         }
-        _ if method == "GET"
-            && path.starts_with("/api/extensions/")
-            && path.ends_with("/runs") =>
-        {
+        _ if method == "GET" && path.starts_with("/api/extensions/") && path.ends_with("/runs") => {
             let ext_id = path
                 .strip_prefix("/api/extensions/")
                 .and_then(|s| s.strip_suffix("/runs"))
@@ -906,6 +950,114 @@ async fn handle_status(
         "uptime_secs": engine.uptime_secs(),
     });
 
+    let json = serde_json::to_vec(&body).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+fn non_empty_opt(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn resolve_chain_balance(engine: &AgentEngine) -> Option<crate::chain::ChainBalance> {
+    let config = engine.config();
+    let identity_addr = engine
+        .get_identity()
+        .ok()
+        .map(|id| id.public_key_hex.clone())
+        .unwrap_or_else(|| config.agent.device_name.clone());
+    let address = identity_addr.trim();
+    if address.is_empty() {
+        return None;
+    }
+
+    if config.multi_chain.enabled && !config.multi_chain.chains.is_empty() {
+        let mut client = MultiChainClient::new();
+        for (chain_name, chain_cfg) in &config.multi_chain.chains {
+            if let Some(chain) = ChainType::from_str_loose(chain_name) {
+                let rpc_url = if chain_cfg.rpc_url.trim().is_empty() {
+                    chain.default_rpc_url().to_string()
+                } else {
+                    chain_cfg.rpc_url.clone()
+                };
+                let provider_cfg = ChainProviderConfig {
+                    rpc_url,
+                    chain_id: non_empty_opt(&chain_cfg.chain_id),
+                    contract_address: non_empty_opt(&chain_cfg.contract_address),
+                    wallet_key_path: non_empty_opt(&chain_cfg.wallet_key_path),
+                    gas_budget: chain_cfg.gas_budget,
+                    custom_options: HashMap::new(),
+                };
+                let _ = client.register_provider(chain, provider_cfg);
+            }
+        }
+
+        if let Some(primary) = ChainType::from_str_loose(&config.multi_chain.primary_chain) {
+            let _ = client.set_primary(primary);
+        }
+
+        if let Some(provider) = client.primary_provider() {
+            return provider.get_balance(address).ok();
+        }
+        return None;
+    }
+
+    if config.blockchain.enabled {
+        if let Some(chain) = ChainType::from_str_loose(&config.blockchain.chain) {
+            let rpc_url = if config.blockchain.rpc_url.trim().is_empty() {
+                chain.default_rpc_url().to_string()
+            } else {
+                config.blockchain.rpc_url.clone()
+            };
+            let provider_cfg = ChainProviderConfig {
+                rpc_url,
+                chain_id: None,
+                contract_address: non_empty_opt(&config.blockchain.contract_address),
+                wallet_key_path: non_empty_opt(&config.blockchain.wallet_key_path),
+                gas_budget: config.blockchain.gas_budget,
+                custom_options: HashMap::new(),
+            };
+            let provider = create_provider(chain, provider_cfg);
+            return provider.get_balance(address).ok();
+        }
+    }
+
+    None
+}
+
+/// GET /api/market/stats
+async fn handle_market_stats(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let stats = engine.activity_stats();
+    let reputation = engine.reputation_score();
+    let local_capacity = engine.config().webui.effective_max_agents() as usize;
+    let remote_online = engine.agent_registry().count_online();
+    let runs_total = stats
+        .entries_by_type
+        .get("command_exec")
+        .copied()
+        .unwrap_or(stats.total_entries);
+    let balance = resolve_chain_balance(engine);
+    let body = serde_json::json!({
+        "rating": reputation,
+        "reputation_score": reputation,
+        "runs_total": runs_total,
+        "activity": stats,
+        "agents": {
+            "local_capacity": local_capacity,
+            "remote_online": remote_online,
+            "active_total": local_capacity + remote_online,
+        },
+        "balance": balance,
+        "balance_source": if balance.is_some() { "chain" } else { "unconfigured" },
+    });
     let json = serde_json::to_vec(&body).unwrap_or_default();
     send_response(stream, 200, "application/json", &json, cors_origin).await
 }
@@ -1421,7 +1573,13 @@ async fn handle_memory_search(
         let mut results = Vec::new();
 
         // Search core soul
-        if memory.core.soul.content.to_lowercase().contains(&query_lower) {
+        if memory
+            .core
+            .soul
+            .content
+            .to_lowercase()
+            .contains(&query_lower)
+        {
             results.push(serde_json::json!({
                 "id": "core",
                 "content": memory.core.soul.content,
@@ -1550,7 +1708,9 @@ async fn handle_memory_delete(
             None,
             "all",
         );
-        engine.event_bus().publish(crate::events::AgentEvent::MemoryUpdated);
+        engine
+            .event_bus()
+            .publish(crate::events::AgentEvent::MemoryUpdated);
 
         let body = serde_json::json!({ "deleted": true, "id": mem_id });
         let json = serde_json::to_vec(&body).unwrap_or_default();
@@ -1722,8 +1882,18 @@ async fn handle_memory_core_update(
         category: "memory".to_string(),
         data: serde_json::json!({"action": "core_update", "rules": rule_count}),
     };
-    engine.record_activity(activity, "Memory core updated", Uuid::new_v4(), 1, &["memory", "core"], None, "all");
-    engine.event_bus().publish(crate::events::AgentEvent::MemoryUpdated);
+    engine.record_activity(
+        activity,
+        "Memory core updated",
+        Uuid::new_v4(),
+        1,
+        &["memory", "core"],
+        None,
+        "all",
+    );
+    engine
+        .event_bus()
+        .publish(crate::events::AgentEvent::MemoryUpdated);
     send_response(stream, 200, "application/json", &json, cors_origin).await
 }
 
@@ -1795,8 +1965,18 @@ async fn handle_memory_tier_add(
         category: "memory".to_string(),
         data: serde_json::json!({"action": "tier_add", "tier": tier_key}),
     };
-    engine.record_activity(activity, "Memory entry added", Uuid::new_v4(), 1, &["memory", "tier"], None, "all");
-    engine.event_bus().publish(crate::events::AgentEvent::MemoryUpdated);
+    engine.record_activity(
+        activity,
+        "Memory entry added",
+        Uuid::new_v4(),
+        1,
+        &["memory", "tier"],
+        None,
+        "all",
+    );
+    engine
+        .event_bus()
+        .publish(crate::events::AgentEvent::MemoryUpdated);
 
     let json = serde_json::to_vec(&mem).unwrap_or_default();
     send_response(stream, 200, "application/json", &json, cors_origin).await
@@ -1854,8 +2034,18 @@ async fn handle_memory_lesson_add(
         category: "memory".to_string(),
         data: serde_json::json!({"action": "lesson_add"}),
     };
-    engine.record_activity(activity, "Lesson published", Uuid::new_v4(), 1, &["memory", "lesson"], None, "all");
-    engine.event_bus().publish(crate::events::AgentEvent::MemoryUpdated);
+    engine.record_activity(
+        activity,
+        "Lesson published",
+        Uuid::new_v4(),
+        1,
+        &["memory", "lesson"],
+        None,
+        "all",
+    );
+    engine
+        .event_bus()
+        .publish(crate::events::AgentEvent::MemoryUpdated);
 
     let json = serde_json::to_vec(&lesson).unwrap_or_default();
     send_response(stream, 200, "application/json", &json, cors_origin).await
@@ -1933,6 +2123,81 @@ async fn handle_agent_profile(
                 "version": a.version,
                 "capabilities": a.capabilities,
                 "reputation_score": 85.0, // Remote agents dummy score for now
+            });
+            let json = serde_json::to_vec(&body).unwrap_or_default();
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+        None => {
+            let err = serde_json::json!({"error": format!("agent '{}' not found", agent_id)});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            send_response(stream, 404, "application/json", &json, cors_origin).await
+        }
+    }
+}
+
+async fn probe_agent_latency_ms(address: &str, port: u16) -> Option<u64> {
+    let addr = format!("{}:{}", address.trim(), port);
+    if addr.starts_with(':') || addr.ends_with(':') {
+        return None;
+    }
+    let start = Instant::now();
+    match timeout(Duration::from_millis(800), TcpStream::connect(&addr)).await {
+        Ok(Ok(stream)) => {
+            drop(stream);
+            Some(start.elapsed().as_millis().min(u64::MAX as u128) as u64)
+        }
+        _ => None,
+    }
+}
+
+/// GET /api/agents/{id}/metrics — Lightweight metrics for agent resources/latency
+async fn handle_agent_metrics(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    agent_id: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    if let Some(index) =
+        parse_local_agent_index(agent_id, engine.config().webui.effective_max_agents())
+    {
+        let sys = engine.get_system_info();
+        let port = engine.config().webui.agent_port(index);
+        let mut address = engine.config().webui.bind.clone();
+        if address == "0.0.0.0" || address == "::" {
+            address = "127.0.0.1".to_string();
+        }
+        let latency = probe_agent_latency_ms(&address, port).await;
+        let body = serde_json::json!({
+            "id": local_agent_id(index),
+            "source": "local",
+            "status": "online",
+            "cpu_pct": sys.cpu_usage,
+            "ram_pct": sys.memory_usage_percent,
+            "uptime_secs": engine.uptime_secs(),
+            "latency_ms": latency,
+        });
+        let json = serde_json::to_vec(&body).unwrap_or_default();
+        return send_response(stream, 200, "application/json", &json, cors_origin).await;
+    }
+
+    match engine.agent_registry().get(agent_id) {
+        Some(agent) => {
+            let status = agent.status.to_string();
+            let should_probe = status == "online" || status == "busy";
+            let latency = if should_probe {
+                probe_agent_latency_ms(&agent.address, agent.port).await
+            } else {
+                None
+            };
+            let body = serde_json::json!({
+                "id": agent.id,
+                "source": "remote",
+                "status": status,
+                "cpu_pct": Option::<f32>::None,
+                "ram_pct": Option::<f32>::None,
+                "uptime_secs": Option::<u64>::None,
+                "latency_ms": latency,
+                "last_seen": agent.last_heartbeat,
             });
             let json = serde_json::to_vec(&body).unwrap_or_default();
             send_response(stream, 200, "application/json", &json, cors_origin).await
@@ -2300,13 +2565,17 @@ fn avatar_storage_dir(engine: &AgentEngine) -> std::path::PathBuf {
 
 fn parse_data_url(data_url: &str) -> Result<(String, Vec<u8>), AgentError> {
     if !data_url.starts_with("data:") {
-        return Err(AgentError::InvalidParameter("data_url must be a data URL".into()));
+        return Err(AgentError::InvalidParameter(
+            "data_url must be a data URL".into(),
+        ));
     }
     let mut parts = data_url.splitn(2, ',');
     let meta = parts.next().unwrap_or("");
     let b64 = parts.next().unwrap_or("");
     if !meta.contains(";base64") {
-        return Err(AgentError::InvalidParameter("data_url must be base64".into()));
+        return Err(AgentError::InvalidParameter(
+            "data_url must be base64".into(),
+        ));
     }
     let mime = meta.trim_start_matches("data:").trim_end_matches(";base64");
     let decoded = base64::engine::general_purpose::STANDARD
@@ -2571,6 +2840,8 @@ fn required_access_level(method: &str, path: &str) -> ApiAccessLevel {
             if p.starts_with("/api/activities")
                 || p.starts_with("/api/sessions")
                 || p == "/api/status"
+                || p == "/api/market/stats"
+                || (p.starts_with("/api/agents/") && p.ends_with("/metrics"))
                 || p == "/api/health" =>
         {
             ApiAccessLevel::Viewer
@@ -3617,14 +3888,20 @@ async fn handle_extensions_readiness(
     let degraded_peers = peers.len().saturating_sub(healthy_peers);
 
     let tasks = engine.list_tasks();
-    let ready_tasks = tasks.iter().filter(|t| {
-        let s = t.status.display().to_lowercase();
-        s.contains("backlog") || s.contains("review")
-    }).count();
-    let blocked_tasks = tasks.iter().filter(|t| {
-        let s = t.status.display().to_lowercase();
-        s.contains("progress")
-    }).count();
+    let ready_tasks = tasks
+        .iter()
+        .filter(|t| {
+            let s = t.status.display().to_lowercase();
+            s.contains("backlog") || s.contains("review")
+        })
+        .count();
+    let blocked_tasks = tasks
+        .iter()
+        .filter(|t| {
+            let s = t.status.display().to_lowercase();
+            s.contains("progress")
+        })
+        .count();
 
     // Next review — always 2h from now as a default schedule
     let next_review = chrono::Utc::now() + chrono::Duration::hours(2);
@@ -3834,7 +4111,10 @@ async fn handle_automation_create(
 
     let id = format!("auto-{}", uuid::Uuid::new_v4());
     let description = parsed["description"].as_str().unwrap_or("").to_string();
-    let category = parsed["category"].as_str().unwrap_or("business").to_string();
+    let category = parsed["category"]
+        .as_str()
+        .unwrap_or("business")
+        .to_string();
 
     // Log as an activity so it appears in the activity feed
     engine.activity_manager().record(
@@ -3906,7 +4186,6 @@ async fn handle_automation_run(
     send_response(stream, 200, "application/json", &json, cors_origin).await
 }
 
-
 /// GET /api/agents/graph — Returns agent graph nodes and edges
 async fn handle_agents_graph(
     stream: &mut TcpStream,
@@ -3931,7 +4210,11 @@ async fn handle_agents_graph(
     for (i, peer) in peers.iter().enumerate() {
         let id = &peer.peer_id;
         let name = &peer.device_name;
-        let status = if peer.is_connected { "online" } else { "offline" };
+        let status = if peer.is_connected {
+            "online"
+        } else {
+            "offline"
+        };
         nodes.push(serde_json::json!({
             "id": id,
             "label": name,
@@ -3955,7 +4238,6 @@ async fn handle_agents_graph(
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     #[test]
     fn test_chat_html_embedded() {
@@ -4912,6 +5194,14 @@ mod tests {
             ApiAccessLevel::Operator
         );
         assert_eq!(
+            required_access_level("GET", "/api/market/stats"),
+            ApiAccessLevel::Viewer
+        );
+        assert_eq!(
+            required_access_level("GET", "/api/agents/local/metrics"),
+            ApiAccessLevel::Viewer
+        );
+        assert_eq!(
             required_access_level("PUT", "/api/config"),
             ApiAccessLevel::Admin
         );
@@ -4928,6 +5218,3 @@ mod tests {
         assert!(ApiAccessLevel::Admin < ApiAccessLevel::Owner);
     }
 }
-
-
-

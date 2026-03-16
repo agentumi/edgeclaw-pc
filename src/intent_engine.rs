@@ -68,11 +68,18 @@ impl IntentType {
     /// Get domain category
     pub fn domain(&self) -> &'static str {
         match self {
-            Self::ReportGeneration | Self::DataAnalysis | Self::Scheduling | Self::EmailAutomation => "business",
+            Self::ReportGeneration
+            | Self::DataAnalysis
+            | Self::Scheduling
+            | Self::EmailAutomation => "business",
             Self::CiCdPipeline | Self::CodeReview | Self::Deployment => "development",
             Self::ContentCreation | Self::SocialMedia => "marketing",
-            Self::InvestmentAnalysis | Self::DueDiligence | Self::PortfolioManagement => "investment",
-            Self::FileOrganization | Self::WebResearch | Self::AutomationSetup | Self::Unknown => "custom",
+            Self::InvestmentAnalysis | Self::DueDiligence | Self::PortfolioManagement => {
+                "investment"
+            }
+            Self::FileOrganization | Self::WebResearch | Self::AutomationSetup | Self::Unknown => {
+                "custom"
+            }
         }
     }
 }
@@ -187,42 +194,65 @@ impl IntentEngine {
     pub fn new() -> Self {
         let patterns = vec![
             // Report Generation
-            (IntentType::ReportGeneration, vec![
-                "보고서", "리포트", "report", "분석 보고", "주간", "월간", "분기별"
-            ]),
+            (
+                IntentType::ReportGeneration,
+                vec![
+                    "보고서",
+                    "리포트",
+                    "report",
+                    "분석 보고",
+                    "주간",
+                    "월간",
+                    "분기별",
+                ],
+            ),
             // Data Analysis
-            (IntentType::DataAnalysis, vec![
-                "분석", "analysis", "데이터", "analytics", "통계"
-            ]),
+            (
+                IntentType::DataAnalysis,
+                vec!["분석", "analysis", "데이터", "analytics", "통계"],
+            ),
             // Scheduling
-            (IntentType::Scheduling, vec![
-                "일정", "캘린더", "schedule", "meeting", "회의", "예약"
-            ]),
+            (
+                IntentType::Scheduling,
+                vec!["일정", "캘린더", "schedule", "meeting", "회의", "예약"],
+            ),
             // Email
-            (IntentType::EmailAutomation, vec![
-                "이메일", "email", "메일", "편지"
-            ]),
+            (
+                IntentType::EmailAutomation,
+                vec!["이메일", "email", "메일", "편지"],
+            ),
             // Deployment
-            (IntentType::Deployment, vec![
-                "production", "릴리스", "deploy"
-            ]),
+            (
+                IntentType::Deployment,
+                vec!["production", "릴리스", "deploy"],
+            ),
             // CI/CD
-            (IntentType::CiCdPipeline, vec![
-                "ci", "cd", "pipeline", "파이프라인", "빌드", "배포"
-            ]),
+            (
+                IntentType::CiCdPipeline,
+                vec!["ci", "cd", "pipeline", "파이프라인", "빌드", "배포"],
+            ),
             // Content Creation
-            (IntentType::ContentCreation, vec![
-                "글", "content", "블로그", "post", "작성"
-            ]),
+            (
+                IntentType::ContentCreation,
+                vec!["글", "content", "블로그", "post", "작성"],
+            ),
             // Investment
-            (IntentType::InvestmentAnalysis, vec![
-                "투자", "investment", "시장", "market", "포트폴리오", "portfolio"
-            ]),
+            (
+                IntentType::InvestmentAnalysis,
+                vec![
+                    "투자",
+                    "investment",
+                    "시장",
+                    "market",
+                    "포트폴리오",
+                    "portfolio",
+                ],
+            ),
         ];
-        
+
         Self { patterns }
     }
-    
+
     /// Understand user input and return structured intent
     pub fn understand(&self, input: &str, _context: &UserContext) -> Result<Intent> {
         let intent_type = self.classify_intent(input);
@@ -230,7 +260,7 @@ impl IntentEngine {
         let goal = format!("{} - {}", intent_type, input);
         let suggested_templates = self.match_templates(&intent_type);
         let missing_params = self.find_missing_params(&suggested_templates, &entities);
-        
+
         Ok(Intent {
             intent_type,
             confidence: 0.85,
@@ -241,13 +271,13 @@ impl IntentEngine {
             missing_params,
         })
     }
-    
+
     /// Classify input into intent type
     fn classify_intent(&self, input: &str) -> IntentType {
         let input_lower = input.to_lowercase();
         let mut best_match = IntentType::Unknown;
         let mut best_score = 0;
-        
+
         for (intent_type, keywords) in &self.patterns {
             let mut score = 0;
             for keyword in keywords {
@@ -255,26 +285,35 @@ impl IntentEngine {
                     score += 1;
                 }
             }
-            
+
             if score > best_score {
                 best_score = score;
                 best_match = *intent_type;
             }
         }
-        
+
         if best_match == IntentType::Unknown {
             best_match = IntentType::AutomationSetup;
         }
-        
+
         best_match
     }
-    
+
     /// Extract entities from input
     fn extract_entities(&self, input: &str) -> ExtractedEntities {
         let mut entities = ExtractedEntities::default();
-        
+
         // Extract time entities
-        let time_keywords = ["주간", "월간", "분기", "오늘", "어제", "내일", "이번주", "이번달"];
+        let time_keywords = [
+            "주간",
+            "월간",
+            "분기",
+            "오늘",
+            "어제",
+            "내일",
+            "이번주",
+            "이번달",
+        ];
         for keyword in time_keywords {
             if input.contains(keyword) {
                 entities.time_entities.push(TimeEntity {
@@ -284,7 +323,7 @@ impl IntentEngine {
                 });
             }
         }
-        
+
         // Extract numbers
         for word in input.split_whitespace() {
             if let Ok(num) = word.parse::<f64>() {
@@ -295,10 +334,10 @@ impl IntentEngine {
                 });
             }
         }
-        
+
         entities
     }
-    
+
     /// Match intents to workflow templates
     fn match_templates(&self, intent_type: &IntentType) -> Vec<String> {
         match intent_type {
@@ -306,24 +345,23 @@ impl IntentEngine {
                 "biz_weekly_sales".to_string(),
                 "biz_monthly_finance".to_string(),
             ],
-            IntentType::CiCdPipeline => vec![
-                "dev_ci_pipeline".to_string(),
-                "dev_cd_deploy".to_string(),
-            ],
-            IntentType::ContentCreation => vec![
-                "mkt_blog_post".to_string(),
-            ],
-            IntentType::InvestmentAnalysis => vec![
-                "inv_market_overview".to_string(),
-            ],
+            IntentType::CiCdPipeline => {
+                vec!["dev_ci_pipeline".to_string(), "dev_cd_deploy".to_string()]
+            }
+            IntentType::ContentCreation => vec!["mkt_blog_post".to_string()],
+            IntentType::InvestmentAnalysis => vec!["inv_market_overview".to_string()],
             _ => vec![],
         }
     }
-    
+
     /// Find missing parameters
-    fn find_missing_params(&self, templates: &[String], entities: &ExtractedEntities) -> Vec<MissingParam> {
+    fn find_missing_params(
+        &self,
+        templates: &[String],
+        entities: &ExtractedEntities,
+    ) -> Vec<MissingParam> {
         let mut missing = Vec::new();
-        
+
         if !templates.is_empty() && entities.time_entities.is_empty() {
             missing.push(MissingParam {
                 name: "report_period".to_string(),
@@ -331,7 +369,7 @@ impl IntentEngine {
                 param_type: "enum".to_string(),
             });
         }
-        
+
         missing
     }
 }
@@ -360,15 +398,17 @@ impl TemplateMatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_intent_classification() {
         let engine = IntentEngine::new();
         let context = UserContext::default();
-        
-        let intent = engine.understand("주간 판매보고서 만들어줘", &context).unwrap();
+
+        let intent = engine
+            .understand("주간 판매보고서 만들어줘", &context)
+            .unwrap();
         assert_eq!(intent.intent_type, IntentType::ReportGeneration);
-        
+
         let intent = engine.understand("Deploy to production", &context).unwrap();
         assert_eq!(intent.intent_type, IntentType::Deployment);
     }

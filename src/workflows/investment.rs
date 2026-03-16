@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::task_templates::{
-    TemplateCategory, TemplateStep, TemplateParam, RequiredRole, TaskTemplate,
+    RequiredRole, TaskTemplate, TemplateCategory, TemplateParam, TemplateStep,
 };
 
 /// Investment domain categories
@@ -255,13 +255,15 @@ pub struct PortfolioRebalanceResult {
 }
 
 /// Run portfolio rebalancing workflow
-pub fn run_portfolio_rebalance(input: &PortfolioRebalanceWorkflow) -> WorkflowResult<PortfolioRebalanceResult> {
+pub fn run_portfolio_rebalance(
+    input: &PortfolioRebalanceWorkflow,
+) -> WorkflowResult<PortfolioRebalanceResult> {
     let start = std::time::Instant::now();
-    
+
     if input.positions.is_empty() {
         return WorkflowResult::error(
             "Portfolio positions are required".to_string(),
-            start.elapsed().as_millis() as u64
+            start.elapsed().as_millis() as u64,
         );
     }
 
@@ -282,7 +284,11 @@ pub fn run_portfolio_rebalance(input: &PortfolioRebalanceWorkflow) -> WorkflowRe
         current_allocation.insert(pos.ticker.clone(), alloc_pct);
 
         // Calculate target
-        let target = input.target_allocation.get(&pos.ticker).copied().unwrap_or(0.0);
+        let target = input
+            .target_allocation
+            .get(&pos.ticker)
+            .copied()
+            .unwrap_or(0.0);
         let diff = alloc_pct - target;
 
         // Generate recommendation if beyond threshold
@@ -293,8 +299,12 @@ pub fn run_portfolio_rebalance(input: &PortfolioRebalanceWorkflow) -> WorkflowRe
                 (
                     RebalanceAction::Sell,
                     shares_to_sell,
-                    format!("Current allocation {}% exceeds target {}% by {}%", 
-                        alloc_pct.round(), target.round(), diff.round())
+                    format!(
+                        "Current allocation {}% exceeds target {}% by {}%",
+                        alloc_pct.round(),
+                        target.round(),
+                        diff.round()
+                    ),
                 )
             } else {
                 let shortage_value = (-diff / 100.0) * current_total;
@@ -302,8 +312,12 @@ pub fn run_portfolio_rebalance(input: &PortfolioRebalanceWorkflow) -> WorkflowRe
                 (
                     RebalanceAction::Buy,
                     shares_to_buy,
-                    format!("Current allocation {}% below target {}% by {}%", 
-                        alloc_pct.round(), target.round(), (-diff).round())
+                    format!(
+                        "Current allocation {}% below target {}% by {}%",
+                        alloc_pct.round(),
+                        target.round(),
+                        (-diff).round()
+                    ),
                 )
             };
 
@@ -385,7 +399,7 @@ pub struct RiskReportResult {
 /// Run risk report workflow
 pub fn run_risk_report(_input: &RiskReportWorkflow) -> WorkflowResult<RiskReportResult> {
     let start = std::time::Instant::now();
-    
+
     // Calculate simplified risk metrics (placeholder implementation)
     let metrics = RiskMetrics {
         var: 150_000.0,
@@ -402,7 +416,8 @@ pub fn run_risk_report(_input: &RiskReportWorkflow) -> WorkflowResult<RiskReport
         "Medium"
     } else {
         "Low"
-    }.to_string();
+    }
+    .to_string();
 
     let result = RiskReportResult {
         metrics,
@@ -541,11 +556,11 @@ pub struct SensitivityRow {
 /// Run equity valuation workflow
 pub fn run_equity_valuation(input: &EquityValuationWorkflow) -> WorkflowResult<ValuationResult> {
     let start = std::time::Instant::now();
-    
+
     if input.company.name.is_empty() {
         return WorkflowResult::error(
             "Company name is required".to_string(),
-            start.elapsed().as_millis() as u64
+            start.elapsed().as_millis() as u64,
         );
     }
 
@@ -624,15 +639,18 @@ pub struct PipelineSummary {
 /// Run pipeline tracking workflow
 pub fn run_pipeline_tracking(input: &PipelineTrackingWorkflow) -> WorkflowResult<PipelineSummary> {
     let start = std::time::Instant::now();
-    
+
     let mut deals_by_stage: HashMap<String, Vec<String>> = HashMap::new();
     let mut total_value = 0.0;
     let mut attention_needed = Vec::new();
 
     for deal in &input.deals {
         let stage_str = deal.stage.to_string();
-        deals_by_stage.entry(stage_str).or_default().push(deal.company.clone());
-        
+        deals_by_stage
+            .entry(stage_str)
+            .or_default()
+            .push(deal.company.clone());
+
         if let Some(amount) = deal.amount_usd {
             total_value += amount;
         }
@@ -645,7 +663,11 @@ pub fn run_pipeline_tracking(input: &PipelineTrackingWorkflow) -> WorkflowResult
     let result = PipelineSummary {
         deals_by_stage,
         total_active: input.deals.len(),
-        total_value_usd: if total_value > 0.0 { Some(total_value) } else { None },
+        total_value_usd: if total_value > 0.0 {
+            Some(total_value)
+        } else {
+            None
+        },
         attention_needed,
         generated_at: chrono::Utc::now().to_rfc3339(),
     };
@@ -720,29 +742,42 @@ pub struct TermSheet {
 /// Run term sheet generation workflow
 pub fn run_term_sheet(input: &TermSheetWorkflow) -> WorkflowResult<TermSheet> {
     let start = std::time::Instant::now();
-    
+
     if input.company.is_empty() || input.investment_amount <= 0.0 {
         return WorkflowResult::error(
             "Company name and investment amount are required".to_string(),
-            start.elapsed().as_millis() as u64
+            start.elapsed().as_millis() as u64,
         );
     }
 
-    let post_money = input.post_money_valuation.unwrap_or(
-        input.pre_money_valuation + input.investment_amount
-    );
-    let equity = input.equity_offered.unwrap_or(
-        (input.investment_amount / post_money) * 100.0
-    );
+    let post_money = input
+        .post_money_valuation
+        .unwrap_or(input.pre_money_valuation + input.investment_amount);
+    let equity = input
+        .equity_offered
+        .unwrap_or((input.investment_amount / post_money) * 100.0);
 
     let mut key_terms = HashMap::new();
-    key_terms.insert("liquidation_preference".to_string(), 
-        input.liquidation_preference.clone().unwrap_or_else(|| "1x".to_string()));
-    key_terms.insert("anti_dilution".to_string(), 
-        input.anti_dilution.clone().unwrap_or_else(|| "Full ratchet".to_string()));
-    
+    key_terms.insert(
+        "liquidation_preference".to_string(),
+        input
+            .liquidation_preference
+            .clone()
+            .unwrap_or_else(|| "1x".to_string()),
+    );
+    key_terms.insert(
+        "anti_dilution".to_string(),
+        input
+            .anti_dilution
+            .clone()
+            .unwrap_or_else(|| "Full ratchet".to_string()),
+    );
+
     let board_seats = input.board_seats.unwrap_or(1);
-    key_terms.insert("board_seats".to_string(), format!("Investor: {}", board_seats));
+    key_terms.insert(
+        "board_seats".to_string(),
+        format!("Investor: {}", board_seats),
+    );
 
     let result = TermSheet {
         company: input.company.clone(),
@@ -769,32 +804,37 @@ pub fn get_templates() -> Vec<TaskTemplate> {
         TaskTemplate {
             id: "inv_market_overview".to_string(),
             name: "Market Overview Report".to_string(),
-            description: "Generate comprehensive market overview report with PESTEL analysis".to_string(),
+            description: "Generate comprehensive market overview report with PESTEL analysis"
+                .to_string(),
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Operator,
             capability: "invest:read".to_string(),
-            tags: vec!["investment".to_string(), "market".to_string(), "research".to_string()],
-            steps: vec![
-                TemplateStep {
-                    order: 1,
-                    description: "Collect industry data".to_string(),
-                    command: "python".to_string(),
-                    args: vec!["scripts/market_research.py".to_string(), "--industry".to_string(), "{{industry}}".to_string()],
-                    working_dir: None,
-                    timeout_secs: 300,
-                    abort_on_failure: true,
-                    optional: false,
-                },
+            tags: vec![
+                "investment".to_string(),
+                "market".to_string(),
+                "research".to_string(),
             ],
-            params: vec![
-                TemplateParam {
-                    name: "industry".to_string(),
-                    description: "Industry to analyze".to_string(),
-                    default: None,
-                    required: true,
-                    examples: vec!["Technology".to_string(), "Healthcare".to_string()],
-                },
-            ],
+            steps: vec![TemplateStep {
+                order: 1,
+                description: "Collect industry data".to_string(),
+                command: "python".to_string(),
+                args: vec![
+                    "scripts/market_research.py".to_string(),
+                    "--industry".to_string(),
+                    "{{industry}}".to_string(),
+                ],
+                working_dir: None,
+                timeout_secs: 300,
+                abort_on_failure: true,
+                optional: false,
+            }],
+            params: vec![TemplateParam {
+                name: "industry".to_string(),
+                description: "Industry to analyze".to_string(),
+                default: None,
+                required: true,
+                examples: vec!["Technology".to_string(), "Healthcare".to_string()],
+            }],
             platforms: vec![],
             estimated_secs: 600,
             builtin: true,
@@ -802,21 +842,24 @@ pub fn get_templates() -> Vec<TaskTemplate> {
         TaskTemplate {
             id: "inv_competitor_financial".to_string(),
             name: "Competitor Financial Analysis".to_string(),
-            description: "Extract and compare financial metrics from competitor disclosures".to_string(),
+            description: "Extract and compare financial metrics from competitor disclosures"
+                .to_string(),
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Operator,
             capability: "invest:read".to_string(),
-            tags: vec!["investment".to_string(), "financial".to_string(), "competitor".to_string()],
-            steps: vec![],
-            params: vec![
-                TemplateParam {
-                    name: "companies".to_string(),
-                    description: "Comma-separated company tickers".to_string(),
-                    default: None,
-                    required: true,
-                    examples: vec!["AAPL,GOOGL,MSFT".to_string()],
-                },
+            tags: vec![
+                "investment".to_string(),
+                "financial".to_string(),
+                "competitor".to_string(),
             ],
+            steps: vec![],
+            params: vec![TemplateParam {
+                name: "companies".to_string(),
+                description: "Comma-separated company tickers".to_string(),
+                default: None,
+                required: true,
+                examples: vec!["AAPL,GOOGL,MSFT".to_string()],
+            }],
             platforms: vec![],
             estimated_secs: 600,
             builtin: true,
@@ -828,7 +871,11 @@ pub fn get_templates() -> Vec<TaskTemplate> {
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Operator,
             capability: "invest:read".to_string(),
-            tags: vec!["investment".to_string(), "trends".to_string(), "analysis".to_string()],
+            tags: vec![
+                "investment".to_string(),
+                "trends".to_string(),
+                "analysis".to_string(),
+            ],
             steps: vec![],
             params: vec![],
             platforms: vec![],
@@ -838,11 +885,16 @@ pub fn get_templates() -> Vec<TaskTemplate> {
         TaskTemplate {
             id: "inv_macro_indicator".to_string(),
             name: "Macro Economic Indicator Monitor".to_string(),
-            description: "Monitor GDP, interest rates, and forex indicators in real-time".to_string(),
+            description: "Monitor GDP, interest rates, and forex indicators in real-time"
+                .to_string(),
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Operator,
             capability: "invest:read".to_string(),
-            tags: vec!["investment".to_string(), "macro".to_string(), "monitoring".to_string()],
+            tags: vec![
+                "investment".to_string(),
+                "macro".to_string(),
+                "monitoring".to_string(),
+            ],
             steps: vec![],
             params: vec![],
             platforms: vec![],
@@ -853,21 +905,25 @@ pub fn get_templates() -> Vec<TaskTemplate> {
         TaskTemplate {
             id: "inv_dd_company".to_string(),
             name: "Company Due Diligence".to_string(),
-            description: "Comprehensive company due diligence with financial/legal/technical analysis".to_string(),
+            description:
+                "Comprehensive company due diligence with financial/legal/technical analysis"
+                    .to_string(),
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Admin,
             capability: "invest:write".to_string(),
-            tags: vec!["investment".to_string(), "dd".to_string(), "due_diligence".to_string()],
-            steps: vec![],
-            params: vec![
-                TemplateParam {
-                    name: "company".to_string(),
-                    description: "Target company name".to_string(),
-                    default: None,
-                    required: true,
-                    examples: vec![],
-                },
+            tags: vec![
+                "investment".to_string(),
+                "dd".to_string(),
+                "due_diligence".to_string(),
             ],
+            steps: vec![],
+            params: vec![TemplateParam {
+                name: "company".to_string(),
+                description: "Target company name".to_string(),
+                default: None,
+                required: true,
+                examples: vec![],
+            }],
             platforms: vec![],
             estimated_secs: 1800,
             builtin: true,
@@ -875,11 +931,16 @@ pub fn get_templates() -> Vec<TaskTemplate> {
         TaskTemplate {
             id: "inv_dd_tech".to_string(),
             name: "Technical Due Diligence".to_string(),
-            description: "Technology stack and patent analysis for investment decisions".to_string(),
+            description: "Technology stack and patent analysis for investment decisions"
+                .to_string(),
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Operator,
             capability: "invest:read".to_string(),
-            tags: vec!["investment".to_string(), "tech".to_string(), "dd".to_string()],
+            tags: vec![
+                "investment".to_string(),
+                "tech".to_string(),
+                "dd".to_string(),
+            ],
             steps: vec![],
             params: vec![],
             platforms: vec![],
@@ -893,7 +954,11 @@ pub fn get_templates() -> Vec<TaskTemplate> {
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Operator,
             capability: "invest:read".to_string(),
-            tags: vec!["investment".to_string(), "financial".to_string(), "dd".to_string()],
+            tags: vec![
+                "investment".to_string(),
+                "financial".to_string(),
+                "dd".to_string(),
+            ],
             steps: vec![],
             params: vec![],
             platforms: vec![],
@@ -907,7 +972,11 @@ pub fn get_templates() -> Vec<TaskTemplate> {
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Admin,
             capability: "invest:write".to_string(),
-            tags: vec!["investment".to_string(), "legal".to_string(), "dd".to_string()],
+            tags: vec![
+                "investment".to_string(),
+                "legal".to_string(),
+                "dd".to_string(),
+            ],
             steps: vec![],
             params: vec![],
             platforms: vec![],
@@ -918,11 +987,16 @@ pub fn get_templates() -> Vec<TaskTemplate> {
         TaskTemplate {
             id: "inv_performance_report".to_string(),
             name: "Performance Report".to_string(),
-            description: "Generate portfolio performance report with benchmark comparison".to_string(),
+            description: "Generate portfolio performance report with benchmark comparison"
+                .to_string(),
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Operator,
             capability: "portfolio:read".to_string(),
-            tags: vec!["investment".to_string(), "performance".to_string(), "report".to_string()],
+            tags: vec![
+                "investment".to_string(),
+                "performance".to_string(),
+                "report".to_string(),
+            ],
             steps: vec![],
             params: vec![],
             platforms: vec![],
@@ -936,7 +1010,11 @@ pub fn get_templates() -> Vec<TaskTemplate> {
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Operator,
             capability: "portfolio:read".to_string(),
-            tags: vec!["investment".to_string(), "dividend".to_string(), "tracker".to_string()],
+            tags: vec![
+                "investment".to_string(),
+                "dividend".to_string(),
+                "tracker".to_string(),
+            ],
             steps: vec![],
             params: vec![],
             platforms: vec![],
@@ -951,17 +1029,19 @@ pub fn get_templates() -> Vec<TaskTemplate> {
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Operator,
             capability: "invest:read".to_string(),
-            tags: vec!["investment".to_string(), "technical".to_string(), "analysis".to_string()],
-            steps: vec![],
-            params: vec![
-                TemplateParam {
-                    name: "ticker".to_string(),
-                    description: "Stock ticker symbol".to_string(),
-                    default: None,
-                    required: true,
-                    examples: vec!["AAPL".to_string()],
-                },
+            tags: vec![
+                "investment".to_string(),
+                "technical".to_string(),
+                "analysis".to_string(),
             ],
+            steps: vec![],
+            params: vec![TemplateParam {
+                name: "ticker".to_string(),
+                description: "Stock ticker symbol".to_string(),
+                default: None,
+                required: true,
+                examples: vec!["AAPL".to_string()],
+            }],
             platforms: vec![],
             estimated_secs: 480,
             builtin: true,
@@ -969,11 +1049,16 @@ pub fn get_templates() -> Vec<TaskTemplate> {
         TaskTemplate {
             id: "inv_sentiment_analysis".to_string(),
             name: "Sentiment Analysis".to_string(),
-            description: "Analyze news and social media sentiment for investment strategy".to_string(),
+            description: "Analyze news and social media sentiment for investment strategy"
+                .to_string(),
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Operator,
             capability: "invest:read".to_string(),
-            tags: vec!["investment".to_string(), "sentiment".to_string(), "nlp".to_string()],
+            tags: vec![
+                "investment".to_string(),
+                "sentiment".to_string(),
+                "nlp".to_string(),
+            ],
             steps: vec![],
             params: vec![],
             platforms: vec![],
@@ -987,7 +1072,11 @@ pub fn get_templates() -> Vec<TaskTemplate> {
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Operator,
             capability: "invest:read".to_string(),
-            tags: vec!["investment".to_string(), "ml".to_string(), "prediction".to_string()],
+            tags: vec![
+                "investment".to_string(),
+                "ml".to_string(),
+                "prediction".to_string(),
+            ],
             steps: vec![],
             params: vec![],
             platforms: vec![],
@@ -1002,7 +1091,11 @@ pub fn get_templates() -> Vec<TaskTemplate> {
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Operator,
             capability: "invest:read".to_string(),
-            tags: vec!["investment".to_string(), "meeting".to_string(), "summary".to_string()],
+            tags: vec![
+                "investment".to_string(),
+                "meeting".to_string(),
+                "summary".to_string(),
+            ],
             steps: vec![],
             params: vec![],
             platforms: vec![],
@@ -1016,7 +1109,11 @@ pub fn get_templates() -> Vec<TaskTemplate> {
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Viewer,
             capability: "portfolio:read".to_string(),
-            tags: vec!["investment".to_string(), "dashboard".to_string(), "realtime".to_string()],
+            tags: vec![
+                "investment".to_string(),
+                "dashboard".to_string(),
+                "realtime".to_string(),
+            ],
             steps: vec![],
             params: vec![],
             platforms: vec![],
@@ -1027,11 +1124,16 @@ pub fn get_templates() -> Vec<TaskTemplate> {
         TaskTemplate {
             id: "inv_portfolio_rebalance".to_string(),
             name: "Portfolio Rebalancing".to_string(),
-            description: "Calculate and recommend portfolio rebalancing based on target allocation".to_string(),
+            description: "Calculate and recommend portfolio rebalancing based on target allocation"
+                .to_string(),
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Operator,
             capability: "portfolio:write".to_string(),
-            tags: vec!["investment".to_string(), "portfolio".to_string(), "rebalancing".to_string()],
+            tags: vec![
+                "investment".to_string(),
+                "portfolio".to_string(),
+                "rebalancing".to_string(),
+            ],
             steps: vec![],
             params: vec![],
             platforms: vec![],
@@ -1045,7 +1147,11 @@ pub fn get_templates() -> Vec<TaskTemplate> {
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Operator,
             capability: "invest:read".to_string(),
-            tags: vec!["investment".to_string(), "valuation".to_string(), "dcf".to_string()],
+            tags: vec![
+                "investment".to_string(),
+                "valuation".to_string(),
+                "dcf".to_string(),
+            ],
             steps: vec![],
             params: vec![
                 TemplateParam {
@@ -1070,11 +1176,16 @@ pub fn get_templates() -> Vec<TaskTemplate> {
         TaskTemplate {
             id: "inv_risk_report".to_string(),
             name: "Portfolio Risk Report".to_string(),
-            description: "Generate risk analysis including VaR, volatility, and recommendations".to_string(),
+            description: "Generate risk analysis including VaR, volatility, and recommendations"
+                .to_string(),
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Operator,
             capability: "portfolio:read".to_string(),
-            tags: vec!["investment".to_string(), "risk".to_string(), "var".to_string()],
+            tags: vec![
+                "investment".to_string(),
+                "risk".to_string(),
+                "var".to_string(),
+            ],
             steps: vec![],
             params: vec![],
             platforms: vec![],
@@ -1088,7 +1199,11 @@ pub fn get_templates() -> Vec<TaskTemplate> {
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Operator,
             capability: "invest:read".to_string(),
-            tags: vec!["investment".to_string(), "pipeline".to_string(), "deals".to_string()],
+            tags: vec![
+                "investment".to_string(),
+                "pipeline".to_string(),
+                "deals".to_string(),
+            ],
             steps: vec![],
             params: vec![],
             platforms: vec![],
@@ -1102,7 +1217,11 @@ pub fn get_templates() -> Vec<TaskTemplate> {
             category: TemplateCategory::Custom,
             required_role: RequiredRole::Admin,
             capability: "invest:write".to_string(),
-            tags: vec!["investment".to_string(), "term_sheet".to_string(), "legal".to_string()],
+            tags: vec![
+                "investment".to_string(),
+                "term_sheet".to_string(),
+                "legal".to_string(),
+            ],
             steps: vec![],
             params: vec![
                 TemplateParam {
@@ -1168,7 +1287,9 @@ mod tests {
                 ("AAPL".to_string(), 40.0),
                 ("GOOGL".to_string(), 40.0),
                 ("MSFT".to_string(), 20.0),
-            ].into_iter().collect(),
+            ]
+            .into_iter()
+            .collect(),
             cash_available: 0.0,
             threshold_percent: Some(5.0),
         };

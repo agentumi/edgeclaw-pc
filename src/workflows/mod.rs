@@ -5,8 +5,8 @@
 //! structs that wrap common CLI tools and produce structured results
 //! suitable for AI interpretation.
 
+pub mod business;
 pub mod dev;
 pub mod devops;
-pub mod marketing;
 pub mod investment;
-pub mod business;
+pub mod marketing;

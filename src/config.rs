@@ -516,7 +516,7 @@ fn default_ai_provider() -> String {
     "ollama".to_string()
 }
 fn default_ai_model() -> String {
-    "llama3.2".to_string()
+    "llama3:8b".to_string()
 }
 fn default_ollama_url() -> String {
     "http://localhost:11434".to_string()
@@ -729,10 +729,10 @@ fn default_ollama_endpoint() -> String {
     "http://localhost:11434".to_string()
 }
 fn default_ollama_model() -> String {
-    "llama3.2:3b".to_string()
+    "llama3:8b".to_string()
 }
 fn default_ai_timeout() -> u64 {
-    5000
+    15000
 }
 fn default_cloud_provider() -> String {
     "openai".to_string()

@@ -219,10 +219,7 @@ pub enum WorkflowNode {
         level: LogLevel,
     },
     /// Sleep/delay node
-    Sleep {
-        id: String,
-        duration_ms: u64,
-    },
+    Sleep { id: String, duration_ms: u64 },
     /// HTTP request node
     HttpRequest {
         id: String,
@@ -453,7 +450,7 @@ impl DagValidator {
     /// Validate workflow definition for DAG correctness
     pub fn validate(workflow: &WorkflowDefinition) -> Result<()> {
         let node_ids: HashSet<&str> = workflow.nodes.iter().map(|n| n.id()).collect();
-        
+
         // Check for duplicate node IDs
         let mut seen = HashSet::new();
         for node in &workflow.nodes {
@@ -464,7 +461,7 @@ impl DagValidator {
                 )));
             }
         }
-        
+
         // Validate edges reference existing nodes
         for edge in &workflow.edges {
             if !node_ids.contains(edge.from.as_str()) {
@@ -480,18 +477,18 @@ impl DagValidator {
                 )));
             }
         }
-        
+
         // Check for cycles using DFS
         Self::check_cycles(workflow)?;
-        
+
         Ok(())
     }
-    
+
     /// Check for circular dependencies using DFS
     fn check_cycles(workflow: &WorkflowDefinition) -> Result<()> {
         let mut visited = HashSet::new();
         let mut recursion_stack = HashSet::new();
-        
+
         // Build adjacency list
         let mut adjacency: HashMap<&str, Vec<&str>> = HashMap::new();
         for node in &workflow.nodes {
@@ -502,7 +499,7 @@ impl DagValidator {
                 neighbors.push(&edge.to);
             }
         }
-        
+
         fn dfs<'a>(
             node: &'a str,
             adjacency: &HashMap<&str, Vec<&'a str>>,
@@ -511,7 +508,7 @@ impl DagValidator {
         ) -> Result<()> {
             visited.insert(node);
             recursion_stack.insert(node);
-            
+
             if let Some(neighbors) = adjacency.get(node) {
                 for neighbor in neighbors {
                     if !visited.contains(neighbor) {
@@ -524,52 +521,52 @@ impl DagValidator {
                     }
                 }
             }
-            
+
             recursion_stack.remove(node);
             Ok(())
         }
-        
+
         for node in workflow.nodes.iter().map(|n| n.id()) {
             if !visited.contains(&node) {
                 dfs(node, &adjacency, &mut visited, &mut recursion_stack)?;
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Generate topological execution order
     pub fn topological_sort(workflow: &WorkflowDefinition) -> Result<Vec<ExecutionStage>> {
         // Build adjacency and in-degree maps
         let mut adjacency: HashMap<&str, Vec<&str>> = HashMap::new();
         let mut in_degree: HashMap<&str, usize> = HashMap::new();
-        
+
         for node in &workflow.nodes {
             adjacency.entry(node.id()).or_default();
             in_degree.entry(node.id()).or_insert(0);
         }
-        
+
         for edge in &workflow.edges {
             adjacency.entry(&edge.from).or_default().push(&edge.to);
             *in_degree.entry(&edge.to).or_insert(0) += 1;
         }
-        
+
         // Kahn's algorithm for topological sort
         let mut queue: Vec<&str> = in_degree
             .iter()
             .filter(|(_, &deg)| deg == 0)
             .map(|(node, _)| *node)
             .collect();
-        
+
         let mut stages: Vec<ExecutionStage> = Vec::new();
-        
+
         while !queue.is_empty() {
             // All nodes with in-degree 0 can run in parallel
             let stage_nodes: Vec<String> = queue.iter().map(|&s| s.to_string()).collect();
-            
+
             // Process all nodes in this stage
             let mut next_queue: Vec<&str> = Vec::new();
-            
+
             for &node in &queue {
                 // Reduce in-degree for all neighbors
                 if let Some(neighbors) = adjacency.get(node) {
@@ -583,14 +580,14 @@ impl DagValidator {
                     }
                 }
             }
-            
+
             stages.push(ExecutionStage {
                 nodes: stage_nodes,
                 parallel: true,
             });
             queue = next_queue;
         }
-        
+
         // Check if all nodes were processed
         let processed: usize = stages.iter().map(|s| s.nodes.len()).sum();
         if processed != workflow.nodes.len() {
@@ -598,7 +595,7 @@ impl DagValidator {
                 "Unable to process all nodes - possible cycle".to_string(),
             ));
         }
-        
+
         Ok(stages)
     }
 }
@@ -658,7 +655,7 @@ impl TemplateRegistry {
         registry.load_builtin_templates();
         registry
     }
-    
+
     /// Load built-in templates
     fn load_builtin_templates(&mut self) {
         // Load from default directory if it exists
@@ -682,28 +679,33 @@ impl TemplateRegistry {
                 let path = entry.path();
                 if path.is_dir() {
                     self.walk_dir(&path, count);
-                } else if path.extension().is_some_and(|ext| ext == "yaml" || ext == "yml") {
+                } else if path
+                    .extension()
+                    .is_some_and(|ext| ext == "yaml" || ext == "yml")
+                {
                     if let Ok(template) = parse_template_file(&path) {
-                        self.templates.insert(template.template.id.clone(), template);
+                        self.templates
+                            .insert(template.template.id.clone(), template);
                         *count += 1;
                     }
                 }
             }
         }
     }
-    
+
     /// Register a template from YAML string
     pub fn register(&mut self, yaml: String) {
         if let Ok(template) = parse_template(&yaml) {
-            self.templates.insert(template.template.id.clone(), template);
+            self.templates
+                .insert(template.template.id.clone(), template);
         }
     }
-    
+
     /// Get template by ID
     pub fn get(&self, id: &str) -> Option<&WorkflowTemplate> {
         self.templates.get(id)
     }
-    
+
     /// List all templates, optionally filtered by domain
     pub fn list(&self, domain: Option<TemplateDomain>) -> Vec<&WorkflowTemplate> {
         self.templates
@@ -714,7 +716,7 @@ impl TemplateRegistry {
             })
             .collect()
     }
-    
+
     /// Validate all templates in registry
     pub fn validate_all(&self) -> Vec<(String, Result<()>)> {
         self.templates
@@ -727,7 +729,7 @@ impl TemplateRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_parse_template() {
         let yaml = r#"
@@ -757,7 +759,7 @@ workflow:
         let result = parse_template(yaml);
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_circular_dependency() {
         let yaml = r#"

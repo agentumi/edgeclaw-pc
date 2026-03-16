@@ -84,6 +84,14 @@ pub trait AiProvider: Send + Sync {
 
     /// Whether this provider runs locally (no data leaves the network)
     fn is_local(&self) -> bool;
+
+    /// Update the model used by this provider
+    fn set_model(&mut self, model: &str) -> Result<(), AgentError>;
+
+    /// List available models for this provider (if supported)
+    fn list_models(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 // ─── Ollama Provider (Local) ───────────────────────────────
@@ -182,7 +190,7 @@ Respond in JSON: {{"message": "your analysis summary", "intent": null, "confiden
             "model": self.model,
             "prompt": prompt,
             "stream": false,
-            "options": { "temperature": 0.2, "num_predict": 256 }
+            "options": { "temperature": 0.4, "num_predict": 512 }
         });
 
         let resp = ureq_post_json_with_timeout(&url, &body, self.timeout)?;
@@ -228,7 +236,7 @@ Respond in this JSON format:
 {{"message": "your response", "intent": {{"capability": "cap_name", "command": "cmd", "args": [], "needs_confirmation": true}}, "confidence": 0.95}}
 
 If the user is just chatting (not requesting a command), set intent to null.
-Keep responses concise and helpful. For elderly users, be extra clear and simple."#,
+Keep responses professional, insightful, and helpful. Prioritize precision and safety in all actions."#,
             caps = caps,
             role = request.peer_role,
             system_ctx = request
@@ -307,8 +315,8 @@ impl AiProvider for OllamaProvider {
             "prompt": prompt,
             "stream": false,
             "options": {
-                "temperature": 0.3,
-                "num_predict": 512
+                "temperature": 0.6,
+                "num_predict": 1024
             }
         });
 
@@ -327,6 +335,17 @@ impl AiProvider for OllamaProvider {
 
     fn is_local(&self) -> bool {
         true
+    }
+
+    fn set_model(&mut self, model: &str) -> Result<(), AgentError> {
+        self.model = model.to_string();
+        Ok(())
+    }
+
+    fn list_models(&self) -> Vec<String> {
+        self.list_models()
+            .map(|models| models.into_iter().map(|m| m.name).collect())
+            .unwrap_or_default()
     }
 }
 
@@ -438,6 +457,11 @@ impl AiProvider for OpenAiProvider {
     fn is_local(&self) -> bool {
         false
     }
+
+    fn set_model(&mut self, model: &str) -> Result<(), AgentError> {
+        self.model = model.to_string();
+        Ok(())
+    }
 }
 
 // ─── Claude Provider (Cloud) ───────────────────────────────
@@ -531,6 +555,11 @@ impl AiProvider for ClaudeProvider {
 
     fn is_local(&self) -> bool {
         false
+    }
+
+    fn set_model(&mut self, model: &str) -> Result<(), AgentError> {
+        self.model = model.to_string();
+        Ok(())
     }
 }
 
@@ -1162,6 +1191,11 @@ impl AiProvider for NoneProvider {
     fn is_local(&self) -> bool {
         true
     }
+
+    fn set_model(&mut self, _model: &str) -> Result<(), AgentError> {
+        // NoneProvider doesn't use models
+        Ok(())
+    }
 }
 
 // ─── AI Manager ────────────────────────────────────────────
@@ -1297,6 +1331,16 @@ impl AiManager {
     /// Whether cloud escalation requires user consent
     pub fn requires_consent(&self) -> bool {
         self.require_consent
+    }
+
+    /// Update the model for the primary provider
+    pub fn set_model(&mut self, model: &str) -> Result<(), AgentError> {
+        self.primary.set_model(model)
+    }
+
+    /// List available models for the current provider
+    pub fn list_models(&self) -> Vec<String> {
+        self.primary.list_models()
     }
 
     /// Escalate a request to cloud AI if local confidence is too low.

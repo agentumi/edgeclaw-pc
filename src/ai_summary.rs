@@ -48,7 +48,7 @@ impl Default for AiSummaryConfig {
         Self {
             enabled: false,
             provider: "ollama".to_string(),
-            model: "llama3".to_string(),
+            model: "llama3:8b".to_string(),
             api_key: None,
             ollama_url: "http://localhost:11434".to_string(),
             max_activities: 50,
@@ -796,6 +796,7 @@ mod tests {
         let config2 = AiSummaryConfig {
             enabled: true,
             provider: "ollama".into(),
+            ollama_url: "http://localhost:9999".into(), // Ensure failure by using a dead port
             ..Default::default()
         };
         let summarizer2 = SessionSummarizer::new(config2);

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::task_templates::{
-    TemplateCategory, TemplateStep, TemplateParam, RequiredRole, TaskTemplate,
+    RequiredRole, TaskTemplate, TemplateCategory, TemplateParam, TemplateStep,
 };
 
 // --- Data Types ---

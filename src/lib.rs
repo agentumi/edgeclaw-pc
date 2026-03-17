@@ -1018,6 +1018,24 @@ impl AgentEngine {
             .assign_task(task_id, assignee)
             .ok_or_else(|| AgentError::NotFound(format!("task not found: {}", task_id)))
     }
+
+    /// Delete a task from the board.
+    pub fn delete_task(&self, task_id: uuid::Uuid) -> bool {
+        let mut board = self.task_board.lock().unwrap_or_else(|e| e.into_inner());
+        board.archive_task(task_id).is_some()
+    }
+
+    /// Get current chat history.
+    pub fn get_chat_history(&self) -> Vec<ChatMessage> {
+        let history = self.chat_history.lock().unwrap_or_else(|e| e.into_inner());
+        history.clone()
+    }
+
+    /// Clear chat history.
+    pub fn clear_chat_history(&self) {
+        let mut history = self.chat_history.lock().unwrap_or_else(|e| e.into_inner());
+        history.clear();
+    }
 }
 
 #[cfg(test)]

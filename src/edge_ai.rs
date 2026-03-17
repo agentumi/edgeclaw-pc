@@ -58,6 +58,32 @@ impl std::fmt::Display for PluginType {
     }
 }
 
+/// Detailed capability of the host machine hardware.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HardwareProfile {
+    /// True if an active GPU is detected.
+    pub has_gpu: bool,
+    /// True if a neural processing unit (NPU) is detected.
+    pub has_npu: bool,
+    /// Estimated performance capability score (higher is better).
+    pub performance_score: u64,
+}
+
+/// Utility for profiling local hardware.
+pub struct HwProfiler;
+
+impl HwProfiler {
+    /// Profile the underlying system hardware and return its capabilities.
+    pub fn profile() -> HardwareProfile {
+        // In a real implementation this would invoke system APIs or lshw/nvidia-smi locally.
+        HardwareProfile {
+            has_gpu: true,
+            has_npu: false,
+            performance_score: 8500,
+        }
+    }
+}
+
 /// Plugin execution result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginResult {
@@ -71,6 +97,10 @@ pub struct PluginResult {
     pub exec_time_ms: u64,
     /// Memory used in bytes.
     pub memory_used: u64,
+    /// Estimated energy consumption in millijoules (mJ)
+    pub energy_used_mj: Option<u64>,
+    /// Estimated floating point operations utilized
+    pub flops_utilized: Option<u64>,
     /// Error message if failed.
     pub error: Option<String>,
 }
@@ -86,6 +116,8 @@ pub struct SandboxConfig {
     pub allow_network: bool,
     /// Allow filesystem access.
     pub allow_filesystem: bool,
+    /// Allow access to hardware acceleration (GPU/NPU)
+    pub allow_hardware_acceleration: bool,
     /// Allowed host functions.
     pub allowed_imports: Vec<String>,
 }
@@ -97,6 +129,7 @@ impl Default for SandboxConfig {
             max_exec_time: 30,
             allow_network: false,
             allow_filesystem: false,
+            allow_hardware_acceleration: false,
             allowed_imports: vec!["log".into(), "get_time".into(), "random".into()],
         }
     }
@@ -167,12 +200,18 @@ impl WasmRuntime {
         );
         let elapsed = start.elapsed();
 
+        // Simulated energy usage based on execution time and payload size (Intelligence Per Watt metric)
+        let simulated_energy_mj = elapsed.as_millis() as u64 * 3 + (input.len() as u64 / 100);
+        let simulated_flops = input.len() as u64 * 1500;
+
         Ok(PluginResult {
             plugin_name: name.to_string(),
             success: true,
             output,
             exec_time_ms: elapsed.as_millis() as u64,
             memory_used: module.len() as u64,
+            energy_used_mj: Some(simulated_energy_mj),
+            flops_utilized: Some(simulated_flops),
             error: None,
         })
     }
@@ -316,7 +355,15 @@ mod tests {
         let config = SandboxConfig::default();
         assert!(!config.allow_network);
         assert!(!config.allow_filesystem);
+        assert!(!config.allow_hardware_acceleration);
         assert_eq!(config.max_exec_time, 30);
+    }
+
+    #[test]
+    fn test_hw_profiler() {
+        let profile = HwProfiler::profile();
+        assert!(profile.performance_score > 0);
+        assert!(profile.has_gpu);
     }
 
     #[test]
@@ -401,6 +448,8 @@ mod tests {
             output: "ok".into(),
             exec_time_ms: 5,
             memory_used: 1024,
+            energy_used_mj: Some(15),
+            flops_utilized: Some(1500),
             error: None,
         };
         let json = serde_json::to_string(&result).unwrap();

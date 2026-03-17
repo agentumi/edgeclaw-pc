@@ -1,4 +1,4 @@
-﻿import { API, AppState, apiFetch, showToast, setTranslatedText } from './core.js';
+import { API, AppState, apiFetch, showToast, setTranslatedText } from './core.js';
 import { initChat } from './chat.js';
 
     
@@ -1754,6 +1754,7 @@ import { initChat } from './chat.js';
         updateMissionHistoryPanels();
         await fetchActivityStats();
         await fetchMarketStats();
+        await fetchTasks();
         await fetchActiveMission();
         await fetchInfraSummary();
         await fetchSettings();

@@ -869,6 +869,43 @@ impl ActivityLog {
         &self.entries[start..]
     }
 
+    /// List entries with pagination.
+    pub fn list(&self, limit: usize, offset: usize) -> (Vec<&ActivityEntry>, usize) {
+        let total = self.entries.len();
+        let mut results: Vec<&ActivityEntry> = self.entries.iter().collect();
+        results.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        let entries = results.into_iter().skip(offset).take(limit).collect();
+        (entries, total)
+    }
+
+    /// List all sessions (active + completed) with pagination.
+    pub fn list_sessions(&self, limit: usize, offset: usize) -> (Vec<AgentSession>, usize) {
+        let mut all: Vec<AgentSession> = self.sessions.values().cloned().collect();
+        for s in &self.completed_sessions {
+            all.push(s.clone());
+        }
+        all.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        let total = all.len();
+        let sessions = all.into_iter().skip(offset).take(limit).collect();
+        (sessions, total)
+    }
+
+    /// Get a single entry by ID.
+    pub fn get_entry(&self, id: Uuid) -> Option<&ActivityEntry> {
+        self.entries.iter().find(|e| e.id == id)
+    }
+
+    /// Get all events for a specific session.
+    pub fn session_timeline(&self, session_id: Uuid) -> Vec<&ActivityEntry> {
+        let mut results: Vec<&ActivityEntry> = self
+            .entries
+            .iter()
+            .filter(|e| e.session_id == session_id)
+            .collect();
+        results.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+        results
+    }
+
     // ??? Context Injection ????????????????????????????????
 
     /// Build a context injection payload for a new session.
@@ -1508,6 +1545,34 @@ impl ActivityManager {
                 content[..end].to_string()
             }
         }
+    }
+
+    /// Paginated list of entries.
+    pub fn list(&self, limit: usize, offset: usize) -> (Vec<ActivityEntry>, usize) {
+        let log = self.log.lock().unwrap_or_else(|e| e.into_inner());
+        let (entries, total) = log.list(limit, offset);
+        (entries.into_iter().cloned().collect(), total)
+    }
+
+    /// Paginated list of sessions.
+    pub fn list_sessions(&self, limit: usize, offset: usize) -> (Vec<AgentSession>, usize) {
+        let log = self.log.lock().unwrap_or_else(|e| e.into_inner());
+        log.list_sessions(limit, offset)
+    }
+
+    /// Get single entry by ID.
+    pub fn get_entry(&self, id: Uuid) -> Option<ActivityEntry> {
+        let log = self.log.lock().unwrap_or_else(|e| e.into_inner());
+        log.get_entry(id).cloned()
+    }
+
+    /// Get all events for a session.
+    pub fn session_timeline(&self, session_id: Uuid) -> Vec<ActivityEntry> {
+        let log = self.log.lock().unwrap_or_else(|e| e.into_inner());
+        log.session_timeline(session_id)
+            .into_iter()
+            .cloned()
+            .collect()
     }
 }
 

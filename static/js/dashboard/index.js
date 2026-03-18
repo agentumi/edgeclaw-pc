@@ -358,7 +358,8 @@ import { initChat, initAIChat } from './chat.js';
             'view-automations': 'Automations',
             'view-extensions': 'Extensions',
             'view-settings': 'Settings',
-            'view-chat': 'Command Center'
+            'view-chat': 'Command Center',
+            'view-aichat': 'Intoran AI'
         };
         return map[viewId] || 'EdgeClaw';
     }

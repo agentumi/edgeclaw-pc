@@ -1,5 +1,5 @@
 import { API, AppState, apiFetch, showToast, setTranslatedText } from './core.js';
-import { initChat } from './chat.js';
+import { initChat, initAIChat } from './chat.js';
 
     
 
@@ -4207,6 +4207,7 @@ import { initChat } from './chat.js';
 
     // Initialize
     initChat({ getCurrentMode: () => currentMode, appendSessionLog, renderEconomy, fetchMemory });
+    initAIChat();
     initDevAutoReload();
     fetchStatus();
     fetchTasks();

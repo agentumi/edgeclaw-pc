@@ -1,4 +1,4 @@
-﻿import { API, apiFetch, AppState } from './core.js';
+import { API, apiFetch, AppState } from './core.js';
 
 function resolveWsUrl() {
     if (window.EDGECLAW_WS_URL) return window.EDGECLAW_WS_URL;
@@ -262,4 +262,86 @@ export function initChat({ getCurrentMode, appendSessionLog, renderEconomy, fetc
 
     loadQuickActions();
     initWebSocket();
+}
+
+export function initAIChat() {
+    const input = document.getElementById('aiChatInput');
+    const sendBtn = document.getElementById('aiChatSendBtn');
+    const messagesArea = document.getElementById('aiChatMessages');
+    const initialPrompt = document.getElementById('aiChatInitial');
+    
+    if (!input || !sendBtn || !messagesArea) return;
+
+    input.addEventListener('input', () => {
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+        const hasText = input.value.trim().length > 0;
+        sendBtn.style.background = hasText ? 'var(--primary-600)' : 'var(--text-muted)';
+        sendBtn.style.color = hasText ? 'white' : 'var(--surface-900)';
+    });
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendAIChat();
+        }
+    });
+
+    sendBtn.addEventListener('click', sendAIChat);
+
+    async function sendAIChat() {
+        const text = input.value.trim();
+        if (!text) return;
+
+        if (initialPrompt) {
+            initialPrompt.style.display = 'none';
+        }
+
+        const userDiv = document.createElement('div');
+        userDiv.style.display = 'flex';
+        userDiv.style.justifyContent = 'flex-end';
+        userDiv.innerHTML = `
+            <div style="background:var(--surface-800); border:1px solid var(--surface-700); padding:12px 16px; border-radius:16px; border-bottom-right-radius:4px; max-width:80%; font-size:14px; line-height:1.5; color:var(--text-primary);">
+                ${text.replace(/\n/g, '<br>')}
+            </div>`;
+        messagesArea.appendChild(userDiv);
+
+        input.value = '';
+        input.style.height = 'auto';
+        input.dispatchEvent(new Event('input'));
+        messagesArea.scrollTop = messagesArea.scrollHeight;
+
+        const agentDiv = document.createElement('div');
+        agentDiv.style.display = 'flex';
+        agentDiv.style.gap = '16px';
+        agentDiv.innerHTML = `
+            <div style="width:32px; height:32px; border-radius:8px; background:linear-gradient(135deg, var(--primary-500), var(--accent-purple)); display:flex; align-items:center; justify-content:center; color:white; font-size:14px; flex-shrink:0;">
+                <i class="fa-solid fa-sparkles"></i>
+            </div>
+            <div class="agent-msg-content" style="flex:1; padding-top:6px; font-size:14px; line-height:1.6; color:var(--text-primary); display:flex; gap:6px;">
+                <div class="typing-indicator active" style="position:relative; background:transparent; padding:0;"><div class="dots" style="position:static;"><span></span><span></span><span></span></div></div>
+            </div>`;
+        messagesArea.appendChild(agentDiv);
+        messagesArea.scrollTop = messagesArea.scrollHeight;
+
+        try {
+            const res = await apiFetch(`${API}/api/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: text })
+            });
+
+            const contentDiv = agentDiv.querySelector('.agent-msg-content');
+            if (res.ok) {
+                const data = await res.json();
+                contentDiv.innerHTML = (data.message || '').replace(/\\n/g, '<br>');
+            } else {
+                contentDiv.innerHTML = '<span style="color:var(--accent-red)"><i class="fa-solid fa-triangle-exclamation"></i> Error communicating with Local AI model. Make sure it is running.</span>';
+            }
+        } catch (e) {
+            const contentDiv = agentDiv.querySelector('.agent-msg-content');
+            contentDiv.innerHTML = '<span style="color:var(--accent-red)"><i class="fa-solid fa-triangle-exclamation"></i> Failed to connect to the backend API.</span>';
+        }
+        messagesArea.scrollTop = messagesArea.scrollHeight;
+    }
 }

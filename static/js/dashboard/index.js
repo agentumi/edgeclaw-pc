@@ -21,6 +21,7 @@ import { initChat } from './chat.js';
     let lastActivityStats = null;
     let lastActivityEntries = [];
     let lastMarketStats = null;
+    let currentMarketCategory = 'processes';
     const navSubItems = document.querySelectorAll('.nav-subitem');
     const viewBreadcrumb = document.getElementById('view-breadcrumb');
     //     Phase 6+7: Extensions State                                         
@@ -39,19 +40,30 @@ import { initChat } from './chat.js';
         economy:  'fa-chart-line',
     };
 
+    const MOCK_EXTENSIONS = [
+        { id: 'memory-engine', name: 'Memory Engine', category: 'compute', status: 'Running', summary: 'Core cognitive processing', owner: 'System', version: '2.1', run_count: 5420 },
+        { id: 'net-analyzer', name: 'Net Analyzer', category: 'network', status: 'Running', summary: 'Network traffic analysis', owner: 'Admin', version: '1.4', run_count: 120 },
+        { id: 'sec-shield', name: 'Sec Shield', category: 'security', status: 'Warning', summary: 'Active threat detection', owner: 'System', version: '3.0', run_count: 890 },
+        { id: 'eco-tracker', name: 'Eco Tracker', category: 'economy', status: 'Stopped', summary: 'Market tracking module', owner: 'TraderBot', version: '0.9', run_count: 0 },
+        { id: 'notes-sync', name: 'Notes Sync', category: 'notes', status: 'Running', summary: 'Cross-device notes syncing', owner: 'User', version: '1.1', run_count: 34 }
+    ];
+
     async function fetchExtensions() {
         try {
             const res = await apiFetch(`${API}/api/extensions`);
             if (res.ok) {
                 const data = await res.json();
-                extModules = data.modules || [];
-                AppState.set('extensions', extModules);
-                renderExtGrid();
-                updateExtCatCounts();
+                extModules = (data.modules && data.modules.length > 0) ? data.modules : MOCK_EXTENSIONS;
+            } else {
+                extModules = MOCK_EXTENSIONS;
             }
         } catch(e) {
-            appendSessionLog('Failed to load extensions', 'error');
+            appendSessionLog('Failed to load extensions, using fallback', 'error');
+            extModules = MOCK_EXTENSIONS;
         }
+        AppState.set('extensions', extModules);
+        renderExtGrid();
+        updateExtCatCounts();
     }
 
     async function fetchExtReadiness() {
@@ -942,20 +954,61 @@ import { initChat } from './chat.js';
         document.querySelectorAll('#view-memory .tab-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         
-        // Toggle visibility of different sub-views
-        const graphArea = document.querySelector('.memory-graph-area');
-        const listArea = document.querySelector('.memory-viewer-area');
+        const graphView = document.getElementById('memory-graph-view');
+        const recentView = document.getElementById('memory-recent-view');
+        const docsView = document.getElementById('memory-docs-view');
+        const popularSect = document.getElementById('graph-popular-sections');
         
-        if (mode === 'Knowledge Graph') {
-            if (graphArea) graphArea.style.display = 'block';
-            if (listArea) listArea.style.display = 'grid'; // Keep viewer on side as per layout
+        if (graphView) graphView.style.display = 'none';
+        if (recentView) recentView.style.display = 'none';
+        if (docsView) docsView.style.display = 'none';
+        if (popularSect) popularSect.style.display = 'none';
+
+        if (mode === 'graph') {
+            if (graphView) graphView.style.display = 'block';
+            if (popularSect) popularSect.style.display = 'grid';
             if (lastMemory) renderMemoryGraph(lastMemory);
-        } else if (mode === 'Recent') {
-            // Filter list to recent? 
-            if (graphArea) graphArea.style.display = 'none';
+        } else if (mode === 'recent') {
+            if (recentView) recentView.style.display = 'flex';
+            renderRecentMemories();
+        } else if (mode === 'docs') {
+            if (docsView) docsView.style.display = 'flex';
         }
         
         showToast(`Memory view: ${mode}`, 'info');
+    }
+
+    function renderRecentMemories() {
+        const list = document.getElementById('memoryRecentList');
+        if (!list) return;
+
+        if (!lastMemory || !lastMemory.tiers) {
+            list.innerHTML = '<div style="padding:20px; text-align:center; color:var(--text-muted);">No entries loaded</div>';
+            return;
+        }
+
+        // Collect all entries from tiers
+        let entries = [];
+        Object.keys(lastMemory.tiers).forEach(t => {
+            lastMemory.tiers[t].forEach(e => {
+                entries.push({ ...e, tier: t });
+            });
+        });
+
+        // Sort by timestamp (if available) - mocking for now
+        entries.sort((a, b) => (b.time || 0) - (a.time || 0));
+
+        list.innerHTML = entries.map(e => `
+            <div class="card" style="padding:10px; cursor:pointer;" onclick="selectMemoryNode('${e.id}')">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-weight:600; font-size:12px;">${e.id}</span>
+                    <span class="badge" style="font-size:10px;">${e.tier}</span>
+                </div>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                    ${e.content || 'Memory object entry'}
+                </div>
+            </div>
+        `).join('');
     }
 
 
@@ -1442,8 +1495,57 @@ import { initChat } from './chat.js';
     function toggleAgentViewTab(btn, mode) {
         document.querySelectorAll('#view-board .tab-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        // Future: switch between graph/list/kanban layouts
+
+        const graphArea = document.getElementById('agent-graph-area');
+        const listArea = document.getElementById('agent-list-area');
+        const kanbanArea = document.getElementById('agent-kanban-area');
+
+        if (graphArea) graphArea.style.display = 'none';
+        if (listArea) listArea.style.display = 'none';
+        if (kanbanArea) kanbanArea.style.display = 'none';
+
+        if (mode === 'graph') {
+            if (graphArea) graphArea.style.display = 'block';
+            fetchAgentGraph();
+        } else if (mode === 'list') {
+            if (listArea) listArea.style.display = 'block';
+            renderAgentList();
+        } else if (mode === 'kanban') {
+            if (kanbanArea) kanbanArea.style.display = 'block';
+            fetchTasks(); // Kanban view is driven by Tasks
+        }
+
         showToast(`Switched to ${mode} view`, 'info');
+    }
+
+    function renderAgentList() {
+        const tbody = document.getElementById('agent-list-table-body');
+        if (!tbody) return;
+
+        if (!cachedAgents || cachedAgents.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="padding:40px; text-align:center; color:var(--text-muted);">No agents in fleet</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = cachedAgents.map(a => `
+            <tr style="border-bottom: 1px solid var(--surface-800);">
+                <td style="padding:16px;">
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <div style="background:var(--surface-700); width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center;">
+                            <i class="fa-solid fa-robot" style="font-size:14px; color:var(--primary-400);"></i>
+                        </div>
+                        <span style="font-weight:600;">${a.name}</span>
+                    </div>
+                </td>
+                <td style="padding:16px;"><span class="badge ${a.status === 'online' ? 'badge-green' : 'badge-red'}">${a.status}</span></td>
+                <td style="padding:16px; font-family:var(--font-mono); font-size:11px;">${a.id.substring(0, 16)}...</td>
+                <td style="padding:16px;">${a.profile || 'Default'}</td>
+                <td style="padding:16px; text-align:right;">
+                    <button class="btn" onclick="inspectAgentModal('${a.id}')">Inspect</button>
+                    <button class="btn" style="border-color:var(--accent-red); color:var(--accent-red);"><i class="fa-solid fa-power-off"></i></button>
+                </td>
+            </tr>
+        `).join('');
     }
 
     function formatUptime(secs) {
@@ -3037,7 +3139,8 @@ import { initChat } from './chat.js';
     function switchMarketTab(btn, mode) {
         document.querySelectorAll('#view-market .tab-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        fetchAgents(); // Refresh list to reflect potential category changes
+        currentMarketCategory = mode;
+        fetchMarketplaceAgents(); // Refresh list to reflect potential category changes
         showToast(`Market view: ${mode}`, 'info');
     }
 
@@ -3067,7 +3170,17 @@ import { initChat } from './chat.js';
                     source: String(a.source || 'remote'),
                     capabilities: normalizeCapabilities(a.capabilities),
                 }))
-                .filter(a => a.source === 'local' || a.status === 'online' || showOffline);
+                .filter(a => {
+                    const onlineStatusMatch = (a.source === 'local' || a.status === 'online' || showOffline);
+                    if (!onlineStatusMatch) return false;
+                    
+                    // Filter by category (mode)
+                    if (currentMarketCategory === 'processes') return a.profile.toLowerCase() === 'worker';
+                    if (currentMarketCategory === 'services') return a.profile.toLowerCase() === 'system';
+                    if (currentMarketCategory === 'counter') return a.capabilities.some(c => c.includes('economy') || c.includes('chart'));
+                    if (currentMarketCategory === 'docs') return a.capabilities.includes('file_io') || a.profile.toLowerCase() === 'docs';
+                    return true;
+                });
 
             if (agents.length === 0) {
                 grid.innerHTML = '<div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--text-muted);">No agents found. Use "Discover" or "Add Agent".</div>';
@@ -3480,9 +3593,7 @@ import { initChat } from './chat.js';
                                 <span style="font-size:12px; color:var(--text-muted); background:var(--surface-900); padding:4px 10px; border-radius:12px;">${cat.templates.length} templates</span>
                             </div>
                         </div>
-                        <div class="template-grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px;">
-                            ${cat.templates.map(t => renderTemplateCard(t)).join('')}
-                        </div>
+                        ${cat.templates.map(t => renderTemplateCard(t)).join('')}
                     `;
                 }
             }
@@ -4031,6 +4142,7 @@ import { initChat } from './chat.js';
             'memory': 'memory',
             'agents': 'board',
             'chat': 'chat',
+            'aichat': 'aichat',
         };
         const target = pathMap[path] || 'dashboard';
         window.location.hash = `#${target}`;

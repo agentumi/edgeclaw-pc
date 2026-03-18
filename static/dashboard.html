@@ -59,6 +59,9 @@
         </div>
         
         <div class="sidebar-nav" style="border-top: 1px solid var(--surface-700); margin-top: auto;">
+            <div class="nav-item" data-target="view-aichat">
+                <i class="fa-solid fa-message"></i> AI Chat
+            </div>
             <div class="nav-item" data-target="view-chat">
                 <i class="fa-solid fa-terminal"></i> Command Center
             </div>
@@ -315,6 +318,11 @@
             </div>
         </div>
 
+    <!-- VIEW 1.5: AI Chat (Open WebUI) -->
+    <div id="view-aichat" class="view-content" style="padding:0; height:100%;">
+        <iframe src="http://127.0.0.1:8080" style="width:100%; height:100%; border:none;" title="Open WebUI"></iframe>
+    </div>
+
     <!-- VIEW 2: Command Center (Integrated Chat) -->
     <div id="view-chat" class="view-content">
         <div class="chat-container">
@@ -354,81 +362,117 @@
         <div id="view-board" class="view-content">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
                 <div>
-                    <h2 style="font-size:20px; font-weight:600; margin-bottom:4px;">Agents</h2>
-                    <p style="font-size:12px; color:var(--text-muted); margin:0;">Autonomous Computer OS</p>
+                    <h2 style="font-size:20px; font-weight:600; margin-bottom:4px;">Agent Board</h2>
+                    <p style="font-size:12px; color:var(--text-muted); margin:0;">Fleet orchestration & Mission control</p>
                 </div>
                 <div style="display:flex; gap:10px;">
-                    <button class="btn btn-primary" onclick="showAddAgentModal()"><i class="fa-solid fa-plus"></i> Create Agent</button>
-                    <button class="btn" onclick="showAddAgentModal()"><i class="fa-solid fa-file-import"></i> Import Agent</button>
-                    <button class="btn" onclick="fetchAgentGraph()"><i class="fa-solid fa-diagram-project"></i> Display</button>
+                    <button class="btn btn-primary" onclick="showNewTaskModal()"><i class="fa-solid fa-plus-circle"></i> New Task</button>
+                    <button class="btn" onclick="showAddAgentModal()"><i class="fa-solid fa-plus"></i> Add Agent</button>
                 </div>
             </div>
 
-            <!-- Agent Views Row -->
             <div style="display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap;">
                 <button class="tab-btn active" onclick="toggleAgentViewTab(this,'graph')"><i class="fa-solid fa-diagram-project"></i> Graph View</button>
                 <button class="tab-btn" onclick="toggleAgentViewTab(this,'list')"><i class="fa-solid fa-list"></i> List View</button>
                 <button class="tab-btn" onclick="toggleAgentViewTab(this,'kanban')"><i class="fa-solid fa-table-columns"></i> Kanban</button>
             </div>
 
-            <!-- Agent Main Area -->
-            <div style="display:grid; grid-template-columns:1fr 300px; gap:20px;">
-                <!-- Left: Agent Topology / Graph -->
-                <div>
-                    <!-- Selected Agent Header -->
-                    <div id="agentDetailHeader" class="card" style="margin-bottom:16px; display:flex; align-items:center; gap:16px;">
-                        <div style="width:48px; height:48px; border-radius:12px; background:linear-gradient(135deg, var(--primary-500), var(--accent-purple)); display:flex; align-items:center; justify-content:center;">
-                            <i class="fa-solid fa-robot" style="font-size:20px; color:white;"></i>
+            <!-- Agent Board Views -->
+            <div id="agent-graph-area">
+                <div style="display:grid; grid-template-columns:1fr 300px; gap:20px;">
+                    <!-- Left: Agent Topology / Graph -->
+                    <div>
+                        <!-- Selected Agent Header -->
+                        <div id="agentDetailHeader" class="card" style="margin-bottom:16px; display:flex; align-items:center; gap:16px;">
+                            <div style="width:48px; height:48px; border-radius:12px; background:linear-gradient(135deg, var(--primary-500), var(--accent-purple)); display:flex; align-items:center; justify-content:center;">
+                                <i class="fa-solid fa-robot" style="font-size:20px; color:white;"></i>
+                            </div>
+                            <div style="flex:1;">
+                                <h3 id="agentDetailName" style="font-size:16px; font-weight:600; margin:0 0 4px;">Select an agent</h3>
+                                <p id="agentDetailMeta" style="font-size:12px; color:var(--text-muted); margin:0;">Click an agent from the fleet below</p>
+                            </div>
+                            <div id="agentDetailStatus" class="badge badge-green" style="display:none;">Online</div>
                         </div>
-                        <div style="flex:1;">
-                            <h3 id="agentDetailName" style="font-size:16px; font-weight:600; margin:0 0 4px;">Select an agent</h3>
-                            <p id="agentDetailMeta" style="font-size:12px; color:var(--text-muted); margin:0;">Click an agent from the fleet below</p>
+
+                        <!-- Agent Topology Canvas -->
+                        <div style="background:var(--surface-900); border:1px solid var(--surface-700); border-radius:14px; overflow:hidden; position:relative;">
+                            <canvas id="agentGraphCanvas" width="700" height="380" style="width:100%; height:380px; cursor:grab;"></canvas>
+                            <div id="agentGraphTooltip" style="display:none; position:absolute; background:var(--surface-800); border:1px solid var(--surface-700); border-radius:8px; padding:8px 12px; font-size:11px; color:var(--text-primary); pointer-events:none; z-index:10;"></div>
                         </div>
-                        <div id="agentDetailStatus" class="badge badge-green" style="display:none;">Online</div>
+
+                        <!-- Agent Fleet Strip -->
+                        <div style="margin-top:16px;">
+                            <h4 style="font-size:13px; color:var(--text-muted); margin-bottom:10px;">Agent Fleet</h4>
+                            <div id="agentFleetStrip" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:8px;">
+                                <div style="color:var(--text-muted); font-size:12px; padding:20px;">Loading fleet...</div>
+                            </div>
+                        </div>
                     </div>
 
-                    <!-- Agent Topology Canvas -->
-                    <div style="background:var(--surface-900); border:1px solid var(--surface-700); border-radius:14px; overflow:hidden; position:relative;">
-                        <canvas id="agentGraphCanvas" width="700" height="380" style="width:100%; height:380px; cursor:grab;"></canvas>
-                        <div id="agentGraphTooltip" style="display:none; position:absolute; background:var(--surface-800); border:1px solid var(--surface-700); border-radius:8px; padding:8px 12px; font-size:11px; color:var(--text-primary); pointer-events:none; z-index:10;"></div>
-                    </div>
-
-                    <!-- Agent Fleet Strip -->
-                    <div style="margin-top:16px;">
-                        <h4 style="font-size:13px; color:var(--text-muted); margin-bottom:10px;">Agent Fleet</h4>
-                        <div id="agentFleetStrip" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:8px;">
-                            <div style="color:var(--text-muted); font-size:12px; padding:20px;">Loading fleet...</div>
+                    <!-- Right Panel (Resources & Detail) -->
+                    <div>
+                        <div class="card" style="margin-bottom:12px;">
+                            <h4 style="font-size:13px; font-weight:600; margin:0 0 12px;">Missions</h4>
+                            <div id="agentMissionsList" style="display:flex; flex-direction:column; gap:8px;">
+                                <div style="font-size:12px; color:var(--text-muted); padding:10px;">No active missions</div>
+                            </div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Right: Agent Missions / Capabilities -->
-                <div>
-                    <div class="card" style="margin-bottom:12px;">
-                        <h4 style="font-size:13px; font-weight:600; margin:0 0 12px;">Missions</h4>
-                        <div id="agentMissionsList" style="display:flex; flex-direction:column; gap:8px;">
-                            <div style="font-size:12px; color:var(--text-muted); padding:10px;">No active missions</div>
-                        </div>
-                    </div>
-                    <div class="card" style="margin-bottom:12px;">
-                        <h4 style="font-size:13px; font-weight:600; margin:0 0 12px;">Capabilities</h4>
-                        <div id="agentCapsList" style="display:flex; flex-direction:column; gap:6px;">
-                            <div style="font-size:12px; color:var(--text-muted);">Select an agent</div>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <h4 style="font-size:13px; font-weight:600; margin:0 0 12px;">Resources</h4>
-                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                            <div style="font-size:11px; color:var(--text-muted);">CPU<br><span style="font-size:16px; font-weight:700; color:var(--text-primary);" id="agentResCpu">--%</span></div>
-                            <div style="font-size:11px; color:var(--text-muted);">RAM<br><span style="font-size:16px; font-weight:700; color:var(--text-primary);" id="agentResRam">--%</span></div>
-                            <div style="font-size:11px; color:var(--text-muted);">Tasks<br><span style="font-size:16px; font-weight:700; color:var(--text-primary);" id="agentResTasks">--</span></div>
-                            <div style="font-size:11px; color:var(--text-muted);">Uptime<br><span style="font-size:16px; font-weight:700; color:var(--text-primary);" id="agentResUptime">--</span></div>
-                            <div style="font-size:11px; color:var(--text-muted);">Latency<br><span style="font-size:16px; font-weight:700; color:var(--accent-green);" id="agentResLatency">--ms</span></div>
+                        <div class="card" style="margin-bottom:12px;">
+                            <h4 style="font-size:13px; font-weight:600; margin:0 0 12px;">Capabilities</h4>
+                            <div id="agentCapsList" style="display:flex; flex-wrap:wrap; gap:6px;">
+                                <div style="font-size:12px; color:var(--text-muted);">Select an agent</div>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
+
+            <div id="agent-list-area" style="display:none;">
+                <div class="card" style="padding:0; overflow:hidden;">
+                    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                        <thead style="background:var(--surface-800); text-align:left;">
+                            <tr>
+                                <th style="padding:16px;">Agent</th>
+                                <th style="padding:16px;">Status</th>
+                                <th style="padding:16px;">Endpoint</th>
+                                <th style="padding:16px;">Profile</th>
+                                <th style="padding:16px; text-align:right;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="agent-list-table-body">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="agent-kanban-area" style="display:none;">
+                <div class="kanban-board">
+                    <div class="kanban-col" id="col-todo">
+                        <div class="kanban-header">
+                            <span><i class="fa-solid fa-circle-question" style="color:var(--text-muted)"></i> BACKLOG</span>
+                            <span class="badge" style="background:var(--surface-700)">0</span>
+                        </div>
+                        <div class="kanban-cards"></div>
+                    </div>
+                    <div class="kanban-col" id="col-progress">
+                        <div class="kanban-header">
+                            <span><i class="fa-solid fa-spinner fa-spin" style="color:var(--primary-400)"></i> IN PROGRESS</span>
+                            <span class="badge" style="background:var(--surface-700)">0</span>
+                        </div>
+                        <div class="kanban-cards"></div>
+                    </div>
+                    <div class="kanban-col" id="col-done">
+                        <div class="kanban-header">
+                            <span><i class="fa-solid fa-circle-check" style="color:var(--accent-green)"></i> COMPLETED</span>
+                            <span class="badge" style="background:var(--surface-700)">0</span>
+                        </div>
+                        <div class="kanban-cards"></div>
+                    </div>
+                </div>
+            </div>
         </div>
+
 
         <!-- VIEW 3: Memory Explorer (P4-1-4) -->
         <div id="view-memory" class="view-content">
@@ -456,17 +500,17 @@
             <!-- 3-Column Layout -->
             <div style="display:grid; grid-template-columns:240px 1fr 300px; gap:16px; min-height:500px;">
                 <!-- LEFT: Memory Types + Storage -->
-                <div>
+                <div class="memory-nav-area">
                     <div class="card" style="margin-bottom:12px;">
                         <h4 style="font-size:13px; font-weight:600; margin:0 0 12px;"><i class="fa-solid fa-layer-group" style="margin-right:6px; color:var(--primary-400);"></i>Memory Types</h4>
-                        <div class="memory-tiers" style="display:flex; flex-direction:column; gap:4px;">
-                            <div class="tier-item active" data-tier="core" style="display:flex; justify-content:space-between; align-items:center;">
+                        <div class="memory-tiers" id="memoryTierList" style="display:flex; flex-direction:column; gap:4px;">
+                            <div class="tier-item active" onclick="selectMemoryTier('core')" style="display:flex; justify-content:space-between; align-items:center;">
                                 <h4 style="font-size:13px; margin:0;"><i class="fa-solid fa-star" style="color:#a5b4fc; margin-right:6px;"></i>Core Memory</h4>
-                                <div class="tier-meta" data-tier-meta="core" style="font-size:10px; color:var(--text-muted);">--</div>
+                                <div class="tier-meta" id="mem-meta-core" style="font-size:10px; color:var(--text-muted);">--</div>
                             </div>
-                            <div class="tier-item" style="display:flex; justify-content:space-between; align-items:center;">
+                            <div class="tier-item" onclick="selectMemoryTier('m30')" style="display:flex; justify-content:space-between; align-items:center;">
                                 <h4 style="font-size:13px; margin:0;"><i class="fa-solid fa-bolt" style="color:#6ee7b7; margin-right:6px;"></i>Short-term</h4>
-                                <div class="tier-meta" data-tier-meta="m30" style="font-size:10px; color:var(--text-muted);">--</div>
+                                <div class="tier-meta" id="mem-meta-m30" style="font-size:10px; color:var(--text-muted);">--</div>
                             </div>
                             <div class="tier-item" style="display:flex; justify-content:space-between; align-items:center;">
                                 <h4 style="font-size:13px; margin:0;"><i class="fa-solid fa-clock" style="color:#fcd34d; margin-right:6px;"></i>Mid-term</h4>
@@ -509,9 +553,9 @@
                     <button id="gitLogBtn" class="btn" style="width:100%; justify-content:center; margin-top:8px;"><i class="fa-brands fa-git-alt"></i> Git Log</button>
                 </div>
 
-                <!-- CENTER: Knowledge Graph + Popular Nodes -->
-                <div>
-                    <div style="background:var(--surface-900); border:1px solid var(--surface-700); border-radius:14px; overflow:hidden; position:relative; margin-bottom:16px;">
+                <!-- CENTER: Knowledge Graph or Recent List -->
+                <div class="memory-graph-area" style="display:flex; flex-direction:column; gap:16px;">
+                    <div id="memory-graph-view" style="background:var(--surface-900); border:1px solid var(--surface-700); border-radius:14px; overflow:hidden; position:relative;">
                         <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-bottom:1px solid var(--surface-700);">
                             <h4 style="font-size:13px; font-weight:600; margin:0;"><i class="fa-solid fa-diagram-project" style="color:var(--primary-400); margin-right:6px;"></i>Memory Graph</h4>
                             <div style="display:flex; gap:6px;">
@@ -526,47 +570,56 @@
                             <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#6ee7b7; margin-right:3px;"></span>M30</span>
                             <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#fcd34d; margin-right:3px;"></span>M90</span>
                             <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#f87171; margin-right:3px;"></span>M365</span>
-                            <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#c084fc; margin-right:3px;"></span>Lessons</span>
                         </div>
                     </div>
 
-                    <!-- Popular Nodes -->
-                    <h4 style="font-size:13px; font-weight:600; margin:0 0 10px;">Popular Nodes</h4>
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                    <div id="memory-recent-view" class="card" style="display:none; flex-direction:column; flex:1;">
+                        <h4 style="font-size:13px; font-weight:600; margin-bottom:12px;">Recent Memories</h4>
+                        <div id="memoryRecentList" style="display:flex; flex-direction:column; gap:8px; overflow-y:auto; max-height:400px;">
+                            <div style="font-size:12px; color:var(--text-muted); text-align:center; padding:20px;">No recent memories found</div>
+                        </div>
+                    </div>
+
+                    <div id="memory-docs-view" class="card" style="display:none; flex-direction:column; flex:1;">
+                        <h4 style="font-size:13px; font-weight:600; margin-bottom:12px;">Documents</h4>
+                        <div id="memoryDocsList" style="display:flex; flex-direction:column; gap:8px;">
+                            <div style="padding:10px; background:var(--surface-800); border-radius:8px; display:flex; gap:10px; align-items:center;">
+                                <i class="fa-solid fa-file-pdf" style="color:var(--accent-red)"></i> <span>policy_governance.pdf</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="graph-popular-sections" style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
                         <div id="memPopularNodes" class="card" style="padding:12px;">
+                            <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">Popular Entities</div>
                             <div style="font-size:12px; color:var(--text-muted);">Loading...</div>
                         </div>
                         <div id="memAgentTracker" class="card" style="padding:12px;">
+                            <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">Agent Relevance</div>
                             <div style="font-size:12px; color:var(--text-muted);">Loading...</div>
                         </div>
                     </div>
                 </div>
 
                 <!-- RIGHT: Memory Viewer -->
-                <div>
-                    <div class="card" style="max-height:600px; overflow-y:auto;">
+                <div class="memory-viewer-area">
+                    <div class="card" style="height:100%; display:flex; flex-direction:column;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                            <h4 style="font-size:13px; font-weight:600; margin:0;"><i class="fa-solid fa-eye" style="margin-right:6px; color:var(--primary-400);"></i>Memory Viewer</h4>
-                            <div style="font-size:10px; color:var(--text-muted);">Filter: All</div>
+                            <h4 style="font-size:13px; font-weight:600; margin:0;"><i class="fa-solid fa-eye" style="margin-right:6px; color:var(--primary-400);"></i>Viewer</h4>
+                            <div id="memoryDetailType" class="badge" style="background:var(--surface-700); font-size:10px;">None</div>
                         </div>
-                        <div id="memoryViewerFeed" style="display:flex; flex-direction:column; gap:10px;">
-                            <div style="font-size:12px; color:var(--text-muted); padding:16px; text-align:center;">Loading memory entries...</div>
+                        <div id="memoryViewerTitle" style="font-weight:700; font-size:14px; margin-bottom:8px; color:var(--primary-300);">Select Object</div>
+                        <div id="memoryViewerContent" style="flex:1; background:var(--surface-950); border:1px solid var(--surface-700); border-radius:10px; padding:16px; font-family:var(--font-mono); font-size:12px; color:var(--text-secondary); line-height:1.6; white-space:pre-wrap; overflow-y:auto;">
+Click a graph node or list item to view memory content.
                         </div>
-                    </div>
-
-                    <!-- Content Preview -->
-                    <div class="card" style="margin-top:12px;">
-                        <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
-                            <h3 id="memoryContentTitle" style="font-size:14px; color:var(--primary-400); margin:0;">SOUL.md</h3>
-                            <div style="display:flex; gap:6px;">
-                                <button id="memoryEditBtn" class="btn" style="font-size:10px; padding:3px 8px;"><i class="fa-solid fa-pen"></i></button>
-                                <button id="memoryPublishBtn" class="btn" style="font-size:10px; padding:3px 8px; color:var(--accent-gold); border-color:var(--accent-gold);"><i class="fa-solid fa-cloud-arrow-up"></i></button>
-                            </div>
+                        <div style="display:flex; gap:8px; margin-top:16px;">
+                            <button id="memoryEditBtn" class="btn" style="flex:1; justify-content:center;"><i class="fa-solid fa-pen"></i> Edit</button>
+                            <button id="memoryPublishBtn" class="btn" style="flex:1; justify-content:center; color:var(--accent-gold); border-color:var(--accent-gold);"><i class="fa-solid fa-cloud-arrow-up"></i> Publish</button>
                         </div>
-                        <div id="memoryEntry" class="memory-entry" style="max-height:200px; overflow-y:auto;"></div>
-                        <div id="memoryOverview" class="memory-entry" style="border-left-color:var(--text-muted); margin-top:10px; max-height:100px; overflow-y:auto;"></div>
                     </div>
                 </div>
+            </div>
+        </div>
             </div>
         </div>
 

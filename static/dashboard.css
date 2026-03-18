@@ -1,4 +1,4 @@
-﻿        /* P4-1-1 Design System (Design Tokens) */
+        /* P4-1-1 Design System (Design Tokens) */
         :root {
             --surface-950: #050508;
             --surface-900: #0a0a0f;
@@ -546,8 +546,7 @@
             flex-wrap: wrap;
             gap: 6px;
             flex-shrink: 0;
-            max-height: 120px;
-            overflow-y: auto;
+            overflow: visible;
         }
         .qa-btn {
             background: var(--surface-800);

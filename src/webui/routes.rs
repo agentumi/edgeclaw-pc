@@ -401,6 +401,16 @@ pub async fn handle_connection(
         ("GET", "/api/missions") => {
             handlers::tasks::handle_missions_list(stream, engine, cors_origin).await
         }
+        ("GET", "/api/extensions") => {
+            handlers::extensions::handle_extensions_list(stream, cors_origin).await
+        }
+        ("POST", "/api/extensions") => {
+            let body = extract_body(&request_full);
+            handlers::extensions::handle_extension_create(stream, engine, &body, cors_origin).await
+        }
+        ("GET", "/api/extensions/readiness") => {
+            handlers::extensions::handle_extensions_readiness(stream, engine, cors_origin).await
+        }
         ("GET", "/api/v1/mission/active") => {
             handlers::tasks::handle_mission_active(stream, engine, cors_origin).await
         }

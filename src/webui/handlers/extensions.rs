@@ -147,29 +147,140 @@ pub async fn handle_extension_runs(
 
 pub fn builtin_extension_catalog() -> Vec<serde_json::Value> {
     vec![
+        // Notes (2)
+        serde_json::json!({
+            "id": "builtin:note_sync",
+            "name": "Note Synchronizer",
+            "category": "notes",
+            "summary": "Sync local markdown notes to cloud storage",
+            "owner": "EdgeClaw",
+            "status": "active",
+            "version": "1.0.2",
+            "run_count": 42
+        }),
+        serde_json::json!({
+            "id": "builtin:ai_summarizer",
+            "name": "AI Summarizer",
+            "category": "notes",
+            "summary": "Generate executive summaries from meeting logs",
+            "owner": "EdgeClaw",
+            "status": "ready",
+            "version": "1.1.0",
+            "run_count": 128
+        }),
+        // Compute (3)
         serde_json::json!({
             "id": "builtin:orchestrator",
             "name": "Cloud Orchestrator",
-            "description": "Multi-cluster agent management",
+            "category": "compute",
+            "summary": "Multi-cluster agent management and fleet-wide task distribution",
+            "owner": "EdgeClaw",
+            "status": "active",
             "version": "1.2.0",
-            "author": "EdgeClaw",
-            "status": "active"
+            "run_count": 512
         }),
         serde_json::json!({
             "id": "builtin:monitor",
             "name": "Live Monitor",
-            "description": "Real-time resource visualization",
+            "category": "compute",
+            "summary": "Real-time resource visualization and health indexing",
+            "owner": "EdgeClaw",
+            "status": "active",
             "version": "1.0.5",
-            "author": "EdgeClaw",
-            "status": "active"
+            "run_count": 1024
         }),
+        serde_json::json!({
+            "id": "builtin:gpu_manager",
+            "name": "GPU Cluster Manager",
+            "category": "compute",
+            "summary": "Orchestrate distributed GPU tasks and model inference",
+            "owner": "EdgeClaw",
+            "status": "active",
+            "version": "2.1.0",
+            "run_count": 89
+        }),
+        // Security (3)
         serde_json::json!({
             "id": "builtin:security",
             "name": "Security Guard",
-            "description": "Automated threat detection and RBAC enforcement",
+            "category": "security",
+            "summary": "Automated threat detection and zero-trust RBAC enforcement",
+            "owner": "EdgeClaw",
+            "status": "active",
             "version": "2.1.0",
-            "author": "EdgeClaw",
-            "status": "active"
+            "run_count": 256
+        }),
+        serde_json::json!({
+            "id": "builtin:firewall",
+            "name": "Edge Firewall",
+            "category": "security",
+            "summary": "L7 network access control at the edge of the mesh",
+            "owner": "EdgeClaw",
+            "status": "active",
+            "version": "1.5.0",
+            "run_count": 0
+        }),
+        serde_json::json!({
+            "id": "builtin:key_rotation",
+            "name": "Auto Key Rotator",
+            "category": "security",
+            "summary": "Automatically rotate session and device identity keys",
+            "owner": "EdgeClaw",
+            "status": "active",
+            "version": "1.2.0",
+            "run_count": 12
+        }),
+        // Network (2)
+        serde_json::json!({
+            "id": "builtin:p2p_mesh",
+            "name": "P2P Mesh Network",
+            "category": "network",
+            "summary": "Decentralized device-to-device tunneling and relaying",
+            "owner": "EdgeClaw",
+            "status": "active",
+            "version": "1.1.0",
+            "run_count": 73
+        }),
+        serde_json::json!({
+            "id": "builtin:latency_mon",
+            "name": "Latency Monitor",
+            "category": "network",
+            "summary": "Inter-node latency tracking and peer quality reporting",
+            "owner": "EdgeClaw",
+            "status": "ready",
+            "version": "0.8.0",
+            "run_count": 15
+        }),
+        // Economy (3)
+        serde_json::json!({
+            "id": "builtin:sui_wallet",
+            "name": "SUI Wallet Connector",
+            "category": "economy",
+            "summary": "Manage transactions, assets, and balances on SUI",
+            "owner": "EdgeClaw",
+            "status": "active",
+            "version": "1.0.5",
+            "run_count": 31
+        }),
+        serde_json::json!({
+            "id": "builtin:token_swap",
+            "name": "Token Swap Automator",
+            "category": "economy",
+            "summary": "Algorithmic token swapping based on liquidity cues",
+            "owner": "EdgeClaw",
+            "status": "active",
+            "version": "0.5.2",
+            "run_count": 5
+        }),
+        serde_json::json!({
+            "id": "builtin:whale_tracker",
+            "name": "Whale Alert Tracker",
+            "category": "economy",
+            "summary": "Social signals and large-volume on-chain move alerts",
+            "owner": "EdgeClaw",
+            "status": "active",
+            "version": "2.0.1",
+            "run_count": 210
         }),
     ]
 }

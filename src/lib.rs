@@ -466,6 +466,12 @@ impl AgentEngine {
 
     // ─── Execution ─────────────────────────────────────────
 
+    /// List models for the current AI provider
+    pub fn list_ai_models(&self) -> Vec<String> {
+        let mgr = self.ai_manager.lock().unwrap_or_else(|e| e.into_inner());
+        mgr.list_models()
+    }
+
     /// Execute a command after policy check
     pub async fn execute_command(
         &self,
@@ -707,7 +713,13 @@ impl AgentEngine {
     // ─── AI Chat ───────────────────────────────────────────
 
     /// Process a chat message through the AI provider
-    pub fn chat(&self, peer_id: &str, user_input: &str) -> Result<AiResponse, AgentError> {
+    pub fn chat(
+        &self,
+        peer_id: &str,
+        user_input: &str,
+        model: Option<String>,
+        attachments: Vec<crate::ai::FileAttachment>,
+    ) -> Result<AiResponse, AgentError> {
         let trimmed = user_input.trim();
 
         // Intercept mode switch commands
@@ -821,6 +833,8 @@ impl AgentEngine {
             peer_role: role.clone(),
             system_context,
             history,
+            model,
+            attachments,
         };
 
         let response = {
@@ -866,13 +880,12 @@ impl AgentEngine {
         Ok(response)
     }
 
-    /// Execute a chat-driven command (after AI parses intent)
     pub async fn chat_execute(
         &self,
         peer_id: &str,
         user_input: &str,
     ) -> Result<(AiResponse, Option<ExecResponse>), AgentError> {
-        let ai_response = self.chat(peer_id, user_input)?;
+        let ai_response = self.chat(peer_id, user_input, None, vec![])?;
 
         if let Some(ref intent) = ai_response.intent {
             // Build execution request from intent

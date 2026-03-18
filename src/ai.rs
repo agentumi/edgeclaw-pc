@@ -10,7 +10,6 @@ use tracing::{info, warn};
 
 // ─── AI Request / Response ─────────────────────────────────
 
-/// A request to the AI provider
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiRequest {
     /// The user's natural language input
@@ -23,6 +22,18 @@ pub struct AiRequest {
     pub system_context: Option<String>,
     /// Conversation history (last N messages)
     pub history: Vec<ChatMessage>,
+    /// Optional model override for this request
+    pub model: Option<String>,
+    /// Optional file attachments (images, text docs)
+    pub attachments: Vec<FileAttachment>,
+}
+
+/// A file attached to an AI request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileAttachment {
+    pub name: String,
+    pub mime_type: String,
+    pub content_base64: String,
 }
 
 /// AI provider response
@@ -221,9 +232,14 @@ Respond in JSON: {{"message": "your analysis summary", "intent": null, "confiden
             .collect::<Vec<_>>()
             .join("\n");
 
-        format!(
-            r#"You are EdgeClaw AI assistant. You help manage servers securely.
+        let persona = if request.peer_role == "web-client" {
+            "You are a helpful and conversational AI assistant. Answer technical and general questions clearly."
+        } else {
+            "You are a professional system administration AI. Focus on technical accuracy."
+        };
 
+        format!(
+            r#"{persona}
 Available capabilities: [{caps}]
 User role: {role}
 {system_ctx}
@@ -236,7 +252,8 @@ Respond in this JSON format:
 {{"message": "your response", "intent": {{"capability": "cap_name", "command": "cmd", "args": [], "needs_confirmation": true}}, "confidence": 0.95}}
 
 If the user is just chatting (not requesting a command), set intent to null.
-Keep responses professional, insightful, and helpful. Prioritize precision and safety in all actions."#,
+Keep responses professional, insightful, and helpful."#,
+            persona = persona,
             caps = caps,
             role = request.peer_role,
             system_ctx = request
@@ -310,8 +327,9 @@ impl AiProvider for OllamaProvider {
         let prompt = self.build_prompt(request);
         let url = format!("{}/api/generate", self.endpoint);
 
-        let body = serde_json::json!({
-            "model": self.model,
+        let model = request.model.as_deref().unwrap_or(&self.model);
+        let mut body = serde_json::json!({
+            "model": model,
             "prompt": prompt,
             "stream": false,
             "options": {
@@ -319,6 +337,18 @@ impl AiProvider for OllamaProvider {
                 "num_predict": 1024
             }
         });
+        
+        let images: Vec<String> = request.attachments.iter()
+            .filter(|a| a.mime_type.starts_with("image/"))
+            .map(|a| a.content_base64.clone())
+            .collect();
+
+        if !images.is_empty() {
+            if let Some(obj) = body.as_object_mut() {
+                obj.insert("images".to_string(), serde_json::json!(images));
+            }
+        }
+
 
         let resp = ureq_post_json_with_timeout(&url, &body, self.timeout)?;
 

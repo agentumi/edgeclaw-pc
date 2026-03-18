@@ -13,7 +13,8 @@ pub async fn handle_chat(
     #[derive(serde::Deserialize)]
     struct ChatReq {
         message: String,
-        _role: Option<String>,
+        model: Option<String>,
+        attachments: Option<Vec<crate::ai::FileAttachment>>,
     }
 
     let req: ChatReq = match serde_json::from_str(body) {
@@ -25,7 +26,12 @@ pub async fn handle_chat(
         }
     };
 
-    match engine.chat("web-client", &req.message) {
+    match engine.chat(
+        "web-client",
+        &req.message,
+        req.model,
+        req.attachments.unwrap_or_default(),
+    ) {
         Ok(response) => {
             let json = serde_json::to_vec(&response).unwrap_or_default();
             send_response(stream, 200, "application/json", &json, cors_origin).await
@@ -60,3 +66,15 @@ pub async fn handle_chat_clear(
     let json = serde_json::to_vec(&resp).unwrap_or_default();
     send_response(stream, 200, "application/json", &json, cors_origin).await
 }
+
+/// GET /api/chat/models — List available AI models
+pub async fn handle_chat_models(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let models = engine.list_ai_models();
+    let json = serde_json::to_vec(&models).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+

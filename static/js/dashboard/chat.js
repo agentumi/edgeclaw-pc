@@ -269,15 +269,82 @@ export function initAIChat() {
     const sendBtn = document.getElementById('aiChatSendBtn');
     const messagesArea = document.getElementById('aiChatMessages');
     const initialPrompt = document.getElementById('aiChatInitial');
+    const modelSelect = document.getElementById('aiChatModelSelect');
+    const attachBtn = document.getElementById('aiChatAttachBtn');
+    const fileInput = document.getElementById('aiChatFile');
+    const attachmentPreview = document.getElementById('aiChatAttachments');
     
     if (!input || !sendBtn || !messagesArea) return;
+
+    let currentAttachments = [];
+
+    // Helper to remove attachment (exposed to window for onclick)
+    window.removeAIAttachment = (index) => {
+        currentAttachments.splice(index, 1);
+        renderAttachments();
+    };
+
+    function renderAttachments() {
+        if (currentAttachments.length > 0) {
+            attachmentPreview.style.display = 'flex';
+            attachmentPreview.innerHTML = currentAttachments.map((a, i) => `
+                <div style="background:var(--surface-700); padding:6px 12px; border-radius:12px; font-size:11px; display:flex; align-items:center; gap:8px; border:1px solid var(--surface-600); box-shadow:0 2px 4px rgba(0,0,0,0.1);">
+                    <i class="fa-solid ${a.mime_type.startsWith('image/') ? 'fa-image' : 'fa-file-lines'}" style="color:var(--primary-400)"></i>
+                    <span style="max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-primary);">${a.name}</span>
+                    <i class="fa-solid fa-xmark" style="cursor:pointer; color:var(--text-muted); font-size:12px; hover:color:var(--accent-red);" onclick="removeAIAttachment(${i})"></i>
+                </div>
+            `).join('');
+        } else {
+            attachmentPreview.style.display = 'none';
+        }
+    }
+
+    if (attachBtn && fileInput) {
+        attachBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', async (e) => {
+            const files = Array.from(e.target.files);
+            for (const file of files) {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const base64 = ev.target.result.split(',')[1];
+                    currentAttachments.push({
+                        name: file.name,
+                        mime_type: file.type,
+                        content_base64: base64
+                    });
+                    renderAttachments();
+                };
+                reader.readAsDataURL(file);
+            }
+            fileInput.value = '';
+        });
+    }
+
+    // Load available models from the backend
+    async function loadModels() {
+        if (!modelSelect) return;
+        try {
+            const res = await apiFetch(`${API}/api/chat/models`);
+            if (res.ok) {
+                const models = await res.json();
+                if (models && models.length > 0) {
+                    const currentVal = modelSelect.value;
+                    modelSelect.innerHTML = '<option value="">Auto-select (Local)</option>' + 
+                        models.map(m => `<option value="${m}" ${m === currentVal ? 'selected' : ''}>${m}</option>`).join('');
+                }
+            }
+        } catch (e) {
+            console.error("AI: Failed to load models:", e);
+        }
+    }
+    loadModels();
 
     input.addEventListener('input', () => {
         input.style.height = 'auto';
         input.style.height = Math.min(input.scrollHeight, 160) + 'px';
-        const hasText = input.value.trim().length > 0;
-        sendBtn.style.background = hasText ? 'var(--primary-600)' : 'var(--text-muted)';
-        sendBtn.style.color = hasText ? 'white' : 'var(--surface-900)';
+        const hasContent = input.value.trim().length > 0 || currentAttachments.length > 0;
+        sendBtn.style.background = hasContent ? 'var(--primary-600)' : 'var(--text-muted)';
+        sendBtn.style.color = hasContent ? 'white' : 'var(--surface-900)';
     });
 
     input.addEventListener('keydown', (e) => {
@@ -291,7 +358,8 @@ export function initAIChat() {
 
     async function sendAIChat() {
         const text = input.value.trim();
-        if (!text) return;
+        const attachments = [...currentAttachments];
+        if (!text && attachments.length === 0) return;
 
         if (initialPrompt) {
             initialPrompt.style.display = 'none';
@@ -299,14 +367,31 @@ export function initAIChat() {
 
         const userDiv = document.createElement('div');
         userDiv.style.display = 'flex';
-        userDiv.style.justifyContent = 'flex-end';
+        userDiv.style.flexDirection = 'column';
+        userDiv.style.alignItems = 'flex-end';
+        userDiv.style.gap = '8px';
+        
+        let attachmentHtml = '';
+        if (attachments.length > 0) {
+            attachmentHtml = `<div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; margin-bottom:4px;">` + 
+                attachments.map(a => `
+                    <div style="background:var(--surface-700); padding:4px 10px; border-radius:8px; font-size:11px; border:1px solid var(--surface-600);">
+                        <i class="fa-solid ${a.mime_type.startsWith('image/') ? 'fa-image' : 'fa-file-lines'}"></i> ${a.name}
+                    </div>
+                `).join('') + `</div>`;
+        }
+
         userDiv.innerHTML = `
-            <div style="background:var(--surface-800); border:1px solid var(--surface-700); padding:12px 16px; border-radius:16px; border-bottom-right-radius:4px; max-width:80%; font-size:14px; line-height:1.5; color:var(--text-primary);">
+            ${attachmentHtml}
+            <div style="background:var(--surface-800); border:1px solid var(--surface-700); padding:12px 16px; border-radius:16px; border-bottom-right-radius:4px; max-width:80%; font-size:14px; line-height:1.5; color:var(--text-primary); box-shadow:0 4px 8px rgba(0,0,0,0.1);">
                 ${text.replace(/\n/g, '<br>')}
             </div>`;
         messagesArea.appendChild(userDiv);
 
+        // Reset inputs
         input.value = '';
+        currentAttachments = [];
+        renderAttachments();
         input.style.height = 'auto';
         input.dispatchEvent(new Event('input'));
         messagesArea.scrollTop = messagesArea.scrollHeight;
@@ -315,33 +400,51 @@ export function initAIChat() {
         agentDiv.style.display = 'flex';
         agentDiv.style.gap = '16px';
         agentDiv.innerHTML = `
-            <div style="width:32px; height:32px; border-radius:8px; background:linear-gradient(135deg, var(--primary-500), var(--accent-purple)); display:flex; align-items:center; justify-content:center; color:white; font-size:14px; flex-shrink:0;">
+            <div style="width:32px; height:32px; border-radius:8px; background:linear-gradient(135deg, var(--primary-500), var(--accent-purple)); display:flex; align-items:center; justify-content:center; color:white; font-size:14px; flex-shrink:0; box-shadow:0 4px 8px rgba(0,0,0,0.2);">
                 <i class="fa-solid fa-sparkles"></i>
             </div>
-            <div class="agent-msg-content" style="flex:1; padding-top:6px; font-size:14px; line-height:1.6; color:var(--text-primary); display:flex; gap:6px;">
+            <div class="agent-msg-content" style="flex:1; padding-top:6px; font-size:14px; line-height:1.6; color:var(--text-primary);">
                 <div class="typing-indicator active" style="position:relative; background:transparent; padding:0;"><div class="dots" style="position:static;"><span></span><span></span><span></span></div></div>
             </div>`;
         messagesArea.appendChild(agentDiv);
         messagesArea.scrollTop = messagesArea.scrollHeight;
 
         try {
+            const selectedModel = modelSelect ? modelSelect.value : "";
             const res = await apiFetch(`${API}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: text })
+                body: JSON.stringify({ 
+                    message: text, 
+                    model: selectedModel || null,
+                    attachments: attachments.length > 0 ? attachments : null
+                })
             });
 
             const contentDiv = agentDiv.querySelector('.agent-msg-content');
             if (res.ok) {
                 const data = await res.json();
-                contentDiv.innerHTML = (data.message || '').replace(/\\n/g, '<br>');
+                // Simple markdown-to-html for bold and code
+                let html = (data.message || '')
+                    .replace(/\n/g, '<br>')
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/`(.*?)`/g, '<code style="background:var(--surface-700); padding:2px 4px; border-radius:4px;">$1</code>');
+                
+                contentDiv.innerHTML = html;
             } else {
-                contentDiv.innerHTML = '<span style="color:var(--accent-red)"><i class="fa-solid fa-triangle-exclamation"></i> Error communicating with Local AI model. Make sure it is running.</span>';
+                contentDiv.innerHTML = `<div style="padding:12px; background:rgba(239, 68, 68, 0.1); border:1px solid var(--accent-red); border-radius:8px; display:flex; gap:10px; align-items:center;">
+                    <i class="fa-solid fa-triangle-exclamation" style="color:var(--accent-red)"></i>
+                    <span style="color:var(--accent-red)">Failed to generate response. Check if Local AI is reachable.</span>
+                </div>`;
             }
         } catch (e) {
             const contentDiv = agentDiv.querySelector('.agent-msg-content');
-            contentDiv.innerHTML = '<span style="color:var(--accent-red)"><i class="fa-solid fa-triangle-exclamation"></i> Failed to connect to the backend API.</span>';
+            contentDiv.innerHTML = `<div style="padding:12px; background:rgba(239, 68, 68, 0.1); border:1px solid var(--accent-red); border-radius:8px; display:flex; gap:10px; align-items:center;">
+                <i class="fa-solid fa-plug-circle-xmark" style="color:var(--accent-red)"></i>
+                <span style="color:var(--accent-red)">Connection error. Ensure the EdgeClaw backend is running.</span>
+            </div>`;
         }
         messagesArea.scrollTop = messagesArea.scrollHeight;
     }
 }
+

@@ -362,6 +362,9 @@ pub async fn handle_connection(
         ("GET", "/api/chat/history") => {
             handlers::chat::handle_chat_history(stream, engine, cors_origin).await
         }
+        ("GET", "/api/chat/models") => {
+            handlers::chat::handle_chat_models(stream, engine, cors_origin).await
+        }
         ("DELETE", "/api/chat") => {
             handlers::chat::handle_chat_clear(stream, engine, cors_origin).await
         }

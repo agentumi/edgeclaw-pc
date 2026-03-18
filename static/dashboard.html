@@ -326,18 +326,16 @@
                     <i class="fa-solid fa-sparkles"></i>
                 </div>
                 <div>
-                    <h2 style="font-size:16px; font-weight:600; margin:0;">EdgeClaw Local AI</h2>
+                    <h2 style="font-size:16px; font-weight:600; margin:0;" id="aiChatHeaderStatus">EdgeClaw Local AI</h2>
                     <div style="font-size:11px; color:var(--text-muted); display:flex; align-items:center; gap:6px;">
-                        <span class="status-dot online" style="width:6px; height:6px;"></span>
-                        Ready to assist
+                        <span class="status-dot online" id="aiChatStatusDot" style="width:6px; height:6px;"></span>
+                        <span id="aiChatStatusText">Ready to assist</span>
                     </div>
                 </div>
             </div>
             <div style="display:flex; gap:8px;">
                 <select class="ec-select" id="aiChatModelSelect" style="padding:6px 12px; font-size:12px; border-radius:20px; border-color:var(--surface-600); background:var(--surface-900);">
-                    <option value="llama3">Llama 3 (Local)</option>
-                    <option value="mistral">Mistral (Local)</option>
-                    <option value="gpt4">System Proxy</option>
+                    <option value="">Auto-select (Local)</option>
                 </select>
                 <button class="btn" style="padding:6px 12px; border-radius:20px;"><i class="fa-solid fa-gear"></i></button>
             </div>
@@ -347,7 +345,7 @@
             <!-- Initial prompt -->
             <div id="aiChatInitial" style="display:flex; justify-content:center; flex-direction:column; align-items:center; height:100%; color:var(--text-muted); padding-bottom:100px;">
                 <div style="width:64px; height:64px; border-radius:16px; background:var(--surface-800); display:flex; align-items:center; justify-content:center; font-size:28px; margin-bottom:16px; box-shadow:0 8px 16px rgba(0,0,0,0.2);">
-                    <i class="fa-solid fa-robot" style="background:linear-gradient(135deg, var(--primary-400), var(--accent-purple)); -webkit-background-clip:text; -webkit-text-fill-color:transparent;"></i>
+                    <i class="fa-solid fa-robot" style="background:linear-gradient(135deg, var(--primary-400), var(--accent-purple)); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;"></i>
                 </div>
                 <h3 style="font-size:20px; font-weight:500; margin:0 0 8px; color:var(--text-primary);">How can I help you today?</h3>
                 <p style="font-size:13px; text-align:center; max-width:400px;">I'm connected directly to your Local AI models. All data is processed securely on your device.</p>
@@ -373,14 +371,20 @@
         </div>
 
         <div style="padding:0 24px 24px;">
-            <div style="position:relative; max-width:800px; margin:0 auto; background:var(--surface-800); border:1px solid var(--surface-600); border-radius:24px; display:flex; align-items:flex-end; padding:10px 14px; box-shadow:0 12px 24px rgba(0,0,0,0.3); transition: border-color 0.2s;">
-                <button class="ec-icon-btn" style="background:transparent; color:var(--text-muted); align-self:center; font-size:18px; padding:8px;">
-                    <i class="fa-solid fa-paperclip"></i>
-                </button>
-                <textarea id="aiChatInput" rows="1" placeholder="Send a message to Local AI..." style="flex:1; background:transparent; border:none; outline:none; color:var(--text-primary); font-family:var(--font-sans); font-size:15px; padding:10px 12px; min-height:24px; max-height:160px; resize:none; line-height:1.5; align-self:center;"></textarea>
-                <button id="aiChatSendBtn" class="ec-icon-btn" style="background:var(--text-muted); color:var(--surface-900); align-self:center; border-radius:50%; width:34px; height:34px; flex-shrink:0; transition:all 0.2s;">
-                    <i class="fa-solid fa-arrow-up"></i>
-                </button>
+            <div style="position:relative; max-width:800px; margin:0 auto; background:var(--surface-800); border:1px solid var(--surface-600); border-radius:24px; display:flex; flex-direction:column; box-shadow:0 12px 24px rgba(0,0,0,0.3); transition: border-color 0.2s;">
+                <!-- Attachment preview -->
+                <div id="aiChatAttachments" style="display:none; padding:10px 14px; gap:8px; border-bottom:1px solid var(--surface-700); overflow-x:auto;"></div>
+                
+                <div style="display:flex; align-items:flex-end; padding:4px 10px;">
+                    <input type="file" id="aiChatFile" style="display:none;" multiple>
+                    <button class="ec-icon-btn" id="aiChatAttachBtn" style="background:transparent; color:var(--text-muted); align-self:center; font-size:18px; padding:12px;">
+                        <i class="fa-solid fa-paperclip"></i>
+                    </button>
+                    <textarea id="aiChatInput" rows="1" placeholder="Send a message to Local AI..." style="flex:1; background:transparent; border:none; outline:none; color:var(--text-primary); font-family:var(--font-sans); font-size:15px; padding:12px; min-height:24px; max-height:160px; resize:none; line-height:1.5; align-self:center;"></textarea>
+                    <button id="aiChatSendBtn" class="ec-icon-btn" style="background:var(--text-muted); color:var(--surface-900); align-self:center; border-radius:50%; width:34px; height:34px; flex-shrink:0; margin:6px 4px; transition:all 0.2s;">
+                        <i class="fa-solid fa-arrow-up"></i>
+                    </button>
+                </div>
             </div>
             <div style="text-align:center; font-size:11px; color:var(--text-muted); margin-top:12px;">
                 EdgeClaw Local AI can make mistakes. Consider verifying important information.

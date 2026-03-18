@@ -23,7 +23,7 @@ import { initChat } from './chat.js';
     let lastMarketStats = null;
     const navSubItems = document.querySelectorAll('.nav-subitem');
     const viewBreadcrumb = document.getElementById('view-breadcrumb');
-    // ??? Phase 6+7: Extensions State ????????????????????????????????????????
+    //     Phase 6+7: Extensions State                                         
     let extModules = [];
     let extCurrentFilter = 'all';
     let extSearchTerm = '';
@@ -225,7 +225,7 @@ import { initChat } from './chat.js';
         const table = document.getElementById('extLogsTable');
         if (!modal || !table) return;
         // Update title
-        modal.querySelector('.ext-modal-title').innerHTML = `<i class="fa-solid fa-terminal"></i> ${escapeHtml(extName)} ??Execution History`;
+        modal.querySelector('.ext-modal-title').innerHTML = `<i class="fa-solid fa-terminal"></i> ${escapeHtml(extName)}  - Execution History`;
         table.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div>';
         modal.classList.add('open');
         try {
@@ -540,7 +540,7 @@ import { initChat } from './chat.js';
                 metaEl.style.fontSize = '11px';
                 metaEl.style.color = 'var(--text-muted)';
 
-                const metaText = `${task.priority || 'Normal'} ??${task.assignee || 'Unassigned'}`;
+                const metaText = `${task.priority || 'Normal'}  - ${task.assignee || 'Unassigned'}`;
                 setTranslatedText(titleEl, task.title || '');
                 setTranslatedText(metaEl, metaText);
 
@@ -598,7 +598,7 @@ import { initChat } from './chat.js';
         }
     }
 
-    // ??? Memory Knowledge Graph (Canvas Force-Directed) ??????????????????????
+    //     Memory Knowledge Graph (Canvas Force-Directed)                       
     let graphNodes = [];
     let graphEdges = [];
     let graphAnimId = null;
@@ -625,7 +625,7 @@ import { initChat } from './chat.js';
         const rules = memory.core?.absolute_rules || [];
         rules.forEach((rule, i) => {
             const rId = id++;
-            const short = rule.length > 30 ? rule.slice(0, 30) + '?? : rule;
+            const short = rule.length > 30 ? rule.slice(0, 30) + '...' : rule;
             nodes.push({ id: rId, label: `Rule ${i+1}`, detail: short, tier: 'core', r: 10 });
             edges.push({ from: 0, to: rId });
         });
@@ -647,7 +647,7 @@ import { initChat } from './chat.js';
             items.slice(0, 15).forEach(item => {
                 const nId = id++;
                 const text = typeof item === 'string' ? item : (item.content || '');
-                const lbl = text.length > 25 ? text.slice(0,25)+'?? : (text || `${tier} item`);
+                const lbl = text.length > 25 ? text.slice(0,25)+'...' : (text || `${tier} item`);
                 nodes.push({ id: nId, label: lbl, detail: text.length > 25 ? text : null, tier, r: 8 });
                 edges.push({ from: hubId, to: nId });
             });
@@ -662,7 +662,7 @@ import { initChat } from './chat.js';
             lessons.slice(0, 10).forEach(lesson => {
                 const nId = id++;
                 const text = typeof lesson === 'string' ? lesson : (lesson.pattern || lesson.title || '');
-                const lbl = text.length > 25 ? text.slice(0,25)+'?? : (text || 'lesson');
+                const lbl = text.length > 25 ? text.slice(0,25)+'...' : (text || 'lesson');
                 nodes.push({ id: nId, label: lbl, detail: `Efficacy: ${lesson.effectiveness || '?'}`, tier: 'lessons', r: 8 });
                 edges.push({ from: lhub, to: nId });
             });
@@ -817,7 +817,7 @@ import { initChat } from './chat.js';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
                     const maxLen = Math.floor(n.r * 0.6);
-                    const lbl = n.label.length > maxLen + 2 ? n.label.slice(0, maxLen) + '?? : n.label;
+                    const lbl = n.label.length > maxLen + 2 ? n.label.slice(0, maxLen) + '...' : n.label;
                     ctx.fillText(lbl, n.x, n.y);
                 }
             });
@@ -867,7 +867,7 @@ import { initChat } from './chat.js';
         const tierColors = { m30: '#6ee7b7', m90: '#fcd34d', m365: '#f87171', lessons: '#c084fc', core: '#a5b4fc' };
         feed.innerHTML = entries.slice(0, 12).map(e => {
             const color = tierColors[e.tier] || '#94a3b8';
-            const shortText = e.text.length > 80 ? e.text.slice(0, 80) + '?? : e.text;
+            const shortText = e.text.length > 80 ? e.text.slice(0, 80) + '...' : e.text;
             const timeStr = e.ts ? new Date(e.ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
             return `
                 <div style="padding:10px 12px; background:var(--surface-800); border-radius:10px; border-left:3px solid ${color}; cursor:pointer;" class="mem-feed-item">
@@ -1033,7 +1033,7 @@ import { initChat } from './chat.js';
         if (econSub) econSub.textContent = 'Memory usage';
         if (econCap) econCap.textContent = `Capabilities ${caps}/17`;
         if (econUp) econUp.innerHTML = `<i class="fa-solid fa-handshake"></i> Uptime ${formatDuration(uptime)}`;
-        if (balance) balance.innerHTML = `<i class="fa-solid fa-microchip"></i> v${escapeHtml(status?.version || '?')} ??CPU ${cpu.toFixed(1)}%`;
+        if (balance) balance.innerHTML = `<i class="fa-solid fa-microchip"></i> v${escapeHtml(status?.version || '?')}  - CPU ${cpu.toFixed(1)}%`;
 
         renderMarketStats(status);
     }
@@ -1157,9 +1157,9 @@ import { initChat } from './chat.js';
             const showOffline = document.getElementById('marketShowOffline')?.checked;
 
             const localAgents = data.local_agents || [];
-            const remoteAgents = data.registered_agents || [];
+            const remoteAgents = data.registered_agents || data.agents || [];
             lastAgentsSummary = data;
-            cachedAgents = [...localAgents, ...remoteAgents];
+            cachedAgents = [...localAgents, ...remoteAgents.filter(ra => !localAgents.some(la => la.id === ra.id))];
 
             const statLocal = document.getElementById('stat-local-online');
             const statRemote = document.getElementById('stat-remote-online');
@@ -1185,7 +1185,7 @@ import { initChat } from './chat.js';
         }
     }
 
-    // ??? Agent Board: Fleet Strip + Topology ?????????????????????????????????
+    //     Agent Board: Fleet Strip + Topology                                  
     function renderAgentFleetStrip(agents) {
         const strip = document.getElementById('agentFleetStrip');
         if (!strip) return;
@@ -1198,9 +1198,9 @@ import { initChat } from './chat.js';
             const isSelected = a.id === selectedAgentId;
             return `
                 <div onclick="selectAgentDetail('${escapeHtml(a.id || '')}')" style="min-width:140px; padding:12px 16px; background:${isSelected ? 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(168,85,247,0.15))' : 'var(--surface-800)'}; border:1px solid ${isSelected ? 'var(--primary-500)' : 'var(--surface-700)'}; border-radius:12px; cursor:pointer; transition:all 0.2s; text-align:center;">
-                    <div style="font-size:20px; margin-bottom:6px;">?쨼</div>
+                    <div style="font-size:20px; margin-bottom:6px;"> </div>
                     <div style="font-size:12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(a.name || a.id || 'Agent')}</div>
-                    <div style="font-size:10px; color:${isOnline ? 'var(--accent-green)' : 'var(--text-muted)'}; margin-top:4px;">??${isOnline ? 'Online' : 'Offline'}</div>
+                    <div style="font-size:10px; color:${isOnline ? 'var(--accent-green)' : 'var(--text-muted)'}; margin-top:4px;"> - ${isOnline ? 'Online' : 'Offline'}</div>
                 </div>
             `;
         }).join('');
@@ -1217,7 +1217,7 @@ import { initChat } from './chat.js';
         const metaEl = document.getElementById('agentDetailMeta');
         const statusEl = document.getElementById('agentDetailStatus');
         if (nameEl) nameEl.textContent = agent.name || agentId;
-        if (metaEl) metaEl.textContent = `${agent.address || '127.0.0.1'}:${agent.port || '-'} 쨌 ${agent.profile || 'Worker'} 쨌 ${agent.source || 'local'}`;
+        if (metaEl) metaEl.textContent = `${agent.address || '127.0.0.1'}:${agent.port || '-'}   ${agent.profile || 'Worker'}   ${agent.source || 'local'}`;
         if (statusEl) {
             statusEl.style.display = 'inline-flex';
             const isOnline = normalizeAgentStatus(agent.status) === 'online';
@@ -1343,7 +1343,7 @@ import { initChat } from './chat.js';
             const metaEl = document.getElementById('agentDetailMeta');
             const statusEl = document.getElementById('agentDetailStatus');
             if (nameEl) nameEl.textContent = profile.name || fallbackAgent?.name || agentId;
-            if (metaEl) metaEl.textContent = `${profile.profile || fallbackAgent?.profile || 'Worker'} ??${profile.address || fallbackAgent?.address || '127.0.0.1'}:${profile.port || fallbackAgent?.port || '-'}`;
+            if (metaEl) metaEl.textContent = `${profile.profile || fallbackAgent?.profile || 'Worker'}  - ${profile.address || fallbackAgent?.address || '127.0.0.1'}:${profile.port || fallbackAgent?.port || '-'}`;
             if (statusEl) {
                 statusEl.style.display = 'inline-block';
                 statusEl.textContent = profile.status || fallbackAgent?.status || 'offline';
@@ -1420,7 +1420,7 @@ import { initChat } from './chat.js';
             ctx.font = `${n.r * 0.7}px Inter, sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText('?쨼', n.x, n.y);
+            ctx.fillText('🤖', n.x, n.y);
 
             // Label
             ctx.fillStyle = '#e2e8f0';
@@ -1437,10 +1437,7 @@ import { initChat } from './chat.js';
         };
     }
 
-    function fetchAgentGraph() {
-        refreshAgentsUI();
-        showToast('Agent topology refreshed', 'info');
-    }
+    // fetchAgentGraph moved to line 3196
 
     function toggleAgentViewTab(btn, mode) {
         document.querySelectorAll('#view-board .tab-btn').forEach(b => b.classList.remove('active'));
@@ -1674,9 +1671,9 @@ import { initChat } from './chat.js';
                 renderEconomy(status);
 
                 // Update Mission Control Infrastructure
-                const cpu = Number(status?.cpu_usage ?? 0);
-                const mem = Number(status?.memory_percent ?? 0);
-                const uptime = Number(status?.uptime_secs ?? 0);
+                const cpu = Number(status?.cpu_usage  -  0);
+                const mem = Number(status?.memory_percent  -  0);
+                const uptime = Number(status?.uptime_secs  -  0);
                 const mcCpu = document.getElementById('mcCpu');
                 const mcRam = document.getElementById('mcRam');
                 const mcUptime = document.getElementById('mcUptime');
@@ -2162,7 +2159,7 @@ import { initChat } from './chat.js';
             if (phone) details.push(`Mobile: ${phone}`);
         }
         const detailsHtml = details.length
-            ? `<div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">${details.map(escapeHtml).join(' ??')}</div>`
+            ? `<div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">${details.map(escapeHtml).join('  - ')}</div>`
             : '';
 
         idBlock.innerHTML = `
@@ -2829,7 +2826,7 @@ import { initChat } from './chat.js';
 
                 const typeKey = getActivityType(entry).tag;
                 const header = document.createElement('h4');
-                header.textContent = `${typeKey} ??${new Date(entry.timestamp).toLocaleString()}`;
+                header.textContent = `${typeKey}  - ${new Date(entry.timestamp).toLocaleString()}`;
 
                 const body = document.createElement('p');
                 setTranslatedText(body, entry.content || '');
@@ -2938,7 +2935,7 @@ import { initChat } from './chat.js';
         }
     }
 
-    // ??? Phase 6.9+6.10: Agent Deploy, Install, Inspect ?????????????????????
+    //     Phase 6.9+6.10: Agent Deploy, Install, Inspect                      
     let deployTargetAgentId = null;
 
     async function inspectAgentModal(agentId) {
@@ -3010,7 +3007,7 @@ import { initChat } from './chat.js';
                 showToast(`Agent ${deployTargetAgentId} deployed to ${target}`, 'success');
                 fetchMarketplaceAgents();
             } else {
-                showToast('Deploy failed ??check agent connectivity', 'error');
+                showToast('Deploy failed  - check agent connectivity', 'error');
             }
         } catch(e) {
             showToast('Deploy request failed', 'error');
@@ -3133,10 +3130,10 @@ import { initChat } from './chat.js';
 
         let frame = 0;
         const nodes = [
-            { x: 80, y: 70, label: 'Data', icon: '?뱤' },
-            { x: 180, y: 70, label: 'ML Model', icon: '?쭬' },
-            { x: 300, y: 70, label: 'Aggregator', icon: '?룛截? },
-            { x: 420, y: 70, label: 'Report', icon: '?뱞' }
+            { x: 80, y: 70, label: 'Data', icon: '📊' },
+            { x: 180, y: 70, label: 'ML Model', icon: '🧠' },
+            { x: 300, y: 70, label: 'Aggregator', icon: '🔗' },
+            { x: 420, y: 70, label: 'Report', icon: '📄' }
         ];
 
         function draw() {
@@ -3354,18 +3351,14 @@ import { initChat } from './chat.js';
             `;
         }).join('');
     }
-    function toggleAgentViewTab(btn, mode) {
-        document.querySelectorAll('#view-board .tab-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        showToast(`Agent View: ${mode}`, 'info');
-    }
+    // toggleAgentViewTab removed (duplicate)
 
     async function inspectAgentBoard(agentId) {
         const agent = cachedAgents?.find(a => a.id === agentId);
         if (!agent) return;
         
         document.getElementById('agentDetailName').textContent = agent.name;
-        document.getElementById('agentDetailMeta').textContent = `${agent.profile} ??${agent.address}:${agent.port}`;
+        document.getElementById('agentDetailMeta').textContent = `${agent.profile}  - ${agent.address}:${agent.port}`;
         const statusEl = document.getElementById('agentDetailStatus');
         if (statusEl) {
             statusEl.style.display = 'inline-block';
@@ -3460,13 +3453,13 @@ import { initChat } from './chat.js';
         // Group by category if showing all
         if (currentTemplateCategory === 'all') {
             const categories = {
-                investment: { name: 'Investment', icon: '?뱢', color: '#10b981', templates: [] },
-                business: { name: 'Business', icon: '?뱤', color: '#3b82f6', templates: [] },
-                dev: { name: 'Development', icon: '?뵩', color: '#8b5cf6', templates: [] },
-                devops: { name: 'DevOps', icon: '??', color: '#6366f1', templates: [] },
-                marketing: { name: 'Marketing', icon: '?뱼', color: '#f59e0b', templates: [] },
-                security: { name: 'Security', icon: '?썳截?, color: '#ef4444', templates: [] },
-                system: { name: 'System', icon: '?숋툘', color: '#64748b', templates: [] }
+                investment: { name: 'Investment', icon: '💰', color: '#10b981', templates: [] },
+                business: { name: 'Business', icon: '💼', color: '#3b82f6', templates: [] },
+                dev: { name: 'Development', icon: '💻', color: '#8b5cf6', templates: [] },
+                devops: { name: 'DevOps', icon: '⚙️', color: '#6366f1', templates: [] },
+                marketing: { name: 'Marketing', icon: '📣', color: '#f59e0b', templates: [] },
+                security: { name: 'Security', icon: '🛡️', color: '#ef4444', templates: [] },
+                system: { name: 'System', icon: '💻', color: '#64748b', templates: [] }
             };
             
             filtered.forEach(t => {
@@ -3519,7 +3512,7 @@ import { initChat } from './chat.js';
         return `
             <div class="template-card" style="background:var(--surface-800); border:1px solid var(--surface-700); border-radius:12px; padding:16px; cursor:pointer; transition:all 0.2s;" onclick="openTemplateDetail('${t.id}')">
                 <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:12px;">
-                    <div style="width:40px; height:40px; display:flex; align-items:center; justify-content:center; background:var(--surface-700); border-radius:8px; font-size:18px;">${t.icon || '?뱥'}</div>
+                    <div style="width:40px; height:40px; display:flex; align-items:center; justify-content:center; background:var(--surface-700); border-radius:8px; font-size:18px;">${t.icon || ' '}</div>
                     <span class="badge badge-green">${t.state || 'active'}</span>
                 </div>
                 <h3 style="font-size:14px; font-weight:600; margin:0 0 8px;">${escapeHtml(t.name || 'Untitled')}</h3>
@@ -3528,7 +3521,7 @@ import { initChat } from './chat.js';
                     ${(t.tags || []).map(tag => `<span class="badge" style="background:var(--surface-600); font-size:10px;">${escapeHtml(tag)}</span>`).join('')}
                 </div>
                 <div style="font-size:11px; color:var(--text-muted);">
-                    ${t.run_count || 0} runs ??${t.avg_duration || 0}s avg
+                    ${t.run_count || 0} runs  - ${t.avg_duration || 0}s avg
                 </div>
             </div>
         `;
@@ -3584,7 +3577,7 @@ import { initChat } from './chat.js';
                 description: desc || '',
                 category,
                 tags,
-                icon: category === 'investment' ? '?뱢' : category === 'dev' ? '?뵩' : category === 'marketing' ? '?뱼' : '?뱤',
+                icon: category === 'investment' ? ' ' : category === 'dev' ? ' ' : category === 'marketing' ? ' ' : ' ',
                 state: 'active',
                 run_count: 0,
                 avg_duration: 0
@@ -3640,7 +3633,7 @@ import { initChat } from './chat.js';
 
         if (titleEl) titleEl.textContent = template.name || 'Template Detail';
         if (nameEl) nameEl.textContent = template.name || 'Untitled';
-        if (iconEl) iconEl.textContent = template.icon || '?뱥';
+        if (iconEl) iconEl.textContent = template.icon || ' ';
         if (catEl) catEl.textContent = template.category || 'custom';
         if (stateEl) {
             stateEl.textContent = template.state || 'active';
@@ -3656,7 +3649,7 @@ import { initChat } from './chat.js';
         if (durationEl) durationEl.textContent = `${template.avg_duration || 0}s`;
         if (successEl) {
             const rate = template.success_rate;
-            successEl.textContent = rate !== undefined ? `${(rate * 100).toFixed(0)}%` : '??;
+            successEl.textContent = rate !== undefined ? `${(rate * 100).toFixed(0)}%` : ' - ';
         }
 
         // Parameters / Variables
@@ -3960,7 +3953,7 @@ import { initChat } from './chat.js';
         setInterval(probe, 1500);
     }
 
-    // ??? Phase 2: AppState Subscribers ??????????????????????????????????????????
+    //     Phase 2: AppState Subscribers                                           
     AppState.subscribe('agents', (agents) => {
         // Sync with cachedAgents so all existing code still works
         cachedAgents = agents;
@@ -3971,7 +3964,7 @@ import { initChat } from './chat.js';
         renderTemplates(); // Ensure grid updates when AppState syncs
     });
 
-    // ??? Phase 6: Settings Tab System ???????????????????????????????????????????
+    //     Phase 6: Settings Tab System                                            
     function switchSettingsTab(tabId) {
         // Update tab buttons
         document.querySelectorAll('.settings-tab').forEach(btn => {
@@ -4011,7 +4004,7 @@ import { initChat } from './chat.js';
         navigator.clipboard.writeText(keyEl.textContent).then(() => {
             showToast('API Key copied to clipboard', 'success');
         }).catch(() => {
-            showToast('Failed to copy ??select and copy manually', 'error');
+            showToast('Failed to copy. Please select and copy manually', 'error');
         });
     }
 
@@ -4020,7 +4013,7 @@ import { initChat } from './chat.js';
         showToast('API key rotation is managed by node restart', 'info');
     }
 
-    // ??? Phase 5: Redirect legacy HTML routes to SPA hash routes ????????????????
+    //     Phase 5: Redirect legacy HTML routes to SPA hash routes                 
     function ensureSpaRoute() {
         const hash = window.location.hash;
         // If hash already set, trust it
@@ -4106,10 +4099,12 @@ import { initChat } from './chat.js';
     fetchStatus();
     fetchTasks();
     fetchMemory();
+    fetchExtensions();
+    fetchExtReadiness();
     updateContextPanel(selectedAgentId, 'Agent');
     ensureSpaRoute();
 
-    // ??? Phase 7: Extensions AppState subscriber ?????????????????????????????
+    //     Phase 7: Extensions AppState subscriber                              
     AppState.subscribe('extensions', (modules) => {
         extModules = modules;
         renderExtGrid();

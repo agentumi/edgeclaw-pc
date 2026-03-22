@@ -1,0 +1,172 @@
+<div id="view-extensions" class="view-content">
+            <div class="view-header">
+                <div>
+                    <h2>Extensions</h2>
+                    <div class="view-subtitle">Modular capabilities for company-wide automation (Notes, Compute, Security, Network, Economy).</div>
+                </div>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <input id="extensionSearch" type="text" placeholder="Search modules..." style="padding:8px 14px; border-radius:8px; border:1px solid var(--surface-700); background:var(--surface-800); color:var(--text-primary); font-size:12px; width:220px;" oninput="searchExtensions(this.value)">
+                    <button class="btn" onclick="refreshExtensions()"><i class="fa-solid fa-rotate"></i> Sync</button>
+                    <button class="btn btn-primary" onclick="openAddModuleModal()"><i class="fa-solid fa-plus"></i> Add Module</button>
+                </div>
+            </div>
+
+            <div class="ext-layout">
+                <!-- Left: Category nav -->
+                <nav class="ext-cat-nav" id="extCatNav">
+                    <button class="ext-cat-btn active" data-cat="all" onclick="filterExtCat('all',this)">
+                        <i class="fa-solid fa-layer-group"></i> All <span class="ext-cat-count" id="ecnt-all">13</span>
+                    </button>
+                    <button class="ext-cat-btn" data-cat="notes" onclick="filterExtCat('notes',this)">
+                        <i class="fa-solid fa-note-sticky"></i> Notes <span class="ext-cat-count" id="ecnt-notes">2</span>
+                    </button>
+                    <button class="ext-cat-btn" data-cat="compute" onclick="filterExtCat('compute',this)">
+                        <i class="fa-solid fa-microchip"></i> Compute <span class="ext-cat-count" id="ecnt-compute">3</span>
+                    </button>
+                    <button class="ext-cat-btn" data-cat="security" onclick="filterExtCat('security',this)">
+                        <i class="fa-solid fa-shield-halved"></i> Security <span class="ext-cat-count" id="ecnt-security">3</span>
+                    </button>
+                    <button class="ext-cat-btn" data-cat="network" onclick="filterExtCat('network',this)">
+                        <i class="fa-solid fa-network-wired"></i> Network <span class="ext-cat-count" id="ecnt-network">2</span>
+                    </button>
+                    <button class="ext-cat-btn" data-cat="economy" onclick="filterExtCat('economy',this)">
+                        <i class="fa-solid fa-chart-line"></i> Economy <span class="ext-cat-count" id="ecnt-economy">3</span>
+                    </button>
+                </nav>
+
+                <!-- Center: Module grid -->
+                <div id="extGrid" class="ext-grid">
+                    <div style="grid-column:1/-1; padding:40px; text-align:center; color:var(--text-muted);">
+                        <i class="fa-solid fa-spinner fa-spin" style="font-size:22px; margin-bottom:10px;"></i>
+                        <p>Loading extension modules...</p>
+                    </div>
+                </div>
+
+                <!-- Right: Execution Readiness panel -->
+                <aside class="ext-readiness" id="extReadinessPanel">
+                    <div class="ext-readiness-title"><i class="fa-solid fa-circle-check" style="color:#6ee7b7;"></i> Execution Readiness</div>
+
+                    <div class="ext-readiness-item">
+                        <div class="ext-readiness-label">Policy Checks</div>
+                        <div class="ext-readiness-value" id="rdPolicyValue">4 pending, 12 ok</div>
+                        <div class="ext-readiness-bar"><div class="ext-readiness-bar-fill" id="rdPolicyBar" style="width:75%;"></div></div>
+                    </div>
+
+                    <div class="ext-readiness-item">
+                        <div class="ext-readiness-label">Data Connectors</div>
+                        <div class="ext-readiness-value" id="rdConnValue">7 healthy, 1 degraded</div>
+                        <div class="ext-readiness-bar"><div class="ext-readiness-bar-fill" id="rdConnBar" style="width:87%; background:linear-gradient(90deg,#10b981,#6ee7b7);"></div></div>
+                    </div>
+
+                    <div class="ext-readiness-item">
+                        <div class="ext-readiness-label">Automation Queue</div>
+                        <div class="ext-readiness-value" id="rdQueueValue">12 ready, 2 blocked</div>
+                        <div class="ext-readiness-bar"><div class="ext-readiness-bar-fill" id="rdQueueBar" style="width:85%;"></div></div>
+                    </div>
+
+                    <div class="ext-readiness-item">
+                        <div class="ext-readiness-label">Next Review</div>
+                        <div class="ext-readiness-value" id="rdNextReview">2h 18m</div>
+                    </div>
+                </aside>
+            </div>
+        </div>
+
+        <!--    Modal: Configure Extension                                 -->
+        <div class="ext-modal-overlay" id="extConfigModal">
+            <div class="ext-modal">
+                <div class="ext-modal-header">
+                    <div class="ext-modal-title"><i class="fa-solid fa-sliders"></i> Configure Module</div>
+                    <button class="btn" onclick="closeExtModal('extConfigModal')"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="ext-modal-body" id="extConfigBody">
+                    <div class="ext-modal-field">
+                        <label>Schedule (CRON)</label>
+                        <input type="text" id="extConfigCron" placeholder="e.g. 0 9 * * * (daily 9am)">
+                    </div>
+                    <div class="ext-modal-field">
+                        <label>Connected Resource</label>
+                        <select id="extConfigResource">
+                             <option value="">None</option>
+                            <option>Memory Graph</option>
+                            <option>Mission Control</option>
+                            <option>Automation Queue</option>
+                        </select>
+                    </div>
+                    <div class="ext-modal-field">
+                        <label>Additional Parameters (JSON)</label>
+                        <textarea id="extConfigParams" rows="4" placeholder='{"cost_cap": 5}'></textarea>
+                    </div>
+                </div>
+                <div class="ext-modal-footer">
+                    <button class="btn" onclick="closeExtModal('extConfigModal')">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveExtConfig()"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!--    Modal: Execution Logs                                      -->
+        <div class="ext-modal-overlay" id="extLogsModal">
+            <div class="ext-modal">
+                <div class="ext-modal-header">
+                    <div class="ext-modal-title"><i class="fa-solid fa-terminal"></i> Execution History</div>
+                    <button class="btn" onclick="closeExtModal('extLogsModal')"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="ext-modal-body">
+                    <div id="extLogsTable" style="display:flex; flex-direction:column; gap:6px;">
+                        <div style="text-align:center; color:var(--text-muted); padding:20px;">
+                            <i class="fa-solid fa-spinner fa-spin"></i> Loading...
+                        </div>
+                    </div>
+                </div>
+                <div class="ext-modal-footer">
+                    <button class="btn" onclick="closeExtModal('extLogsModal')">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!--    Modal: Add Module                                          -->
+        <div class="ext-modal-overlay" id="extAddModal">
+            <div class="ext-modal">
+                <div class="ext-modal-header">
+                    <div class="ext-modal-title"><i class="fa-solid fa-plus-circle"></i> Add Module</div>
+                    <button class="btn" onclick="closeExtModal('extAddModal')"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="ext-modal-body">
+                    <div class="ext-modal-field">
+                        <label>Module ID (snake_case)</label>
+                        <input type="text" id="addModuleId" placeholder="e.g. my-custom-module">
+                    </div>
+                    <div class="ext-modal-field">
+                        <label>Name</label>
+                        <input type="text" id="addModuleName" placeholder="My Custom Module">
+                    </div>
+                    <div class="ext-modal-field">
+                        <label>Category</label>
+                        <select id="addModuleCat">
+                            <option value="notes">Notes</option>
+                            <option value="compute">Compute</option>
+                            <option value="security">Security</option>
+                            <option value="network">Network</option>
+                            <option value="economy">Economy</option>
+                        </select>
+                    </div>
+                    <div class="ext-modal-field">
+                        <label>Owner</label>
+                        <input type="text" id="addModuleOwner" placeholder="Team name">
+                    </div>
+                    <div class="ext-modal-field">
+                        <label>Version</label>
+                        <input type="text" id="addModuleVersion" value="1.0.0">
+                    </div>
+                    <div class="ext-modal-field">
+                        <label>Description</label>
+                        <textarea id="addModuleDesc" rows="3" placeholder="What does this module do?"></textarea>
+                    </div>
+                </div>
+                <div class="ext-modal-footer">
+                    <button class="btn" onclick="closeExtModal('extAddModal')">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveNewModule()"><i class="fa-solid fa-plus"></i> Register</button>
+                </div>
+            </div>
+        </div>

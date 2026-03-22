@@ -1,4 +1,4 @@
-﻿// Core helpers extracted from dashboard.html to keep UI modules lean.
+// Core helpers extracted from dashboard.html to keep UI modules lean.
 
 const API_STORAGE_KEY = 'edgeclaw_api_base';
 const TOKEN_STORAGE_KEY = 'edgeclaw_session_token';
@@ -58,6 +58,11 @@ export const AppState = (() => {
             if (_state[key] !== null && _state[key] !== undefined) fn(_state[key]);
         },
         getAll() { return { ..._state }; },
+        register(viewId, config) {
+            if (!_state.views) _state.views = {};
+            _state.views[viewId] = config;
+            console.log(`[AppState] Registered view-logic for: ${viewId}`);
+        }
     };
 })();
 

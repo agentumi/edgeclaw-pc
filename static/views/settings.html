@@ -1,0 +1,173 @@
+<div id="view-settings" class="view-content">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
+                <h2 style="font-size:20px; font-weight:600;">Settings</h2>
+            </div>
+
+            <!-- Settings Tabs -->
+            <div style="display:flex; gap:4px; margin-bottom:24px; background:var(--surface-900); border-radius:10px; padding:4px; width:fit-content;">
+                <button class="settings-tab active" id="stab-identity" onclick="switchSettingsTab('identity')">
+                    <i class="fa-solid fa-id-card"></i> Identity
+                </button>
+                <button class="settings-tab" id="stab-security" onclick="switchSettingsTab('security')">
+                    <i class="fa-solid fa-shield-halved"></i> Security
+                </button>
+                <button class="settings-tab" id="stab-notifications" onclick="switchSettingsTab('notifications')">
+                    <i class="fa-solid fa-bell"></i> Notifications
+                </button>
+                <button class="settings-tab" id="stab-advanced" onclick="switchSettingsTab('advanced')">
+                    <i class="fa-solid fa-sliders"></i> Advanced
+                </button>
+            </div>
+
+            <!-- Identity Tab -->
+            <div id="spanel-identity" class="settings-panel active">
+                <div class="card" style="max-width:720px;">
+                    <div class="card-title"><i class="fa-solid fa-id-card"></i> Agent Identity</div>
+                    <div style="display:flex; flex-direction:column; gap:12px;">
+                        <label style="font-size:12px; color:var(--text-muted);">Agent Name</label>
+                        <input id="settingsDisplayName" type="text" placeholder="e.g. Nilebooks-4" style="width:100%; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:10px; color:var(--text-primary);">
+                        <label style="font-size:12px; color:var(--text-muted);">Device Name (system)</label>
+                        <input id="settingsDeviceName" type="text" placeholder="e.g. edgeclaw-node" style="width:100%; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:10px; color:var(--text-primary);">
+                        <label style="font-size:12px; color:var(--text-muted);">Avatar Image URL</label>
+                        <input id="settingsAvatarUrl" type="text" placeholder="https://..." style="width:100%; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:10px; color:var(--text-primary);">
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <input id="settingsAvatarFile" type="file" accept="image/*" style="flex:1; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:8px; color:var(--text-primary);">
+                            <button id="settingsAvatarUploadBtn" type="button" class="btn"><i class="fa-solid fa-upload"></i> Upload</button>
+                        </div>
+                        <img id="settingsAvatarPreview" alt="avatar preview" style="width:72px; height:72px; border-radius:12px; border:1px solid var(--surface-700); display:none; object-fit:cover;">
+                        <label style="font-size:12px; color:var(--text-muted);">Character Persona</label>
+                        <textarea id="settingsPersona" rows="3" placeholder="Short personality summary" style="width:100%; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:10px; color:var(--text-primary); resize:vertical;"></textarea>
+                        <label style="font-size:12px; color:var(--text-muted);">Role</label>
+                        <input id="settingsRole" type="text" placeholder="e.g. Market Analyst" style="width:100%; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:10px; color:var(--text-primary);">
+                        <label style="font-size:12px; color:var(--text-muted);">Email</label>
+                        <input id="settingsEmail" type="email" placeholder="name@example.com" style="width:100%; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:10px; color:var(--text-primary);">
+                        <label style="font-size:12px; color:var(--text-muted);">Messenger</label>
+                        <input id="settingsMessenger" type="text" placeholder="e.g. slack:handle" style="width:100%; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:10px; color:var(--text-primary);">
+                        <label style="font-size:12px; color:var(--text-muted);">Mobile</label>
+                        <input id="settingsPhone" type="text" placeholder="+82-10-0000-0000" style="width:100%; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:10px; color:var(--text-primary);">
+                        <div style="font-size:11px; color:var(--text-muted);">Identity is stored locally. Restart required after saving.</div>
+                        <div style="display:flex; gap:8px; justify-content:flex-end;">
+                            <button id="settingsIdentitySaveBtn" class="btn btn-primary"><i class="fa-solid fa-check"></i> Save</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Security Tab -->
+            <div id="spanel-security" class="settings-panel">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; max-width:900px;">
+                    <div class="card">
+                        <div class="card-title"><i class="fa-solid fa-key" style="color:var(--accent-gold);"></i> API Key</div>
+                        <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">Your node authentication key</div>
+                        <div id="settingsApiKey" style="font-family:var(--font-mono); font-size:11px; background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:12px; color:var(--primary-400); word-break:break-all;">Loading...</div>
+                        <div style="display:flex; gap:8px; margin-top:12px;">
+                            <button class="btn" onclick="copyApiKey()"><i class="fa-solid fa-copy"></i> Copy</button>
+                            <button class="btn btn-primary" onclick="regenerateApiKey()"><i class="fa-solid fa-rotate"></i> Regenerate</button>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title"><i class="fa-solid fa-user-shield" style="color:var(--primary-400);"></i> RBAC Role</div>
+                        <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">Current access level</div>
+                        <div style="display:flex; flex-direction:column; gap:8px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:var(--surface-800); border-radius:8px;">
+                                <span style="font-size:13px;">Owner</span>
+                                <span class="badge badge-green">17 caps</span>
+                            </div>
+                            <div style="font-size:11px; color:var(--text-muted); line-height:1.6;">
+                                All capabilities granted: shell_exec, firmware_update,<br>policy_override, file_read/write, docker, network_scan, ...
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card" style="grid-column:1/-1;">
+                        <div class="card-title"><i class="fa-solid fa-lock"></i> Zero-Trust Policy</div>
+                        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:8px;">
+                            <div style="background:var(--surface-800); border-radius:8px; padding:12px;">
+                                <div style="font-size:11px; color:var(--text-muted); margin-bottom:4px;">Encryption</div>
+                                <div style="font-size:13px; font-weight:600; color:var(--accent-green);">AES-256-GCM</div>
+                            </div>
+                            <div style="background:var(--surface-800); border-radius:8px; padding:12px;">
+                                <div style="font-size:11px; color:var(--text-muted); margin-bottom:4px;">Signatures</div>
+                                <div style="font-size:13px; font-weight:600; color:var(--accent-green);">Ed25519</div>
+                            </div>
+                            <div style="background:var(--surface-800); border-radius:8px; padding:12px;">
+                                <div style="font-size:11px; color:var(--text-muted); margin-bottom:4px;">Key Exchange</div>
+                                <div style="font-size:13px; font-weight:600; color:var(--accent-green);">X25519 ECDH</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Notifications Tab -->
+            <div id="spanel-notifications" class="settings-panel">
+                <div class="card" style="max-width:600px;">
+                    <div class="card-title"><i class="fa-solid fa-bell"></i> Notification Settings</div>
+                    <div style="display:flex; flex-direction:column; gap:16px; margin-top:8px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; background:var(--surface-800); border-radius:8px;">
+                            <div>
+                                <div style="font-size:13px; font-weight:500;">WebSocket Events</div>
+                                <div style="font-size:11px; color:var(--text-muted);">Real-time mission and task updates</div>
+                            </div>
+                            <label style="position:relative; display:inline-block; width:44px; height:24px;">
+                                <input type="checkbox" id="notifWs" checked style="opacity:0; width:0; height:0;">
+                                <span onclick="this.previousElementSibling.click()" style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:var(--accent-green); border-radius:24px; transition:0.3s;"></span>
+                            </label>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; background:var(--surface-800); border-radius:8px;">
+                            <div>
+                                <div style="font-size:13px; font-weight:500;">Activity Feed Alerts</div>
+                                <div style="font-size:11px; color:var(--text-muted);">Toast notifications for agent activities</div>
+                            </div>
+                            <label style="position:relative; display:inline-block; width:44px; height:24px;">
+                                <input type="checkbox" id="notifActivity" checked style="opacity:0; width:0; height:0;">
+                                <span onclick="this.previousElementSibling.click()" style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:var(--accent-green); border-radius:24px; transition:0.3s;"></span>
+                            </label>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; background:var(--surface-800); border-radius:8px;">
+                            <div>
+                                <div style="font-size:13px; font-weight:500;">Email Notifications</div>
+                                <div style="font-size:11px; color:var(--text-muted);">Mission completion & critical alerts</div>
+                            </div>
+                            <label style="position:relative; display:inline-block; width:44px; height:24px;">
+                                <input type="checkbox" id="notifEmail" style="opacity:0; width:0; height:0;">
+                                <span onclick="this.previousElementSibling.click()" style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:var(--surface-700); border-radius:24px; transition:0.3s;"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Advanced Tab -->
+            <div id="spanel-advanced" class="settings-panel">
+                <div class="card" style="max-width:600px;">
+                    <div class="card-title"><i class="fa-solid fa-sliders"></i> Advanced Settings</div>
+                    <div style="display:flex; flex-direction:column; gap:16px; margin-top:8px;">
+                        <label style="font-size:12px; color:var(--text-muted);">Log Level</label>
+                        <select id="advLogLevel" class="ec-select" style="background:var(--surface-900); border:1px solid var(--surface-700); border-radius:8px; padding:10px; color:var(--text-primary);">
+                            <option value="error">Error</option>
+                            <option value="warn">Warn</option>
+                            <option value="info" selected>Info</option>
+                            <option value="debug">Debug</option>
+                            <option value="trace">Trace</option>
+                        </select>
+                        <label style="font-size:12px; color:var(--text-muted);">Translation</label>
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; background:var(--surface-800); border-radius:8px;">
+                            <div>
+                                <div style="font-size:13px; font-weight:500;">Auto-translate Korean <i class="fa-solid fa-gears"></i>English</div>
+                                <div style="font-size:11px; color:var(--text-muted);">Translates Hangul text in task titles and agent names</div>
+                            </div>
+                            <label style="position:relative; display:inline-block; width:44px; height:24px;">
+                                <input type="checkbox" id="advTranslate" checked style="opacity:0; width:0; height:0;" onchange="translateEnabled = this.checked;">
+                                <span onclick="this.previousElementSibling.click()" style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:var(--accent-green); border-radius:24px; transition:0.3s;"></span>
+                            </label>
+                        </div>
+                        <div style="border-top:1px solid var(--surface-700); padding-top:16px; margin-top:4px;">
+                            <div style="font-size:12px; color:var(--accent-red); margin-bottom:8px; font-weight:600;">Danger Zone</div>
+                            <button class="btn" style="border-color:var(--accent-red); color:var(--accent-red);" onclick="if(confirm('Clear all local task data?')) showToast('Task data cleared (demo)', 'success');">
+                                <i class="fa-solid fa-trash"></i> Clear Task Data
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>

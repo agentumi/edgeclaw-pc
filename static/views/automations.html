@@ -1,0 +1,35 @@
+<div id="view-automations" class="view-content">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
+                <h2 style="font-size:20px; font-weight:600;">Automations</h2>
+                <div style="display:flex; gap:12px; align-items:center;">
+                    <button class="btn btn-primary" onclick="createAutomation()"><i class="fa-solid fa-plus"></i> New Automation</button>
+                </div>
+            </div>
+            
+            <!-- Category Tabs -->
+            <div class="category-tabs" style="display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap;">
+                <button class="tab-btn active" data-category="all" onclick="filterTemplates('all')">All</button>
+                <button class="tab-btn" data-category="investment" onclick="filterTemplates('investment')"><i class="fa-solid fa-arrow-trend-up"></i> Investment</button>
+                <button class="tab-btn" data-category="business" onclick="filterTemplates('business')"><i class="fa-solid fa-briefcase"></i> Business</button>
+                <button class="tab-btn" data-category="dev" onclick="filterTemplates('dev')"><i class="fa-solid fa-code"></i> Dev</button>
+                <button class="tab-btn" data-category="devops" onclick="filterTemplates('devops')"><i class="fa-solid fa-gears"></i> DevOps</button>
+                <button class="tab-btn" data-category="security" onclick="filterTemplates('security')"><i class="fa-solid fa-shield-halved"></i> Security</button>
+                <button class="tab-btn" data-category="system" onclick="filterTemplates('system')"><i class="fa-solid fa-microchip"></i> System</button>
+                <button class="tab-btn" data-category="marketing" onclick="filterTemplates('marketing')"><i class="fa-solid fa-bullhorn"></i> Marketing</button>
+            </div>
+            
+            <!-- Search -->
+            <div style="margin-bottom:24px;">
+                <input type="text" id="templateSearch" placeholder="Search templates..." 
+                    style="width:100%; max-width:400px; padding:10px 16px; border-radius:8px; border:1px solid var(--surface-700); background:var(--surface-800); color:var(--text-primary);"
+                    oninput="searchTemplates(this.value)">
+            </div>
+            
+            <!-- Template Grid -->
+            <div id="templateGrid" class="template-grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:16px;">
+                <div style="grid-column:1/-1; padding:40px; text-align:center; color:var(--text-muted);">
+                    <i class="fa-solid fa-spinner fa-spin" style="font-size:24px; margin-bottom:12px;"></i>
+                    <p>Loading templates...</p>
+                </div>
+            </div>
+        </div>

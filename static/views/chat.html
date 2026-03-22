@@ -1,0 +1,33 @@
+<div id="view-chat" class="view-content">
+        <div class="chat-container">
+                <div class="chat-tabs" id="chatProfiles">
+                    <button class="chat-tab active" data-profile="all">All Profiles</button>
+                    <button class="chat-tab" data-profile="System">System</button>
+                    <button class="chat-tab" data-profile="SoftwareDev">Software Dev</button>
+                    <button class="chat-tab" data-profile="Marketing">Marketing</button>
+                </div>
+                <div class="chat-quick-actions" id="chatQuickActions">
+                    <!-- Loaded dynamically -->
+                </div>
+                <div class="chat-area" id="chatArea">
+                    <div class="msg system">
+                        <div class="msg-bubble">
+                            EdgeClaw Command Center v2.0 - Connected to Agent Node<br>
+                            Status: <span id="chatStatusText" style="color:var(--accent-green)">Ready</span> - Zero-Trust Channel Secure
+                        </div>
+                    </div>
+                </div>
+                <div class="typing-indicator" id="typingIndicator">
+                    <div class="dots"><span></span><span></span><span></span></div>
+                    <span style="margin-left:8px;">Agent is analyzing...</span>
+                </div>
+                <div class="chat-input-area">
+                    <div class="input-box">
+                        <textarea id="chatInput" rows="1" placeholder="Enter command or natural language..."></textarea>
+                    </div>
+                    <button id="sendBtn" class="send-btn">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>

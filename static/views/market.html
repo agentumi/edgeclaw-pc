@@ -1,0 +1,112 @@
+<div id="view-market" class="view-content">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <div>
+                    <h2 style="font-size:20px; font-weight:600; margin-bottom:4px;"><i class="fa-solid fa-store" style="color:var(--accent-purple); margin-right:8px;"></i>Marketplace</h2>
+                </div>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-muted);">
+                        <input id="marketShowOffline" type="checkbox" style="accent-color: var(--primary-500);">
+                        Show offline
+                    </label>
+                    <button class="btn" onclick="showAddAgentModal()" style="border-color:var(--accent-purple); color:var(--accent-purple);"><i class="fa-solid fa-plus"></i> Add Agent</button>
+                    <button id="discoverBtn" class="btn btn-primary" onclick="discoverAgents()"><i class="fa-solid fa-magnifying-glass"></i> Discover</button>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div style="display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap;">
+                <button class="tab-btn active" onclick="switchMarketTab(this,'processes')"><i class="fa-solid fa-gears"></i> Processes</button>
+                <button class="tab-btn" onclick="switchMarketTab(this,'services')"><i class="fa-solid fa-server"></i> Services</button>
+                <button class="tab-btn" onclick="switchMarketTab(this,'counter')"><i class="fa-solid fa-chart-line"></i> Counter</button>
+                <button class="tab-btn" onclick="switchMarketTab(this,'docs')"><i class="fa-solid fa-file-alt"></i> Docs</button>
+            </div>
+            
+            <!-- Main 2-col: Featured + Sidebar -->
+            <div style="display:grid; grid-template-columns:1fr 320px; gap:20px; margin-bottom:24px;">
+                <!-- Featured Automation -->
+                <div class="card" style="position:relative; overflow:hidden;">
+                    <div style="position:absolute; top:12px; left:12px; font-size:10px; color:var(--accent-gold); text-transform:uppercase; letter-spacing:1px;"><i class="fa-solid fa-star"></i> Featured</div>
+                    <div style="padding-top:20px;">
+                        <h3 id="marketFeaturedTitle" style="font-size:18px; font-weight:700; margin:0 0 12px;">Run Daily Market Analysis</h3>
+                        <p id="marketFeaturedDesc" style="font-size:12px; color:var(--text-muted); line-height:1.5; margin:0 0 16px;">Automated market analysis workflow ... collect data, run ML models, and generate reports.</p>
+                        <div style="display:flex; gap:8px; margin-bottom:16px;">
+                            <button class="btn btn-primary" style="font-size:11px;" onclick="runTemplate('inv.market.daily')"><i class="fa-solid fa-rocket"></i> Start Process</button>
+                            <button class="btn" style="font-size:11px;" onclick="openTemplateDetail('inv.market.daily')"><i class="fa-solid fa-info-circle"></i> Details</button>
+                        </div>
+                        <div style="height:140px; background:var(--surface-900); border-radius:12px; overflow:hidden; position:relative; border:1px solid var(--surface-700);">
+                            <canvas id="marketGraphCanvas" width="500" height="140" style="width:100%; height:140px;"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Rewards -->
+                <div class="card">
+                    <h4 style="font-size:13px; font-weight:600; margin:0 0 12px;"><i class="fa-solid fa-trophy" style="color:var(--accent-gold); margin-right:6px;"></i>Recent Rewards</h4>
+                    <div id="marketRewardsPanel" style="display:flex; flex-direction:column; gap:8px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--surface-700);">
+                            <span style="font-size:12px;">Market Analysis Report</span>
+                            <span style="font-size:11px; color:var(--accent-green);">+6.5%</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--surface-700);">
+                            <span style="font-size:12px;">Report Market Fetcher</span>
+                            <span style="font-size:11px; color:var(--accent-gold);">0.5 SUI</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0;">
+                            <span style="font-size:12px;">Pricing Generation & Retry</span>
+                            <span style="font-size:11px; color:var(--text-muted);">Completed</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Agent Grid -->
+            <h3 style="font-size:15px; font-weight:600; margin:0 0 14px;">Available Agents</h3>
+            <div class="market-grid" id="marketGrid">
+                <div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--text-muted);">
+                    <i class="fa-solid fa-spinner fa-spin" style="font-size: 24px; margin-bottom: 12px;"></i>
+                    <p>Loading market agents...</p>
+                </div>
+            </div>
+            
+            <!-- Automation Stats -->
+            <h3 style="margin:28px 0 14px; font-size:15px; font-weight:600;">Automation Stats</h3>
+            <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; margin-bottom:20px;">
+                <div class="card" style="text-align:center;">
+                    <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px;">Total Runs</div>
+                    <div id="marketStatRuns" style="font-size:22px; font-weight:700; font-family:var(--font-mono);">--</div>
+                </div>
+                <div class="card" style="text-align:center;">
+                    <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px;">Active Agents</div>
+                    <div id="marketStatActive" style="font-size:22px; font-weight:700; font-family:var(--font-mono); color:var(--accent-green);">--</div>
+                </div>
+                <div class="card" style="text-align:center;">
+                    <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px;">Marketplace Rating</div>
+                    <div id="marketStatRating" style="font-size:22px; font-weight:700; font-family:var(--font-mono); color:var(--accent-gold);">--</div>
+                </div>
+                <div class="card" style="text-align:center;">
+                    <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px;">SUI Balance</div>
+                    <div id="marketStatBalance" style="font-size:22px; font-weight:700; font-family:var(--font-mono); color:var(--accent-purple);">--</div>
+                </div>
+            </div>
+
+            <!-- Fleet Overview -->
+            <div class="card" style="display:flex; gap:40px; align-items:center; flex-wrap:wrap;">
+                <div>
+                    <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">Local online</div>
+                    <div id="stat-local-online" style="font-size:24px; font-weight:700; font-family:var(--font-mono); color:var(--accent-green)">--</div>
+                </div>
+                <div>
+                    <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">Registered online</div>
+                    <div id="stat-remote-online" style="font-size:24px; font-weight:700; color:var(--text-primary)">--</div>
+                </div>
+                <div>
+                    <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">Max agents (tier)</div>
+                    <div id="stat-max-agents" style="font-size:24px; font-weight:700; color:var(--text-primary)">--</div>
+                </div>
+                <div style="flex:1; text-align:right;">
+                    <button id="manageRentBtn" class="btn"><i class="fa-solid fa-gear"></i> Manage Rent Policies</button>
+                </div>
+            </div>
+        </div>
+
+        </div>

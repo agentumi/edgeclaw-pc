@@ -1,0 +1,145 @@
+<div id="view-memory" class="view-content">
+            <!-- Header -->
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <div>
+                    <h2 style="font-size:20px; font-weight:600; margin-bottom:4px;"><i class="fa-solid fa-brain" style="color:var(--primary-400); margin-right:8px;"></i>Memory</h2>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <div class="search-bar" style="background:var(--surface-800); padding:6px 14px; border-radius:6px; border:1px solid var(--surface-700); width:220px;">
+                        <i class="fa-solid fa-magnifying-glass" style="color:var(--text-muted)"></i>
+                        <input id="memorySearchInput" type="text" placeholder="FTS Search..." style="background:transparent; border:none; outline:none; color:var(--text-primary); margin-left:8px; width:160px;">
+                    </div>
+                    <button class="btn" onclick="resetGraphZoom()" style="font-size:11px;"><i class="fa-solid fa-expand"></i> Explore</button>
+                </div>
+            </div>
+
+            <!-- View Tabs -->
+            <div style="display:flex; gap:8px; margin-bottom:20px;">
+                <button class="tab-btn active" onclick="switchMemoryTab(this, 'graph')">Knowledge Graph</button>
+                <button class="tab-btn" onclick="switchMemoryTab(this, 'recent')">Recent</button>
+                <button class="tab-btn" onclick="switchMemoryTab(this, 'docs')">Documents</button>
+            </div>
+
+            <!-- 3-Column Layout -->
+            <div style="display:grid; grid-template-columns:240px 1fr 300px; gap:16px; min-height:500px;">
+                <!-- LEFT: Memory Types + Storage -->
+                <div class="memory-nav-area">
+                    <div class="card" style="margin-bottom:12px;">
+                        <h4 style="font-size:13px; font-weight:600; margin:0 0 12px;"><i class="fa-solid fa-layer-group" style="margin-right:6px; color:var(--primary-400);"></i>Memory Types</h4>
+                        <div class="memory-tiers" id="memoryTierList" style="display:flex; flex-direction:column; gap:4px;">
+                            <div class="tier-item active" onclick="selectMemoryTier('core')" style="display:flex; justify-content:space-between; align-items:center;">
+                                <h4 style="font-size:13px; margin:0;"><i class="fa-solid fa-star" style="color:#a5b4fc; margin-right:6px;"></i>Core Memory</h4>
+                                <div class="tier-meta" id="mem-meta-core" style="font-size:10px; color:var(--text-muted);">--</div>
+                            </div>
+                            <div class="tier-item" onclick="selectMemoryTier('m30')" style="display:flex; justify-content:space-between; align-items:center;">
+                                <h4 style="font-size:13px; margin:0;"><i class="fa-solid fa-bolt" style="color:#6ee7b7; margin-right:6px;"></i>Short-term</h4>
+                                <div class="tier-meta" id="mem-meta-m30" style="font-size:10px; color:var(--text-muted);">--</div>
+                            </div>
+                            <div class="tier-item" style="display:flex; justify-content:space-between; align-items:center;">
+                                <h4 style="font-size:13px; margin:0;"><i class="fa-solid fa-clock" style="color:#fcd34d; margin-right:6px;"></i>Mid-term</h4>
+                                <div class="tier-meta" data-tier-meta="m90" style="font-size:10px; color:var(--text-muted);">--</div>
+                            </div>
+                            <div class="tier-item" style="display:flex; justify-content:space-between; align-items:center;">
+                                <h4 style="font-size:13px; margin:0;"><i class="fa-solid fa-database" style="color:#f87171; margin-right:6px;"></i>Long-term</h4>
+                                <div class="tier-meta" data-tier-meta="m365" style="font-size:10px; color:var(--text-muted);">--</div>
+                            </div>
+                            <div class="tier-item" data-tier="lessons" style="display:flex; justify-content:space-between; align-items:center; border-color:var(--accent-purple);">
+                                <h4 style="font-size:13px; margin:0; color:var(--accent-purple);"><i class="fa-solid fa-graduation-cap" style="margin-right:6px;"></i>Lessons</h4>
+                                <div class="tier-meta" data-tier-meta="lessons" style="font-size:10px; color:var(--text-muted);">--</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Memory Storage -->
+                    <div class="card">
+                        <h4 style="font-size:13px; font-weight:600; margin:0 0 12px;"><i class="fa-solid fa-hard-drive" style="margin-right:6px; color:var(--accent-green);"></i>Memory Storage</h4>
+                        <div style="display:flex; flex-direction:column; gap:10px;">
+                            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                                <span style="color:var(--text-muted);"><i class="fa-solid fa-vector-square" style="margin-right:4px;"></i>Vector Database</span>
+                                <span id="memStorageVector" style="font-weight:600;">--</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                                <span style="color:var(--text-muted);"><i class="fa-solid fa-folder" style="margin-right:4px;"></i>Local Files</span>
+                                <span id="memStorageLocal" style="font-weight:600;">--</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                                <span style="color:var(--text-muted);"><i class="fa-solid fa-cloud" style="margin-right:4px;"></i>Cloud Sync</span>
+                                <span id="memStorageCloud" style="font-weight:600; color:var(--accent-green);"><i class="fa-solid fa-circle-check"></i> OK</span>
+                            </div>
+                        </div>
+                        <div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--surface-700); font-size:11px; color:var(--text-muted);">
+                            Total Memory Used: <span id="memStorageTotal" style="font-weight:600; color:var(--text-primary);">--</span>
+                        </div>
+                    </div>
+
+                    <button id="distillationBtn" class="btn" style="width:100%; justify-content:center; margin-top:12px;"><i class="fa-solid fa-timeline"></i> Timeline</button>
+                    <button id="gitLogBtn" class="btn" style="width:100%; justify-content:center; margin-top:8px;"><i class="fa-brands fa-git-alt"></i> Git Log</button>
+                </div>
+
+                <!-- CENTER: Knowledge Graph or Recent List -->
+                <div class="memory-graph-area" style="display:flex; flex-direction:column; gap:16px;">
+                    <div id="memory-graph-view" style="background:var(--surface-900); border:1px solid var(--surface-700); border-radius:14px; overflow:hidden; position:relative;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-bottom:1px solid var(--surface-700);">
+                            <h4 style="font-size:13px; font-weight:600; margin:0;"><i class="fa-solid fa-diagram-project" style="color:var(--primary-400); margin-right:6px;"></i>Memory Graph</h4>
+                            <div style="display:flex; gap:6px;">
+                                <button class="btn" onclick="resetGraphZoom()" style="font-size:10px; padding:3px 8px;"><i class="fa-solid fa-expand"></i></button>
+                                <button class="btn" onclick="toggleGraphMode()" id="graphModeBtn" style="font-size:10px; padding:3px 8px;"><i class="fa-solid fa-arrows-to-dot"></i></button>
+                            </div>
+                        </div>
+                        <canvas id="memoryGraphCanvas" width="800" height="320" style="width:100%; height:320px; cursor:grab;"></canvas>
+                        <div id="graphTooltip" style="display:none; position:absolute; background:var(--surface-800); border:1px solid var(--surface-700); border-radius:8px; padding:8px 12px; font-size:11px; color:var(--text-primary); pointer-events:none; z-index:10; max-width:200px;"></div>
+                        <div style="position:absolute; bottom:8px; right:12px; font-size:9px; color:var(--text-muted); display:flex; gap:10px;">
+                            <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#a5b4fc; margin-right:3px;"></span>Core</span>
+                            <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#6ee7b7; margin-right:3px;"></span>M30</span>
+                            <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#fcd34d; margin-right:3px;"></span>M90</span>
+                            <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#f87171; margin-right:3px;"></span>M365</span>
+                        </div>
+                    </div>
+
+                    <div id="memory-recent-view" class="card" style="display:none; flex-direction:column; flex:1;">
+                        <h4 style="font-size:13px; font-weight:600; margin-bottom:12px;">Recent Memories</h4>
+                        <div id="memoryRecentList" style="display:flex; flex-direction:column; gap:8px; overflow-y:auto; max-height:400px;">
+                            <div style="font-size:12px; color:var(--text-muted); text-align:center; padding:20px;">No recent memories found</div>
+                        </div>
+                    </div>
+
+                    <div id="memory-docs-view" class="card" style="display:none; flex-direction:column; flex:1;">
+                        <h4 style="font-size:13px; font-weight:600; margin-bottom:12px;">Documents</h4>
+                        <div id="memoryDocsList" style="display:flex; flex-direction:column; gap:8px;">
+                            <div style="padding:10px; background:var(--surface-800); border-radius:8px; display:flex; gap:10px; align-items:center;">
+                                <i class="fa-solid fa-file-pdf" style="color:var(--accent-red)"></i> <span>policy_governance.pdf</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="graph-popular-sections" style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                        <div id="memPopularNodes" class="card" style="padding:12px;">
+                            <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">Popular Entities</div>
+                            <div style="font-size:12px; color:var(--text-muted);">Loading...</div>
+                        </div>
+                        <div id="memAgentTracker" class="card" style="padding:12px;">
+                            <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">Agent Relevance</div>
+                            <div style="font-size:12px; color:var(--text-muted);">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RIGHT: Memory Viewer -->
+                <div class="memory-viewer-area">
+                    <div class="card" style="height:100%; display:flex; flex-direction:column;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                            <h4 style="font-size:13px; font-weight:600; margin:0;"><i class="fa-solid fa-eye" style="margin-right:6px; color:var(--primary-400);"></i>Viewer</h4>
+                            <div id="memoryDetailType" class="badge" style="background:var(--surface-700); font-size:10px;">None</div>
+                        </div>
+                        <div id="memoryViewerTitle" style="font-weight:700; font-size:14px; margin-bottom:8px; color:var(--primary-300);">Select Object</div>
+                        <div id="memoryViewerContent" style="flex:1; background:var(--surface-950); border:1px solid var(--surface-700); border-radius:10px; padding:16px; font-family:var(--font-mono); font-size:12px; color:var(--text-secondary); line-height:1.6; white-space:pre-wrap; overflow-y:auto;">
+Click a graph node or list item to view memory content.
+                        </div>
+                        <div style="display:flex; gap:8px; margin-top:16px;">
+                            <button id="memoryEditBtn" class="btn" style="flex:1; justify-content:center;"><i class="fa-solid fa-pen"></i> Edit</button>
+                            <button id="memoryPublishBtn" class="btn" style="flex:1; justify-content:center; color:var(--accent-gold); border-color:var(--accent-gold);"><i class="fa-solid fa-cloud-arrow-up"></i> Publish</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>

@@ -1078,3 +1078,122 @@
             width: 100%;
         }
         .ext-modal-footer { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* 🏢 V2.3 Team-Based Governance Styles */
+.team-accordion {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.team-item {
+    background: rgba(30, 30, 46, 0.4);
+    border: 1px solid var(--surface-700);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: var(--transition);
+    margin-bottom: 8px;
+}
+
+.team-item:hover {
+    border-color: var(--primary-500);
+    background: rgba(30, 30, 46, 0.6);
+}
+
+.team-header {
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+}
+
+.team-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.team-meta {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+.team-members {
+    padding: 0 16px 12px 16px;
+    display: none; /* Collapsed by default */
+    flex-direction: column;
+    gap: 6px;
+    border-top: 1px solid var(--surface-800);
+}
+
+.team-item.open .team-members {
+    display: flex;
+}
+
+.team-item.open .fa-chevron-right {
+    transform: rotate(90deg);
+}
+
+.agent-mini-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.2);
+    font-size: 12px;
+    transition: 0.2s;
+    cursor: pointer;
+}
+
+.agent-mini-card:hover {
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--primary-400);
+}
+
+.leader-badge {
+    color: var(--accent-gold);
+    font-size: 10px;
+    margin-left: auto;
+}
+
+/* Group Action Bar */
+.group-action-bar {
+    display: flex;
+    gap: 12px;
+    padding: 16px;
+    background: var(--surface-850);
+    border-radius: 16px;
+    border: 1px solid var(--surface-700);
+    margin-bottom: 24px;
+    align-items: center;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+}
+
+.group-capsule {
+    padding: 4px 12px;
+    background: var(--primary-glow);
+    border: 1px solid var(--primary-500);
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--primary-300);
+}
+
+/* Synergy Pulse Animation */
+@keyframes synergyPulse {
+    0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
+    70% { box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+}
+
+.synergy-active {
+    animation: synergyPulse 2s infinite;
+}

@@ -1,0 +1,113 @@
+<div id="view-board" class="view-content">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
+                <div>
+                    <h2 style="font-size:20px; font-weight:600; margin-bottom:4px;">Agent Board</h2>
+                    <p style="font-size:12px; color:var(--text-muted); margin:0;">Fleet orchestration & Mission control</p>
+                </div>
+                <div style="display:flex; gap:10px;">
+                    <button class="btn btn-primary" onclick="showNewTaskModal()"><i class="fa-solid fa-plus-circle"></i> New Task</button>
+                    <button class="btn" onclick="showAddAgentModal()"><i class="fa-solid fa-plus"></i> Add Agent</button>
+                </div>
+            </div>
+
+            <div style="display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap;">
+                <button class="tab-btn active" onclick="toggleAgentViewTab(this,'graph')"><i class="fa-solid fa-diagram-project"></i> Graph View</button>
+                <button class="tab-btn" onclick="toggleAgentViewTab(this,'list')"><i class="fa-solid fa-list"></i> List View</button>
+                <button class="tab-btn" onclick="toggleAgentViewTab(this,'kanban')"><i class="fa-solid fa-table-columns"></i> Kanban</button>
+            </div>
+
+            <!-- Agent Board Views -->
+            <div id="agent-graph-area">
+                <div style="display:grid; grid-template-columns:1fr 300px; gap:20px;">
+                    <!-- Left: Agent Topology / Graph -->
+                    <div>
+                        <!-- Selected Agent Header -->
+                        <div id="agentDetailHeader" class="card" style="margin-bottom:16px; display:flex; align-items:center; gap:16px;">
+                            <div style="width:48px; height:48px; border-radius:12px; background:linear-gradient(135deg, var(--primary-500), var(--accent-purple)); display:flex; align-items:center; justify-content:center;">
+                                <i class="fa-solid fa-robot" style="font-size:20px; color:white;"></i>
+                            </div>
+                            <div style="flex:1;">
+                                <h3 id="agentDetailName" style="font-size:16px; font-weight:600; margin:0 0 4px;">Select an agent</h3>
+                                <p id="agentDetailMeta" style="font-size:12px; color:var(--text-muted); margin:0;">Click an agent from the fleet below</p>
+                            </div>
+                            <div id="agentDetailStatus" class="badge badge-green" style="display:none;">Online</div>
+                        </div>
+
+                        <!-- Agent Topology Canvas -->
+                        <div style="background:var(--surface-900); border:1px solid var(--surface-700); border-radius:14px; overflow:hidden; position:relative;">
+                            <canvas id="agentGraphCanvas" width="700" height="380" style="width:100%; height:380px; cursor:grab;"></canvas>
+                            <div id="agentGraphTooltip" style="display:none; position:absolute; background:var(--surface-800); border:1px solid var(--surface-700); border-radius:8px; padding:8px 12px; font-size:11px; color:var(--text-primary); pointer-events:none; z-index:10;"></div>
+                        </div>
+
+                        <!-- Agent Fleet Strip -->
+                        <div style="margin-top:16px;">
+                            <h4 style="font-size:13px; color:var(--text-muted); margin-bottom:10px;">Agent Fleet</h4>
+                            <div id="agentFleetStrip" style="display:flex; gap:10px; overflow-x:auto; padding-bottom:8px;">
+                                <div style="color:var(--text-muted); font-size:12px; padding:20px;">Loading fleet...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right Panel (Resources & Detail) -->
+                    <div>
+                        <div class="card" style="margin-bottom:12px;">
+                            <h4 style="font-size:13px; font-weight:600; margin:0 0 12px;">Missions</h4>
+                            <div id="agentMissionsList" style="display:flex; flex-direction:column; gap:8px;">
+                                <div style="font-size:12px; color:var(--text-muted); padding:10px;">No active missions</div>
+                            </div>
+                        </div>
+                        <div class="card" style="margin-bottom:12px;">
+                            <h4 style="font-size:13px; font-weight:600; margin:0 0 12px;">Capabilities</h4>
+                            <div id="agentCapsList" style="display:flex; flex-wrap:wrap; gap:6px;">
+                                <div style="font-size:12px; color:var(--text-muted);">Select an agent</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="agent-list-area" style="display:none;">
+                <div class="card" style="padding:0; overflow:hidden;">
+                    <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                        <thead style="background:var(--surface-800); text-align:left;">
+                            <tr>
+                                <th style="padding:16px;">Agent</th>
+                                <th style="padding:16px;">Status</th>
+                                <th style="padding:16px;">Endpoint</th>
+                                <th style="padding:16px;">Profile</th>
+                                <th style="padding:16px; text-align:right;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="agent-list-table-body">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="agent-kanban-area" style="display:none;">
+                <div class="kanban-board">
+                    <div class="kanban-col" id="col-todo">
+                        <div class="kanban-header">
+                            <span><i class="fa-solid fa-circle-question" style="color:var(--text-muted)"></i> BACKLOG</span>
+                            <span class="badge" style="background:var(--surface-700)">0</span>
+                        </div>
+                        <div class="kanban-cards"></div>
+                    </div>
+                    <div class="kanban-col" id="col-progress">
+                        <div class="kanban-header">
+                            <span><i class="fa-solid fa-spinner fa-spin" style="color:var(--primary-400)"></i> IN PROGRESS</span>
+                            <span class="badge" style="background:var(--surface-700)">0</span>
+                        </div>
+                        <div class="kanban-cards"></div>
+                    </div>
+                    <div class="kanban-col" id="col-done">
+                        <div class="kanban-header">
+                            <span><i class="fa-solid fa-circle-check" style="color:var(--accent-green)"></i> COMPLETED</span>
+                            <span class="badge" style="background:var(--surface-700)">0</span>
+                        </div>
+                        <div class="kanban-cards"></div>
+                    </div>
+                </div>
+            </div>
+        </div>

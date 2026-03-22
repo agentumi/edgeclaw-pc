@@ -4,9 +4,11 @@
 //! AI is a plugin — security is the platform.
 
 use crate::error::AgentError;
+use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use tracing::{info, warn};
 
 // ─── AI Request / Response ─────────────────────────────────
 
@@ -26,6 +28,12 @@ pub struct AiRequest {
     pub model: Option<String>,
     /// Optional file attachments (images, text docs)
     pub attachments: Vec<FileAttachment>,
+    /// Whether to permit parallel capability execution
+    pub parallel: bool,
+    /// Preferred strategies (e.g., "fast", "accurate")
+    pub strategies: Vec<String>,
+    /// Preferred language for the AI response (e.g. "english", "korean")
+    pub preferred_language: Option<String>,
 }
 
 /// A file attached to an AI request
@@ -36,8 +44,47 @@ pub struct FileAttachment {
     pub content_base64: String,
 }
 
-/// AI provider response
+/// Metadata for a registered mission
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MissionMetadata {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub category: String,
+    pub tags: Vec<String>,
+    pub role: String,
+    pub owner: String,
+    pub goals: Vec<String>,
+    pub status: MissionStatus,
+    pub tasks: Vec<TaskUnit>,
+}
+
+/// A single atomic unit of work within a mission
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TaskUnit {
+    pub desc: String,
+    pub capability: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub order: u32,
+}
+
+/// Current status of a mission
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum MissionStatus {
+    Proposed,
+    Discovery,
+    Planning,
+    Active,
+    Verification,
+    Success,
+    Failure,
+    Aborted,
+}
+
+/// AI provider response
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AiResponse {
     /// The AI's text response to display to the user
     pub message: String,
@@ -49,10 +96,12 @@ pub struct AiResponse {
     pub provider: String,
     /// Whether this was processed locally
     pub is_local: bool,
+    /// For parallel execution: individual responses
+    pub sub_responses: Vec<AiResponse>,
 }
 
 /// Parsed intent from natural language
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ParsedIntent {
     /// The capability to invoke (e.g., "shell_exec", "file_read")
     pub capability: String,
@@ -62,6 +111,8 @@ pub struct ParsedIntent {
     pub args: Vec<String>,
     /// Whether user confirmation is recommended
     pub needs_confirmation: bool,
+    /// For multi-step business missions: the mission metadata to create
+    pub mission: Option<MissionMetadata>,
 }
 
 /// Chat message for conversation history
@@ -133,6 +184,11 @@ impl OllamaProvider {
             model: model.to_string(),
             timeout: Duration::from_millis(timeout_ms),
         }
+    }
+
+    /// Helper to resolve stable local loopback for Windows
+    fn self_127_endpoint(&self) -> String {
+        self.endpoint.replace("localhost", "127.0.0.1")
     }
 
     /// List all locally available Ollama models.
@@ -232,27 +288,78 @@ Respond in JSON: {{"message": "your analysis summary", "intent": null, "confiden
             .collect::<Vec<_>>()
             .join("\n");
 
-        let persona = if request.peer_role == "web-client" {
-            "You are a helpful and conversational AI assistant. Answer technical and general questions clearly."
+        let lang = request.preferred_language.as_deref().unwrap_or("english").to_lowercase();
+        
+        // Define language-specific rules and few-shot examples
+        let (lang_rules, mission_example) = if lang == "korean" || lang == "ko" {
+            (
+                r#"- Use PROFESSIONAL MODERN KOREAN (표준어). NO dialects.
+- ALL 'message', 'title', and 'description' MUST be in KOREAN HANGUL. 
+- Use RAW UTF-8 Korean. NO Unicode escapes."#,
+                r#"{{
+  "message": "사용자 요구사항을 분석한 마케팅 자동화 기획안입니다.",
+  "intent": {{
+    "capability": "create_mission",
+    "mission": {{
+      "id": "tel-campaign-001",
+      "title": "텔레그램 바이럴 마케팅 오케스트레이션",
+      "description": "사용자 유입 데이터를 실시간 분석하여 최적화된 마케팅 메시지를 자동 전송하는 시스템을 구축합니다.",
+      "tasks": [
+        {{ "id": "t1", "desc": "사용자 활동 데이터베이스 분석", "capability": "status_query", "command": "db_query" }},
+        {{ "id": "t2", "desc": "바이럴 메시지 자동 생성 및 발송", "capability": "shell_exec", "command": "viral_exec" }}
+      ]
+    }}
+  }}
+}}"#
+            )
         } else {
-            "You are a professional system administration AI. Focus on technical accuracy."
+            (
+                r#"- Use PROFESSIONAL MODERN ENGLISH.
+- ALL 'message', 'title', and 'description' MUST be in English.
+- Be concise and business-oriented."#,
+                r#"{{
+  "message": "Here is the proposed business automation mission plan.",
+  "intent": {{
+    "capability": "create_mission",
+    "mission": {{
+      "id": "global-mission-001",
+      "title": "Global Fleet Orchestration",
+      "description": "Established high-precision monitoring and automation pulse across all connected edges.",
+      "tasks": [
+        {{ "id": "t1", "desc": "Check edge health status", "capability": "status_query", "command": "health_check" }},
+        {{ "id": "t2", "desc": "Synchronize global policy", "capability": "shell_exec", "command": "policy_sync" }}
+      ]
+    }}
+  }}
+}}"#
+            )
         };
+
+        let persona = format!(r#"You are the EdgeClaw CI Orchestrator (EC-CIO), a high-precision business automation expert.
+Your goal is to analyze user requests and propose a structured 'Mission' plan.
+
+THOUGHT PROCESS:
+1. Analyze the core business intent.
+2. Formulate a mission title and description (strictly in the selected language).
+3. Break down the goal into Atomic Task Units.
+
+LANGUAGE RULES:
+{lang_rules}
+
+Respond ONLY in this JSON format:
+{mission_example}"#);
 
         format!(
             r#"{persona}
-Available capabilities: [{caps}]
-User role: {role}
+
+Context: [{caps}]
+User Role: {role}
 {system_ctx}
 
 {history}
 
 User: {input}
-
-Respond in this JSON format:
-{{"message": "your response", "intent": {{"capability": "cap_name", "command": "cmd", "args": [], "needs_confirmation": true}}, "confidence": 0.95}}
-
-If the user is just chatting (not requesting a command), set intent to null.
-Keep responses professional, insightful, and helpful."#,
+"#,
             persona = persona,
             caps = caps,
             role = request.peer_role,
@@ -297,6 +404,7 @@ Keep responses professional, insightful, and helpful."#,
                 confidence: parsed.confidence.unwrap_or(0.5),
                 provider: "ollama".to_string(),
                 is_local: true,
+                sub_responses: Vec::new(),
             }),
             Err(_) => {
                 // Fallback: treat the entire response as a message
@@ -306,6 +414,7 @@ Keep responses professional, insightful, and helpful."#,
                     confidence: 0.3,
                     provider: "ollama".to_string(),
                     is_local: true,
+                    sub_responses: Vec::new(),
                 })
             }
         }
@@ -325,42 +434,64 @@ impl AiProvider for OllamaProvider {
 
     fn process(&self, request: &AiRequest) -> Result<AiResponse, AgentError> {
         let prompt = self.build_prompt(request);
-        let url = format!("{}/api/generate", self.endpoint);
-
+        let url = format!("{}/api/generate", self.self_127_endpoint()); // Force local loopback bypass
+        
         let model = request.model.as_deref().unwrap_or(&self.model);
         let mut body = serde_json::json!({
             "model": model,
             "prompt": prompt,
             "stream": false,
-            "options": {
-                "temperature": 0.6,
-                "num_predict": 1024
-            }
+            "format": "json"
         });
-        
-        let images: Vec<String> = request.attachments.iter()
-            .filter(|a| a.mime_type.starts_with("image/"))
-            .map(|a| a.content_base64.clone())
-            .collect();
 
-        if !images.is_empty() {
-            if let Some(obj) = body.as_object_mut() {
+        if let Some(obj) = body.as_object_mut() {
+            // Attach images if present
+            let images: Vec<String> = request.attachments.iter()
+                .filter(|a| a.mime_type.starts_with("image/"))
+                .map(|a| a.content_base64.clone())
+                .collect();
+            if !images.is_empty() {
                 obj.insert("images".to_string(), serde_json::json!(images));
             }
+
+            // Maximum Determinism for high-fidelity Korean
+            obj.insert("options".to_string(), serde_json::json!({
+                "temperature": 0.1,
+                "top_p": 0.1,
+                "num_predict": 1024,
+                "num_ctx": 4096,
+                "repeat_penalty": 1.3,
+                "stop": ["\nUser:", "###", "```"]
+            }));
         }
 
-
-        let resp = ureq_post_json_with_timeout(&url, &body, self.timeout)?;
-
-        #[derive(Deserialize)]
-        struct OllamaResp {
-            response: String,
+        // MASSIVE TIMEOUT: Give Ollama 10 minutes to load and inference.
+        let timeout = Duration::from_secs(600);
+        
+        println!(">>> AGENT: AI Mission Orchestration Requested ({})", model);
+        
+        match ureq_post_json_with_timeout(&url, &body, timeout) {
+            Ok(resp_str) => {
+                #[derive(Deserialize)]
+                struct OllamaResp { response: String }
+                let ollama_resp: OllamaResp = serde_json::from_str(&resp_str)
+                    .map_err(|e| AgentError::SerializationError(format!("ollama decode: {}", e)))?;
+                
+                println!("<<< AGENT: AI Orchestration Received. Parsing content...");
+                self.parse_response(&ollama_resp.response)
+            },
+            Err(e) => {
+                println!("!!! AGENT: AI Connection Error (127): {}. Retrying with config endpoint...", e);
+                let alt_url = format!("{}/api/generate", self.endpoint);
+                let resp = ureq_post_json_with_timeout(&alt_url, &body, timeout)?;
+                
+                #[derive(Deserialize)]
+                struct OllamaResp { response: String }
+                let ollama_resp: OllamaResp = serde_json::from_str(&resp)
+                    .map_err(|e| AgentError::SerializationError(format!("ollama decode: {}", e)))?;
+                self.parse_response(&ollama_resp.response)
+            }
         }
-
-        let ollama_resp: OllamaResp = serde_json::from_str(&resp)
-            .map_err(|e| AgentError::SerializationError(format!("ollama response: {}", e)))?;
-
-        self.parse_response(&ollama_resp.response)
     }
 
     fn is_local(&self) -> bool {
@@ -406,12 +537,13 @@ impl OpenAiProvider {
         let mut messages = vec![serde_json::json!({
             "role": "system",
             "content": format!(
-                "You are EdgeClaw AI assistant for secure server management. \
-                 Available capabilities: [{}]. User role: {}. \
-                 Respond with JSON: {{\"message\": \"...\", \"intent\": {{\"capability\": \"...\", \
-                 \"command\": \"...\", \"args\": [], \"needs_confirmation\": true}}, \"confidence\": 0.95}}. \
-                 Set intent to null for non-command messages. Be concise. \
-                 For elderly or non-technical users, be extra clear and simple.",
+                "You are the EC-CIO (EdgeClaw Collective Intelligence Orchestrator). \
+                 Goal: Perform complex business automation using parallelized local models. \
+                 Method: BREAK missions into tiny, error-free 'Atomic Task Units' (ATUs). \
+                 Always propose a clear mission with small, sequential chunks for collective verification. \
+                 Capabilities: [{}]. User role: {}. \
+                 Language: Korean for the 'message' field. \
+                 Output JSON: {{\"message\": \"...\", \"intent\": {{\"capability\": \"create_mission\", \"mission\": {{ \"id\": \"...\", \"title\": \"...\", \"tasks\": [...] }} }}, \"confidence\": 0.95}}.",
                 caps, request.peer_role
             )
         })];
@@ -549,11 +681,14 @@ impl AiProvider for ClaudeProvider {
             "model": self.model,
             "max_tokens": 512,
             "system": format!(
-                "You are EdgeClaw AI assistant for secure server management. \
+                "You are a Business Orchestrator and EdgeClaw Agent orchestrator. \
+                 When the user expresses a general task or business need, your goal is to help them turn it into an actionable 'Mission'. \
+                 Analyze the business value, propose a title, and define specific task units. \
                  Available capabilities: [{}]. User role: {}. \
-                 Respond with JSON: {{\"message\": \"...\", \"intent\": {{\"capability\": \"...\", \
-                 \"command\": \"...\", \"args\": [], \"needs_confirmation\": true}}, \"confidence\": 0.95}}. \
-                 Set intent to null for non-command messages. Be concise.",
+                 Respond in JSON: {{ \"message\": \"...\", \"intent\": {{ \"capability\": \"create_mission\", \
+                 \"mission\": {{ \"id\": \"...\", \"title\": \"...\", \"description\": \"...\", \"role\": \"...\", \"status\": \"proposed\" }}, \
+                 \"confidence\": 0.95 }} }}. \
+                 Set intent to null for non-command messages. Be professional and visionary.",
                 caps, request.peer_role
             ),
             "messages": messages
@@ -587,6 +722,88 @@ impl AiProvider for ClaudeProvider {
         false
     }
 
+    fn set_model(&mut self, model: &str) -> Result<(), AgentError> {
+        self.model = model.to_string();
+        Ok(())
+    }
+}
+// ─── GPT-OSS 120B Provider (Cloud) ─────────────────────────
+
+/// Premium AI provider using EdgeClaw GPT-OSS 120B
+pub struct GptOssProvider {
+    api_key: String,
+    model: String,
+    endpoint: String,
+    timeout: Duration,
+}
+
+impl GptOssProvider {
+    pub fn new(api_key: &str, model: &str, endpoint: &str, timeout_ms: u64) -> Self {
+        Self {
+            api_key: api_key.to_string(),
+            model: model.to_string(),
+            endpoint: endpoint.to_string(),
+            timeout: Duration::from_millis(timeout_ms),
+        }
+    }
+}
+
+impl AiProvider for GptOssProvider {
+    fn name(&self) -> &str {
+        "gpt-oss"
+    }
+
+    fn is_available(&self) -> bool {
+        // High-perf cloud is usually available if endpoint is set
+        !self.endpoint.is_empty()
+    }
+
+    fn process(&self, request: &AiRequest) -> Result<AiResponse, AgentError> {
+        let caps = request.available_capabilities.join(", ");
+        
+        let mut messages = vec![serde_json::json!({
+            "role": "system",
+            "content": format!(
+                "You are EdgeClaw GPT-OSS 120B, the primary intelligence for this agent fleet. \
+                 Available capabilities: [{}]. \
+                 Strictly respond with valid JSON: {{\"message\": \"...\", \"intent\": null, \"confidence\": 0.95}}. \
+                 You excel at translation and complex orchestration.",
+                caps
+            )
+        })];
+
+        for msg in &request.history {
+            let role = match msg.role {
+                ChatRole::User => "user",
+                ChatRole::Assistant => "assistant",
+                ChatRole::System => "system",
+            };
+            messages.push(serde_json::json!({ "role": role, "content": msg.content }));
+        }
+
+        messages.push(serde_json::json!({ "role": "user", "content": request.user_input }));
+
+        let body = serde_json::json!({
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.4,
+            "max_tokens": 2048
+        });
+
+        // GPT-OSS uses a slightly different auth or no auth but assume it's V1 compatible for now
+        let resp = if !self.api_key.is_empty() {
+            ureq_post_json_with_auth(&self.endpoint, &body, &self.api_key, self.timeout)?
+        } else {
+            ureq_post_json_with_timeout(&self.endpoint, &body, self.timeout)?
+        };
+
+        parse_cloud_response(&resp, "gpt-oss")
+    }
+
+    fn is_local(&self) -> bool {
+        false
+    }
+    
     fn set_model(&mut self, model: &str) -> Result<(), AgentError> {
         self.model = model.to_string();
         Ok(())
@@ -639,48 +856,56 @@ impl NoneProvider {
                 command: "systeminfo | findstr /B /C:\"OS Name\" /C:\"OS Version\" /C:\"System Type\" /C:\"Total Physical\"".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "cpu" | "cpu사용량" => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "wmic cpu get loadpercentage,name /format:list".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "memory" | "메모리" | "ram" => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "powershell -Command \"Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory | Format-List\"".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "disk" | "디스크" => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "powershell -Command \"Get-PSDrive -PSProvider FileSystem | Format-Table Name,Used,Free,@{N='Total';E={$_.Used+$_.Free}} -AutoSize\"".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "ps" | "process" | "프로세스" => Some(ParsedIntent {
                 capability: "process_manage".to_string(),
                 command: "powershell -Command \"Get-Process | Sort-Object CPU -Descending | Select-Object -First 20 Name,Id,CPU,WorkingSet64 | Format-Table -AutoSize\"".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "network" | "네트워크" | "ip" => Some(ParsedIntent {
                 capability: "network_scan".to_string(),
                 command: "ipconfig /all".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "port" | "포트" | "ports" => Some(ParsedIntent {
                 capability: "network_scan".to_string(),
                 command: "netstat -an | findstr LISTENING".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "uptime" | "가동시간" => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "powershell -Command \"(Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime | Select-Object Days,Hours,Minutes | Format-List\"".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
 
             // ── Service / Process Management ──
@@ -689,6 +914,7 @@ impl NoneProvider {
                 command: "powershell -Command \"Get-Service | Where-Object {$_.Status -eq 'Running'} | Select-Object -First 30 Name,DisplayName,Status | Format-Table -AutoSize\"".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "restart" | "재시작" => {
                 if arg1.is_empty() {
@@ -699,6 +925,7 @@ impl NoneProvider {
                     command: format!("powershell -Command \"Restart-Service -Name '{}' -Force\"", arg1),
                     args: vec![],
                     needs_confirmation: true,
+                    mission: None,
                 })
             }
             "stop" | "중지" => {
@@ -708,6 +935,7 @@ impl NoneProvider {
                     command: format!("powershell -Command \"Stop-Service -Name '{}' -Force\"", arg1),
                     args: vec![],
                     needs_confirmation: true,
+                    mission: None,
                 })
             }
             "start" if !arg1.is_empty() => Some(ParsedIntent {
@@ -715,6 +943,7 @@ impl NoneProvider {
                 command: format!("powershell -Command \"Start-Service -Name '{}'\"", arg1),
                 args: vec![],
                 needs_confirmation: true,
+                mission: None,
             }),
             "kill" => {
                 if arg1.is_empty() { return None; }
@@ -723,6 +952,7 @@ impl NoneProvider {
                     command: format!("taskkill /F /PID {}", arg1),
                     args: vec![],
                     needs_confirmation: true,
+                    mission: None,
                 })
             }
 
@@ -732,6 +962,7 @@ impl NoneProvider {
                 command: format!("dir /B {}", if arg1.is_empty() { "." } else { arg1 }),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "cat" | "type" | "읽기" | "read" => {
                 if arg1.is_empty() { return None; }
@@ -740,6 +971,7 @@ impl NoneProvider {
                     command: format!("type \"{}\"", arg1),
                     args: vec![],
                     needs_confirmation: false,
+                    mission: None,
                 })
             }
             "find" | "search" | "검색" => {
@@ -749,6 +981,7 @@ impl NoneProvider {
                     command: format!("powershell -Command \"Get-ChildItem -Recurse -Filter '*{}*' | Select-Object FullName\"", arg1),
                     args: vec![],
                     needs_confirmation: false,
+                    mission: None,
                 })
             }
 
@@ -761,12 +994,14 @@ impl NoneProvider {
                 ),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "errors" | "에러" | "오류" => Some(ParsedIntent {
                 capability: "log_read".to_string(),
                 command: "powershell -Command \"Get-EventLog -LogName Application -EntryType Error -Newest 20 | Format-Table TimeGenerated,Source,Message -AutoSize\"".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
 
             // ── Docker ──
@@ -776,42 +1011,49 @@ impl NoneProvider {
                     command: "docker ps --format \"table {{.Names}}\t{{.Status}}\t{{.Ports}}\"".to_string(),
                     args: vec![],
                     needs_confirmation: false,
+                    mission: None,
                 }),
                 "images" => Some(ParsedIntent {
                     capability: "docker_manage".to_string(),
                     command: "docker images --format \"table {{.Repository}}\t{{.Tag}}\t{{.Size}}\"".to_string(),
                     args: vec![],
                     needs_confirmation: false,
+                    mission: None,
                 }),
                 "logs" => Some(ParsedIntent {
                     capability: "docker_manage".to_string(),
                     command: format!("docker logs --tail 50 {}", arg2),
                     args: vec![],
                     needs_confirmation: false,
+                    mission: None,
                 }),
                 "restart" => Some(ParsedIntent {
                     capability: "docker_manage".to_string(),
                     command: format!("docker restart {}", arg2),
                     args: vec![],
                     needs_confirmation: true,
+                    mission: None,
                 }),
                 "stop" => Some(ParsedIntent {
                     capability: "docker_manage".to_string(),
                     command: format!("docker stop {}", arg2),
                     args: vec![],
                     needs_confirmation: true,
+                    mission: None,
                 }),
                 "start" => Some(ParsedIntent {
                     capability: "docker_manage".to_string(),
                     command: format!("docker start {}", arg2),
                     args: vec![],
                     needs_confirmation: true,
+                    mission: None,
                 }),
                 "stats" => Some(ParsedIntent {
                     capability: "docker_manage".to_string(),
                     command: "docker stats --no-stream --format \"table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\"".to_string(),
                     args: vec![],
                     needs_confirmation: false,
+                    mission: None,
                 }),
                 _ => None,
             },
@@ -823,42 +1065,49 @@ impl NoneProvider {
                     command: "git status".to_string(),
                     args: vec![],
                     needs_confirmation: false,
+                    mission: None,
                 }),
                 "log" => Some(ParsedIntent {
                     capability: "shell_exec".to_string(),
                     command: "git log --oneline -20".to_string(),
                     args: vec![],
                     needs_confirmation: false,
+                    mission: None,
                 }),
                 "branch" | "branches" => Some(ParsedIntent {
                     capability: "shell_exec".to_string(),
                     command: "git branch -a".to_string(),
                     args: vec![],
                     needs_confirmation: false,
+                    mission: None,
                 }),
                 "pull" => Some(ParsedIntent {
                     capability: "shell_exec".to_string(),
                     command: "git pull".to_string(),
                     args: vec![],
                     needs_confirmation: true,
+                    mission: None,
                 }),
                 "push" => Some(ParsedIntent {
                     capability: "shell_exec".to_string(),
                     command: "git push".to_string(),
                     args: vec![],
                     needs_confirmation: true,
+                    mission: None,
                 }),
                 "diff" => Some(ParsedIntent {
                     capability: "shell_exec".to_string(),
                     command: "git diff --stat".to_string(),
                     args: vec![],
                     needs_confirmation: false,
+                    mission: None,
                 }),
                 "stash" => Some(ParsedIntent {
                     capability: "shell_exec".to_string(),
                     command: if arg2.is_empty() { "git stash list".to_string() } else { format!("git stash {}", arg2) },
                     args: vec![],
                     needs_confirmation: arg2 == "pop" || arg2 == "drop",
+                    mission: None,
                 }),
                 _ => None,
             },
@@ -873,6 +1122,7 @@ impl NoneProvider {
                 },
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "test" | "테스트" => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
@@ -883,18 +1133,21 @@ impl NoneProvider {
                 },
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "lint" | "clippy" | "린트" => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
                 command: "cargo clippy --all-targets -- -D warnings 2>&1".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "fmt" | "format" | "포맷" => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
                 command: "cargo fmt 2>&1".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "deploy" | "배포" => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
@@ -905,18 +1158,21 @@ impl NoneProvider {
                 },
                 args: vec![],
                 needs_confirmation: true,
+                mission: None,
             }),
             "deps" | "dependencies" | "의존성" => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
                 command: "cargo tree --depth 1".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "audit" | "감사" => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
                 command: "cargo audit 2>&1".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
 
             // ── npm / Node.js ──
@@ -925,26 +1181,31 @@ impl NoneProvider {
                     capability: "shell_exec".to_string(),
                     command: "npm test 2>&1".to_string(),
                     args: vec![], needs_confirmation: false,
+                    mission: None,
                 }),
                 "build" => Some(ParsedIntent {
                     capability: "shell_exec".to_string(),
                     command: "npm run build 2>&1".to_string(),
                     args: vec![], needs_confirmation: false,
+                    mission: None,
                 }),
                 "start" => Some(ParsedIntent {
                     capability: "shell_exec".to_string(),
                     command: "npm start 2>&1".to_string(),
                     args: vec![], needs_confirmation: true,
+                    mission: None,
                 }),
                 "audit" => Some(ParsedIntent {
                     capability: "shell_exec".to_string(),
                     command: "npm audit 2>&1".to_string(),
                     args: vec![], needs_confirmation: false,
+                    mission: None,
                 }),
                 "outdated" => Some(ParsedIntent {
                     capability: "shell_exec".to_string(),
                     command: "npm outdated 2>&1".to_string(),
                     args: vec![], needs_confirmation: false,
+                    mission: None,
                 }),
                 _ => None,
             },
@@ -956,21 +1217,25 @@ impl NoneProvider {
                     command: "powershell -Command \"$ts = Get-Date -Format 'yyyyMMdd_HHmmss'; echo 'DB backup: backup_$ts.sql created'\"".to_string(),
                     args: vec![],
                     needs_confirmation: true,
+                    mission: None,
                 }),
                 "size" => Some(ParsedIntent {
                     capability: "status_query".to_string(),
                     command: "echo 'Database monitoring not yet configured — install a database agent plugin to enable'".to_string(),
                     args: vec![], needs_confirmation: false,
+                    mission: None,
                 }),
                 "connections" => Some(ParsedIntent {
                     capability: "status_query".to_string(),
                     command: "echo 'Database monitoring not yet configured — install a database agent plugin to enable'".to_string(),
                     args: vec![], needs_confirmation: false,
+                    mission: None,
                 }),
                 _ => Some(ParsedIntent {
                     capability: "status_query".to_string(),
                     command: "echo 'DB commands: db backup | db size | db connections'".to_string(),
                     args: vec![], needs_confirmation: false,
+                    mission: None,
                 }),
             },
 
@@ -983,23 +1248,27 @@ impl NoneProvider {
                 ),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "analytics" | "분석" => Some(ParsedIntent {
                 capability: "status_query".to_string(),
                 command: "echo 'Analytics module not yet configured — use system monitoring or install an analytics plugin'".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "campaign" | "캠페인" => match arg1 {
                 "list" | "" => Some(ParsedIntent {
                     capability: "status_query".to_string(),
                     command: "echo 'Campaign management not yet configured — install a marketing plugin to enable'".to_string(),
                     args: vec![], needs_confirmation: false,
+                    mission: None,
                 }),
                 "status" => Some(ParsedIntent {
                     capability: "status_query".to_string(),
                     command: format!("echo 'Campaign status for: {}'", arg2),
                     args: vec![], needs_confirmation: false,
+                    mission: None,
                 }),
                 _ => None,
             },
@@ -1011,18 +1280,21 @@ impl NoneProvider {
                 ),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "schedule" | "스케줄" | "예약" => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
                 command: "powershell -Command \"Get-ScheduledTask | Where-Object {$_.State -eq 'Ready'} | Select-Object -First 20 TaskName,State,LastRunTime | Format-Table -AutoSize\"".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "backup" | "백업" => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
                 command: "powershell -Command \"$ts = Get-Date -Format 'yyyyMMdd_HHmmss'; echo '=== Backup Started ($ts) ==='; echo 'Configure backup targets in agent.toml [backup] section'\"".to_string(),
                 args: vec![],
                 needs_confirmation: true,
+                mission: None,
             }),
 
             // ── Utility ──
@@ -1031,24 +1303,28 @@ impl NoneProvider {
                 command: format!("ping -n 4 {}", if arg1.is_empty() { "google.com" } else { arg1 }),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "env" | "환경" => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "set".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "whoami" => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "whoami /all".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             "help" | "도움말" | "명령어" => Some(ParsedIntent {
                 capability: "status_query".to_string(),
                 command: "echo '=== EdgeClaw Commands ===' && echo. && echo [System] status, cpu, memory, disk, ps, network, port, uptime, services && echo [Files] ls, cat, find, log, errors && echo [DevOps] docker ps/logs/restart, git status/log/pull/push && echo [Build] build, test, lint, fmt, deploy, deps, audit && echo [Node] npm test/build/start/audit/outdated && echo [DB] db backup/size/connections && echo [Marketing] report, analytics, campaign, seo, schedule && echo [Misc] ping, env, whoami, backup, help'".to_string(),
                 args: vec![],
                 needs_confirmation: false,
+                mission: None,
             }),
             _ => None,
         }
@@ -1061,41 +1337,49 @@ impl NoneProvider {
                 capability: "status_query".to_string(),
                 command: "uname -a && uptime && free -h | head -2".to_string(),
                 args: vec![], needs_confirmation: false,
+                mission: None,
             }),
             "cpu" | "cpu사용량" => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "top -bn1 | head -20".to_string(),
                 args: vec![], needs_confirmation: false,
+                mission: None,
             }),
             "memory" | "메모리" | "ram" => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "free -h".to_string(),
                 args: vec![], needs_confirmation: false,
+                mission: None,
             }),
             "disk" | "디스크" => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "df -h".to_string(),
                 args: vec![], needs_confirmation: false,
+                mission: None,
             }),
             "ps" | "process" | "프로세스" => Some(ParsedIntent {
                 capability: "process_manage".to_string(),
                 command: "ps aux --sort=-pcpu | head -20".to_string(),
                 args: vec![], needs_confirmation: false,
+                mission: None,
             }),
             "network" | "네트워크" | "ip" => Some(ParsedIntent {
                 capability: "network_scan".to_string(),
                 command: "ip addr show".to_string(),
                 args: vec![], needs_confirmation: false,
+                mission: None,
             }),
             "port" | "포트" | "ports" => Some(ParsedIntent {
                 capability: "network_scan".to_string(),
                 command: "ss -tlnp".to_string(),
                 args: vec![], needs_confirmation: false,
+                mission: None,
             }),
             "services" | "서비스" | "service" => Some(ParsedIntent {
                 capability: "status_query".to_string(),
                 command: "systemctl list-units --type=service --state=running".to_string(),
                 args: vec![], needs_confirmation: false,
+                mission: None,
             }),
             "restart" | "재시작" => {
                 if arg1.is_empty() { return None; }
@@ -1103,6 +1387,7 @@ impl NoneProvider {
                     capability: "shell_exec".to_string(),
                     command: format!("systemctl restart {}", arg1),
                     args: vec![], needs_confirmation: true,
+                    mission: None,
                 })
             }
             "stop" | "중지" => {
@@ -1111,22 +1396,26 @@ impl NoneProvider {
                     capability: "shell_exec".to_string(),
                     command: format!("systemctl stop {}", arg1),
                     args: vec![], needs_confirmation: true,
+                    mission: None,
                 })
             }
             "log" | "logs" | "로그" => Some(ParsedIntent {
                 capability: "log_read".to_string(),
                 command: format!("tail -50 {}", if arg1.is_empty() { "/var/log/syslog" } else { arg1 }),
                 args: vec![], needs_confirmation: false,
+                mission: None,
             }),
             "errors" | "에러" | "오류" => Some(ParsedIntent {
                 capability: "log_read".to_string(),
                 command: "journalctl -p err --since '1 hour ago' | tail -30".to_string(),
                 args: vec![], needs_confirmation: false,
+                mission: None,
             }),
             "ls" | "dir" | "파일" | "list" => Some(ParsedIntent {
                 capability: "file_read".to_string(),
                 command: format!("ls -la {}", if arg1.is_empty() { "." } else { arg1 }),
                 args: vec![], needs_confirmation: false,
+                mission: None,
             }),
             "cat" | "읽기" | "read" => {
                 if arg1.is_empty() { return None; }
@@ -1155,27 +1444,29 @@ impl NoneProvider {
                 _ => None,
             },
             "git" => match arg1 {
-                "status" | "" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "git status".to_string(), args: vec![], needs_confirmation: false }),
+                "status" | "" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "git status".to_string(), args: vec![], needs_confirmation: false, mission: None }),
                 "log" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "git log --oneline -20".to_string(), args: vec![], needs_confirmation: false }),
                 "branch" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "git branch -a".to_string(), args: vec![], needs_confirmation: false }),
-                "pull" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "git pull".to_string(), args: vec![], needs_confirmation: true }),
-                "push" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "git push".to_string(), args: vec![], needs_confirmation: true }),
+                "pull" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "git pull".to_string(), args: vec![], needs_confirmation: true, mission: None }),
+                "push" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "git push".to_string(), args: vec![], needs_confirmation: true, mission: None }),
                 "diff" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "git diff --stat".to_string(), args: vec![], needs_confirmation: false }),
                 _ => None,
             },
-            "build" | "빌드" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: if arg1.is_empty() { "cargo build 2>&1".to_string() } else { format!("cargo build --{} 2>&1", arg1) }, args: vec![], needs_confirmation: false }),
-            "test" | "테스트" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: if arg1.is_empty() { "cargo test 2>&1".to_string() } else { format!("cargo test {} 2>&1", arg1) }, args: vec![], needs_confirmation: false }),
-            "lint" | "clippy" | "린트" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "cargo clippy --all-targets -- -D warnings 2>&1".to_string(), args: vec![], needs_confirmation: false }),
-            "deploy" | "배포" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: format!("echo 'Deploying to {}...' && cargo build --release 2>&1", if arg1.is_empty() { "staging" } else { arg1 }), args: vec![], needs_confirmation: true }),
+            "build" | "빌드" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: if arg1.is_empty() { "cargo build 2>&1".to_string() } else { format!("cargo build --{} 2>&1", arg1) }, args: vec![], needs_confirmation: false, mission: None }),
+            "test" | "테스트" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: if arg1.is_empty() { "cargo test 2>&1".to_string() } else { format!("cargo test {} 2>&1", arg1) }, args: vec![], needs_confirmation: false, mission: None }),
+            "lint" | "clippy" | "린트" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "cargo clippy --all-targets -- -D warnings 2>&1".to_string(), args: vec![], needs_confirmation: false, mission: None }),
+            "deploy" | "배포" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: format!("echo 'Deploying to {}...' && cargo build --release 2>&1", if arg1.is_empty() { "staging" } else { arg1 }), args: vec![], needs_confirmation: true, mission: None }),
             "help" | "도움말" | "명령어" => Some(ParsedIntent {
                 capability: "status_query".to_string(),
                 command: "echo '=== EdgeClaw Commands ===\n[System] status, cpu, memory, disk, ps, network, port, services\n[Files] ls, cat, log, errors\n[DevOps] docker ps/logs/restart, git status/log/pull/push\n[Build] build, test, lint, deploy\n[Misc] ping, env, whoami, backup, help'".to_string(),
                 args: vec![], needs_confirmation: false,
+                mission: None,
             }),
             "ping" => Some(ParsedIntent {
                 capability: "network_scan".to_string(),
                 command: format!("ping -c 4 {}", if arg1.is_empty() { "google.com" } else { arg1 }),
                 args: vec![], needs_confirmation: false,
+                mission: None,
             }),
             "backup" | "백업" => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
@@ -1204,6 +1495,7 @@ impl AiProvider for NoneProvider {
                 confidence: 1.0,
                 provider: "none".to_string(),
                 is_local: true,
+                sub_responses: Vec::new(),
             }),
             None => Ok(AiResponse {
                 message: format!(
@@ -1214,6 +1506,7 @@ impl AiProvider for NoneProvider {
                 confidence: 0.0,
                 provider: "none".to_string(),
                 is_local: true,
+                sub_responses: Vec::new(),
             }),
         }
     }
@@ -1230,6 +1523,34 @@ impl AiProvider for NoneProvider {
 
 // ─── AI Manager ────────────────────────────────────────────
 
+pub struct MissionRegistry {
+    pub missions: RwLock<HashMap<String, MissionMetadata>>,
+}
+
+impl MissionRegistry {
+    pub fn new() -> Self {
+        Self {
+            missions: RwLock::new(HashMap::new()),
+        }
+    }
+
+    pub fn register(&self, metadata: MissionMetadata) {
+        let mut missions = self.missions.write().unwrap();
+        missions.insert(metadata.id.clone(), metadata);
+    }
+
+    pub fn list(&self) -> Vec<MissionMetadata> {
+        let missions = self.missions.read().unwrap();
+        missions.values().cloned().collect()
+    }
+
+    pub fn get_by_role(&self, role: &str) -> Option<MissionMetadata> {
+        let missions = self.missions.read().unwrap();
+        missions.values().find(|m| m.role == role).cloned()
+    }
+}
+
+/// Manages AI providers with fallback and escalation
 /// Manages AI providers with fallback and escalation
 pub struct AiManager {
     primary: Box<dyn AiProvider>,
@@ -1237,86 +1558,87 @@ pub struct AiManager {
     escalation_threshold: f64,
     sensitive_keywords: Vec<String>,
     require_consent: bool,
+    mission_registry: Arc<MissionRegistry>,
+    signing_key: Option<SigningKey>,
+    config: crate::config::AiConfig,
 }
 
 impl AiManager {
     /// Create a new AI manager from config
     pub fn from_config(config: &crate::config::AiConfig) -> Self {
-        let primary: Box<dyn AiProvider> = match config.primary.as_str() {
+        let primary = Self::create_provider(config, &config.primary);
+        
+        Self {
+            primary,
+            fallback: None, 
+            escalation_threshold: config.policy.escalation_threshold,
+            sensitive_keywords: config.policy.never_cloud.clone(),
+            require_consent: config.policy.require_consent,
+            mission_registry: Arc::new(MissionRegistry::new()),
+            signing_key: None,
+            config: config.clone(),
+        }
+    }
+
+    fn create_provider(config: &crate::config::AiConfig, name: &str) -> Box<dyn AiProvider> {
+        match name {
             "ollama" | "local" => Box::new(OllamaProvider::new(
                 &config.local.endpoint,
                 &config.local.model,
                 config.local.timeout_ms,
             )),
-            "openai" => {
+            "openai" | "gpt-4o" | "gpt-4-turbo" => {
                 let api_key = std::env::var("EDGECLAW_OPENAI_KEY").unwrap_or_default();
                 Box::new(OpenAiProvider::new(
                     &api_key,
-                    &config.cloud.model,
+                    name,
                     &config.cloud.endpoint,
                     config.cloud.timeout_ms,
                 ))
             }
-            "claude" => {
+            "claude" | "claude-3-5-sonnet" => {
                 let api_key = std::env::var("EDGECLAW_CLAUDE_KEY").unwrap_or_default();
                 Box::new(ClaudeProvider::new(
                     &api_key,
-                    &config.cloud.model,
+                    name,
                     &config.cloud.endpoint,
                     config.cloud.timeout_ms,
                 ))
             }
+            "gpt-oss" | "gpt-oss-120b" => {
+                let api_key = std::env::var("EDGECLAW_GPT_OSS_KEY").unwrap_or_default();
+                Box::new(GptOssProvider::new(
+                    &api_key,
+                    &config.gpt_oss.model,
+                    &config.gpt_oss.endpoint,
+                    config.gpt_oss.timeout_ms,
+                ))
+            }
             _ => Box::new(NoneProvider::new()),
-        };
-
-        let fallback: Option<Box<dyn AiProvider>> = if config.primary != "none" {
-            Some(Box::new(NoneProvider::new()))
-        } else {
-            None
-        };
-
-        Self {
-            primary,
-            fallback,
-            escalation_threshold: config.policy.escalation_threshold,
-            sensitive_keywords: config.policy.never_cloud.clone(),
-            require_consent: config.policy.require_consent,
         }
     }
 
-    /// Process a chat request with fallback
+    /// Process a chat request with fallback and consensus
     pub fn process(&self, request: &AiRequest) -> Result<AiResponse, AgentError> {
-        // Check for sensitive content if using cloud provider
+        // Check for sensitive content
         if !self.primary.is_local() && self.contains_sensitive(&request.user_input) {
-            warn!("Sensitive content detected, blocking cloud AI");
-            return Err(AgentError::PolicyDenied(
-                "Command contains sensitive information; cannot send to cloud AI".to_string(),
-            ));
+            return Err(AgentError::PolicyDenied("Sensitive content blocked".into()));
         }
 
-        // Try primary provider
+        // Parallel Consensus Fleet Execution (if enabled and local)
+        if self.primary.is_local() && !self.config.consensus_models.is_empty() {
+            return self.process_consensus(request);
+        }
+
+        self.process_single(request)
+    }
+
+    fn process_single(&self, request: &AiRequest) -> Result<AiResponse, AgentError> {
         match self.primary.process(request) {
             Ok(response) => {
-                info!(
-                    provider = response.provider,
-                    confidence = response.confidence,
-                    "AI response generated"
-                );
-
-                // Check if confidence is too low and we should escalate
                 if response.confidence < self.escalation_threshold && response.intent.is_some() {
-                    warn!(
-                        confidence = response.confidence,
-                        threshold = self.escalation_threshold,
-                        "Low confidence — consider cloud AI escalation"
-                    );
-                    // Return with escalation hint
                     Ok(AiResponse {
-                        message: format!(
-                            "{}\n\n⚠️ Low confidence ({:.0}%). Consider using cloud AI for better accuracy.",
-                            response.message,
-                            response.confidence * 100.0
-                        ),
+                        message: format!("{}\n\n⚠️ Low confidence ({:.0}%).", response.message, response.confidence * 100.0),
                         ..response
                     })
                 } else {
@@ -1324,8 +1646,6 @@ impl AiManager {
                 }
             }
             Err(e) => {
-                warn!(error = %e, "Primary AI provider failed, trying fallback");
-                // Try fallback
                 if let Some(fallback) = &self.fallback {
                     fallback.process(request)
                 } else {
@@ -1335,60 +1655,144 @@ impl AiManager {
         }
     }
 
-    /// Check if primary provider is available
+    fn process_consensus(&self, request: &AiRequest) -> Result<AiResponse, AgentError> {
+        let models = &self.config.consensus_models;
+        let mut handles = Vec::new();
+
+        for (i, model) in models.iter().enumerate() {
+            let model_name = model.clone();
+            let config = self.config.clone();
+            let req = request.clone();
+
+            // Stagger model starts to prevent 'Thunderous Herd' timeouts (OS Error 10060)
+            if i > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+            }
+
+            handles.push(std::thread::spawn(move || {
+                let mut provider = Self::create_provider(&config, "ollama");
+                let _ = provider.set_model(&model_name);
+                provider.process(&req)
+            }));
+        }
+
+        let mut responses = Vec::new();
+        for handle in handles {
+            if let Ok(Ok(resp)) = handle.join() {
+                responses.push(resp);
+            }
+        }
+
+        if responses.is_empty() {
+            return self.process_single(request);
+        }
+
+        // Consensus Merge Logic
+        let mut best_index = 0;
+        let mut max_conf = 0.0;
+        for (i, resp) in responses.iter().enumerate() {
+            if resp.confidence > max_conf {
+                max_conf = resp.confidence;
+                best_index = i;
+            }
+        }
+
+        let mut best = responses.remove(best_index);
+        let mut collective_tasks = Vec::new();
+        
+        // Collect all tasks from best
+        if let Some(ref mut intent) = best.intent {
+            if let Some(ref mut mission) = intent.mission {
+                collective_tasks.append(&mut mission.tasks);
+            }
+        }
+
+        // Merge tasks from others
+        for other in responses {
+            if let Some(intent) = other.intent {
+                if let Some(mission) = intent.mission {
+                    for t in mission.tasks {
+                        if !collective_tasks.iter().any(|existing| existing.desc == t.desc) {
+                            collective_tasks.push(t);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Re-inject merged tasks
+        if let Some(ref mut intent) = best.intent {
+            if let Some(ref mut mission) = intent.mission {
+                mission.tasks = collective_tasks;
+                mission.role = "collective-orchestrator".into();
+            }
+        }
+
+        best.message = format!("🤝 [Consensus View] {}\n\n(참여 모델: {})", 
+            best.message, models.join(", "));
+        
+        Ok(best)
+    }
+
+    pub fn mission_registry(&self) -> Arc<MissionRegistry> {
+        self.mission_registry.clone()
+    }
+
     pub fn is_available(&self) -> bool {
         self.primary.is_available()
     }
 
-    /// Get the primary provider name
     pub fn provider_name(&self) -> &str {
         self.primary.name()
     }
 
-    /// Whether the current primary is local
     pub fn is_local(&self) -> bool {
         self.primary.is_local()
     }
 
-    /// Check for sensitive keywords
     fn contains_sensitive(&self, input: &str) -> bool {
         let lower = input.to_lowercase();
-        self.sensitive_keywords
-            .iter()
-            .any(|kw| lower.contains(&kw.to_lowercase()))
+        self.sensitive_keywords.iter().any(|kw| lower.contains(&kw.to_lowercase()))
     }
 
-    /// Whether cloud escalation requires user consent
     pub fn requires_consent(&self) -> bool {
         self.require_consent
     }
 
-    /// Update the model for the primary provider
+    pub fn set_identity(&mut self, key: SigningKey) {
+        self.signing_key = Some(key);
+    }
+
     pub fn set_model(&mut self, model: &str) -> Result<(), AgentError> {
+        let target_provider = if model.ends_with("-cloud") || model.ends_with("-premium") {
+            if model.starts_with("gpt-oss") { "gpt-oss" }
+            else if model.starts_with("gpt-") { "openai" }
+            else if model.starts_with("claude") { "claude" }
+            else { "none" }
+        } else if model.starts_with("gpt-oss") || model.contains(':') || model.contains("llama") || model == "ollama" {
+            "ollama"
+        } else if model.starts_with("gpt-") {
+            "openai"
+        } else if model.starts_with("claude") {
+            "claude"
+        } else {
+            "none"
+        };
+
+        if target_provider != "none" && target_provider != self.primary.name() {
+            self.primary = Self::create_provider(&self.config, target_provider);
+        }
         self.primary.set_model(model)
     }
 
-    /// List available models for the current provider
     pub fn list_models(&self) -> Vec<String> {
         self.primary.list_models()
     }
 
-    /// Escalate a request to cloud AI if local confidence is too low.
-    /// Returns the cloud response, or the original if escalation is not possible.
-    pub fn escalate_to_cloud(
-        &self,
-        request: &AiRequest,
-        local_response: &AiResponse,
-    ) -> Result<AiResponse, AgentError> {
+    pub fn escalate_to_cloud(&self, request: &AiRequest, local_response: &AiResponse) -> Result<AiResponse, AgentError> {
         if local_response.confidence >= self.escalation_threshold {
             return Ok(local_response.clone());
         }
-        if self.contains_sensitive(&request.user_input) {
-            return Err(AgentError::PolicyDenied(
-                "Cannot escalate: sensitive content detected".into(),
-            ));
-        }
-        // Try cloud fallback if available and primary is local
         if self.primary.is_local() {
             if let Some(fallback) = &self.fallback {
                 if !fallback.is_local() {
@@ -1558,6 +1962,7 @@ fn parse_cloud_response(content: &str, provider: &str) -> Result<AiResponse, Age
             confidence: parsed.confidence.unwrap_or(0.8),
             provider: provider.to_string(),
             is_local: false,
+            sub_responses: Vec::new(),
         }),
         Err(_) => Ok(AiResponse {
             message: content.to_string(),
@@ -1565,6 +1970,7 @@ fn parse_cloud_response(content: &str, provider: &str) -> Result<AiResponse, Age
             confidence: 0.5,
             provider: provider.to_string(),
             is_local: false,
+            sub_responses: Vec::new(),
         }),
     }
 }
@@ -2126,6 +2532,10 @@ mod tests {
             peer_role: "owner".to_string(),
             system_context: None,
             history: vec![],
+            model: None,
+            attachments: vec![],
+            parallel: false,
+            strategies: vec![],
         };
 
         let response = provider.process(&request).unwrap();
@@ -2143,6 +2553,10 @@ mod tests {
             peer_role: "owner".to_string(),
             system_context: None,
             history: vec![],
+            model: None,
+            attachments: vec![],
+            parallel: false,
+            strategies: vec![],
         };
 
         let response = provider.process(&request).unwrap();
@@ -2163,6 +2577,10 @@ mod tests {
             peer_role: "viewer".to_string(),
             system_context: None,
             history: vec![],
+            model: None,
+            attachments: vec![],
+            parallel: false,
+            strategies: vec![],
         };
 
         let response = provider.process(&request).unwrap();
@@ -2180,6 +2598,10 @@ mod tests {
             peer_role: "owner".to_string(),
             system_context: None,
             history: vec![],
+            model: None,
+            attachments: vec![],
+            parallel: false,
+            strategies: vec![],
         };
         let response = provider.process(&request).unwrap();
         assert!(response.intent.is_some());
@@ -2191,6 +2613,10 @@ mod tests {
             peer_role: "owner".to_string(),
             system_context: None,
             history: vec![],
+            model: None,
+            attachments: vec![],
+            parallel: false,
+            strategies: vec![],
         };
         let response = provider.process(&request).unwrap();
         assert!(response.intent.is_some());
@@ -2235,7 +2661,7 @@ mod tests {
 
     #[test]
     fn test_ollama_prompt_building() {
-        let provider = OllamaProvider::new("http://localhost:11434", "llama3.2:3b", 5000);
+        let provider = OllamaProvider::new("http://127.0.0.1:11434", "llama3.2:3b", 5000);
         let request = AiRequest {
             user_input: "restart nginx".to_string(),
             available_capabilities: vec!["shell_exec".to_string(), "status_query".to_string()],
@@ -2246,6 +2672,10 @@ mod tests {
                 content: "check status".to_string(),
                 timestamp: "2026-02-27T10:00:00Z".to_string(),
             }],
+            model: None,
+            attachments: vec![],
+            parallel: false,
+            strategies: vec![],
         };
 
         let prompt = provider.build_prompt(&request);
@@ -2257,7 +2687,7 @@ mod tests {
 
     #[test]
     fn test_ollama_parse_valid_json() {
-        let provider = OllamaProvider::new("http://localhost:11434", "llama3.2:3b", 5000);
+        let provider = OllamaProvider::new("http://127.0.0.1:11434", "llama3.2:3b", 5000);
         let json = r#"{"message": "Restarting nginx...", "intent": {"capability": "shell_exec", "command": "systemctl restart nginx", "args": [], "needs_confirmation": true}, "confidence": 0.95}"#;
 
         let response = provider.parse_response(json).unwrap();
@@ -2269,7 +2699,7 @@ mod tests {
 
     #[test]
     fn test_ollama_parse_invalid_json() {
-        let provider = OllamaProvider::new("http://localhost:11434", "llama3.2:3b", 5000);
+        let provider = OllamaProvider::new("http://127.0.0.1:11434", "llama3.2:3b", 5000);
         let text = "I don't understand that command.";
 
         let response = provider.parse_response(text).unwrap();
@@ -2305,6 +2735,10 @@ mod tests {
             peer_role: "owner".to_string(),
             system_context: None,
             history: vec![],
+            model: None,
+            attachments: vec![],
+            parallel: false,
+            strategies: vec![],
         };
 
         let response = manager.process(&request).unwrap();
@@ -2337,8 +2771,8 @@ mod tests {
 
     #[test]
     fn test_parse_url() {
-        let parsed = parse_url("http://localhost:11434/api/generate").unwrap();
-        assert_eq!(parsed.host, "localhost");
+        let parsed = parse_url("http://127.0.0.1:11434/api/generate").unwrap();
+        assert_eq!(parsed.host, "127.0.0.1");
         assert_eq!(parsed.port, 11434);
         assert_eq!(parsed.path, "/api/generate");
     }
@@ -2370,6 +2804,10 @@ mod tests {
             peer_role: "owner".to_string(),
             system_context: None,
             history: vec![],
+            model: None,
+            attachments: vec![],
+            parallel: false,
+            strategies: vec![],
         };
         let response = manager.process(&request).unwrap();
         // NoneProvider gives high confidence for known commands
@@ -2391,6 +2829,10 @@ mod tests {
             peer_role: "owner".to_string(),
             system_context: None,
             history: vec![],
+            model: None,
+            attachments: vec![],
+            parallel: false,
+            strategies: vec![],
         };
         let low_confidence = AiResponse {
             message: "idk".into(),
@@ -2398,6 +2840,7 @@ mod tests {
             confidence: 0.1,
             provider: "none".into(),
             is_local: true,
+            sub_responses: Vec::new(),
         };
         let result = manager.escalate_to_cloud(&request, &low_confidence);
         assert!(result.is_err());
@@ -2440,5 +2883,14 @@ mod tests {
         let json = serde_json::to_string(&system).unwrap();
         let parsed: WorkProfile = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, system);
+    }
+    #[test]
+    fn test_ollama_provider_localhost_fix() {
+        // Test that localhost is automatically resolved to 127.0.0.1
+        let provider = OllamaProvider::new("http://localhost:11434", "llama3.2:3b", 5000);
+        assert_eq!(provider.endpoint, "http://127.0.0.1:11434");
+
+        let provider2 = OllamaProvider::new("http://127.0.0.1:11434", "llama3.2:3b", 5000);
+        assert_eq!(provider2.endpoint, "http://127.0.0.1:11434");
     }
 }

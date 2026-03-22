@@ -46,6 +46,7 @@ pub mod executor;
 pub mod federation;
 pub mod gateway;
 pub mod git_integration;
+pub mod groups;
 pub mod identity;
 pub mod identity_passport;
 pub mod intent_engine;
@@ -123,6 +124,7 @@ pub struct AgentEngine {
     agent_registry: Arc<crate::registry::AgentRegistry>,
     discovery_service: Arc<crate::discovery::DiscoveryService>,
     mode: Mutex<String>,
+    group_manager: Arc<crate::groups::GroupManager>,
 }
 
 impl AgentEngine {
@@ -212,6 +214,7 @@ impl AgentEngine {
             blockchain_client: Arc::new(crate::blockchain::BlockchainClient::new(
                 crate::blockchain::BlockchainConfig::default(),
             )),
+            group_manager: Arc::new(crate::groups::GroupManager::new()),
             task_board: Mutex::new({
                 let mut board = crate::task_board::TaskBoard::new(
                     &config.agent.device_name,
@@ -320,6 +323,18 @@ impl AgentEngine {
         self.blockchain_client.clone()
     }
 
+    pub fn ai_manager(&self) -> &Mutex<AiManager> {
+        &self.ai_manager
+    }
+
+    pub fn peer_manager(&self) -> &Mutex<PeerManager> {
+        &self.peer_manager
+    }
+
+    pub fn group_manager(&self) -> Arc<crate::groups::GroupManager> {
+        self.group_manager.clone()
+    }
+
     // ─── Identity ──────────────────────────────────────────
 
     /// Generate a new device identity
@@ -328,7 +343,15 @@ impl AgentEngine {
             .identity_manager
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        mgr.generate_identity(&self.config.agent.device_name)
+        let id = mgr.generate_identity(&self.config.agent.device_name)?;
+
+        // Attach signing key to AI manager for signed requests (Cloud LLM)
+        if let Ok(key) = mgr.get_signing_key() {
+            let mut ai = self.ai_manager.lock().unwrap_or_else(|e| e.into_inner());
+            ai.set_identity(key);
+        }
+
+        Ok(id)
     }
 
     /// Get current device identity
@@ -398,6 +421,11 @@ impl AgentEngine {
     pub fn remove_peer(&self, peer_id: &str) -> bool {
         let mut mgr = self.peer_manager.lock().unwrap_or_else(|e| e.into_inner());
         mgr.remove_peer(peer_id)
+    }
+
+    /// Access the task board
+    pub fn task_board(&self) -> &Mutex<crate::task_board::TaskBoard> {
+        &self.task_board
     }
 
     // ─── Sessions ──────────────────────────────────────────
@@ -486,7 +514,28 @@ impl AgentEngine {
         };
 
         // Policy check
-        let decision = self.policy_engine.evaluate(&request.action, &role)?;
+        // Policy check with group overrides
+        let overrides = {
+            let gm = self.group_manager();
+            let group_ids = gm.get_peer_groups(peer_id);
+            let mut combined = std::collections::HashMap::new();
+            for gid in group_ids {
+                if let Some(group) = gm.get_group(&gid) {
+                    for (cap, allowed) in group.policy_overrides {
+                        // Policy: Explicit DENY in any group wins if multiple groups provide conflicting overrides
+                        combined
+                            .entry(cap)
+                            .and_modify(|v| *v &= allowed)
+                            .or_insert(allowed);
+                    }
+                }
+            }
+            combined
+        };
+
+        let decision =
+            self.policy_engine
+                .evaluate_with_overrides(&request.action, &role, &overrides)?;
         if !decision.allowed {
             // Audit the denial
             let device_id = self
@@ -719,79 +768,32 @@ impl AgentEngine {
         user_input: &str,
         model: Option<String>,
         attachments: Vec<crate::ai::FileAttachment>,
+        lang: Option<String>,
     ) -> Result<AiResponse, AgentError> {
         let trimmed = user_input.trim();
 
-        // Intercept mode switch commands
-        if trimmed.starts_with("/mode") {
-            let parts: Vec<&str> = trimmed.split_whitespace().collect();
-            if parts.len() > 1 {
-                let target_mode = parts[1].to_lowercase();
-                if target_mode == "market" || target_mode == "sanctum" {
-                    self.set_mode(&target_mode)?;
-                    return Ok(AiResponse {
-                        message: format!(
-                            "Agent mode has been updated to: **{}**",
-                            target_mode.to_uppercase()
-                        ),
-                        intent: None,
-                        confidence: 1.0,
-                        provider: "system".to_string(),
-                        is_local: true,
-                    });
-                }
-            }
-            return Ok(AiResponse {
-                message: "Usage: `/mode market` or `/mode sanctum`".to_string(),
-                intent: None,
-                confidence: 1.0,
-                provider: "system".to_string(),
-                is_local: true,
-            });
-        }
+        let (role, history) = {
+            let mgr = self.peer_manager.lock().unwrap_or_else(|e| e.into_inner());
+            let r = mgr
+                .get_peer_role(peer_id)
+                .unwrap_or_else(|| "viewer".to_string());
+            let h_mgr = self.chat_history.lock().unwrap_or_else(|e| e.into_inner());
+            (r, h_mgr.clone())
+        };
 
-        // Intercept model switch commands
-        if trimmed.starts_with("/model") {
-            let parts: Vec<&str> = trimmed.split_whitespace().collect();
-            if parts.len() > 1 {
-                let target_model = parts[1].to_string();
-                let mut mgr = self.ai_manager.lock().unwrap_or_else(|e| e.into_inner());
-                match mgr.set_model(&target_model) {
-                    Ok(_) => {
-                        return Ok(AiResponse {
-                            message: format!("AI model has been updated to: **{}**", target_model),
-                            intent: None,
-                            confidence: 1.0,
-                            provider: "system".to_string(),
-                            is_local: true,
-                        });
-                    }
-                    Err(e) => {
-                        return Ok(AiResponse {
-                            message: format!("Failed to update model: {}", e),
-                            intent: None,
-                            confidence: 1.0,
-                            provider: "system".to_string(),
-                            is_local: true,
-                        });
-                    }
-                }
-            }
-            return Ok(AiResponse {
-                message: "Usage: `/model <model_name>` (e.g., `/model llama3:8b`, `/model qwen2.5-coder:7b`)".to_string(),
-                intent: None,
-                confidence: 1.0,
-                provider: "system".to_string(),
-                is_local: true,
-            });
+        // Intercept commands (Phase 4.1 Orchestration)
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.is_empty() {
+             return Ok(AiResponse::default());
         }
+        let command = parts[0].to_lowercase();
 
-        // Intercept model list command
-        if trimmed == "/models" || trimmed == "/list models" {
+        // 1. /models - List available models
+        if command == "/models" || trimmed == "/list models" {
             let mgr = self.ai_manager.lock().unwrap_or_else(|e| e.into_inner());
             let models = mgr.list_models();
             let msg = if models.is_empty() {
-                "No models found for the current provider.".to_string()
+                format!("No models found for provider **{}**.", mgr.provider_name())
             } else {
                 format!(
                     "Available models for **{}**:\n\n- {}",
@@ -805,42 +807,353 @@ impl AgentEngine {
                 confidence: 1.0,
                 provider: "system".to_string(),
                 is_local: true,
+                sub_responses: Vec::new(),
             });
         }
 
-        let role = {
-            let mgr = self.peer_manager.lock().unwrap_or_else(|e| e.into_inner());
-            mgr.get_peer_role(peer_id)
-                .unwrap_or_else(|| "viewer".to_string())
-        };
+        // 2. /mode - Change agent focus mode
+        if command == "/mode" {
+            if parts.len() > 1 {
+                let target_mode = parts[1].to_lowercase();
+                if target_mode == "market" || target_mode == "sanctum" || target_mode == "automation" || target_mode == "fleet" {
+                    self.set_mode(&target_mode)?;
+                    return Ok(AiResponse {
+                        message: format!(
+                            "Agent mode updated to: **{}**",
+                            target_mode.to_uppercase()
+                        ),
+                        intent: None,
+                        confidence: 1.0,
+                        provider: "system".to_string(),
+                        is_local: true,
+                        sub_responses: Vec::new(),
+                    });
+                }
+            }
+            return Ok(AiResponse {
+                message: "Usage: `/mode <market|sanctum|automation|fleet>`".to_string(),
+                intent: None,
+                confidence: 1.0,
+                provider: "system".to_string(),
+                is_local: true,
+                sub_responses: Vec::new(),
+            });
+        }
 
-        let history = {
-            let h = self.chat_history.lock().unwrap_or_else(|e| e.into_inner());
-            h.clone()
-        };
+        // 3. /model - Change primary AI model
+        if command == "/model" {
+            // RBAC: Only Admin/Owner can change AI profile
+            if let Err(e) = self.policy_engine.evaluate("policy_override", &role) {
+                return Err(e);
+            }
+            if parts.len() > 1 {
+                let target_model = parts[1].to_string();
+                let mut mgr = self.ai_manager.lock().unwrap_or_else(|e| e.into_inner());
+                match mgr.set_model(&target_model) {
+                    Ok(_) => {
+                        return Ok(AiResponse {
+                            message: format!("AI model updated to: **{}**", target_model),
+                            intent: None,
+                            confidence: 1.0,
+                            provider: "system".to_string(),
+                            is_local: true,
+                            sub_responses: Vec::new(),
+                        });
+                    }
+                    Err(e) => {
+                        return Ok(AiResponse {
+                            message: format!("Failed to update model: {}", e),
+                            intent: None,
+                            confidence: 1.0,
+                            provider: "system".to_string(),
+                            is_local: true,
+                            sub_responses: Vec::new(),
+                        });
+                    }
+                }
+            }
+            return Ok(AiResponse {
+                message: "Usage: `/model <model_name>` (e.g. `/model gpt-oss`, `/model llama3`)".to_string(),
+                intent: None,
+                confidence: 1.0,
+                provider: "system".to_string(),
+                is_local: true,
+                sub_responses: Vec::new(),
+            });
+        }
+
+        // Security: Check if user has basic talk permission (Non-command check)
+        if let Err(e) = self.policy_engine.evaluate("status_query", &role) {
+            return Err(e);
+        }
+
+        // Phase 4: Direct Agent Routing (DAR)
+        if trimmed.starts_with('@') {
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            let mention = parts[0].strip_prefix('@').unwrap_or_default().trim();
+            let body = if parts.len() > 1 {
+                parts[1..].join(" ")
+            } else {
+                String::new()
+            };
+
+            // 1. Check if it's a local Mission context
+            let mission = {
+                let ai = self.ai_manager.lock().unwrap_or_else(|e| e.into_inner());
+                ai.mission_registry().get_by_role(mention)
+            };
+
+            if let Some(m) = mission {
+                return Ok(AiResponse {
+                    message: format!("**DAR Route Activated**: Talking to mission **{}** (Role: {}). \n\nMessage: {}", m.name, m.role, body),
+                    intent: None, 
+                    confidence: 1.0,
+                    provider: "dar_orchestrator".to_string(),
+                    is_local: true,
+                    sub_responses: Vec::new(),
+                });
+            }
+
+            // 2. Check if it's a remote Peer
+            let has_peer = {
+                let pm = self.peer_manager.lock().unwrap_or_else(|e| e.into_inner());
+                pm.get_peer(mention).is_some()
+            };
+
+            if has_peer {
+                return Ok(AiResponse {
+                    message: format!("**DAR Route Activated**: Forwarding message to remote agent `@{} via ECNP v1.1**.", mention),
+                    intent: None,
+                    confidence: 1.0,
+                    provider: "dar_broker".to_string(),
+                    is_local: false,
+                    sub_responses: Vec::new(),
+                });
+            }
+        }
+
+        // Intercept /parallel command
+        let mut is_parallel = false;
+        let mut processed_user_input = user_input.to_string();
+        if trimmed.starts_with("/parallel") {
+            is_parallel = true;
+            processed_user_input = trimmed.replacen("/parallel", "", 1).trim().to_string();
+            if processed_user_input.is_empty() {
+                return Ok(AiResponse {
+                    message:
+                        "Parallel mode activated. Please provide a prompt for parallel processing."
+                            .to_string(),
+                    intent: None,
+                    confidence: 1.0,
+                    provider: "system".to_string(),
+                    is_local: true,
+                    sub_responses: Vec::new(),
+                });
+            }
+        }
+
+        // Intercept /ingest_docs command
+        if trimmed == "/ingest_docs" {
+            let docs_path = std::path::PathBuf::from("d:\\edgeclaw\\docs");
+            let mut items_added = 0;
+            if let Ok(entries) = std::fs::read_dir(&docs_path) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("md") {
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            let file_name = path
+                                .file_name()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("Unknown")
+                                .to_string();
+                            let mut memory =
+                                self.memory_engine.lock().unwrap_or_else(|e| e.into_inner());
+                            memory
+                                .knowledge
+                                .add_item(crate::memory_engine::KnowledgeItem {
+                                    title: file_name,
+                                    keywords: vec!["documentation".to_string()],
+                                    summary: String::new(),
+                                    content,
+                                    group_id: None,
+                                });
+                            items_added += 1;
+                        }
+                    }
+                }
+            }
+            return Ok(AiResponse {
+                message: format!("Successfully ingested **{}** documentation files from `docs/` into local KnowledgeBase.", items_added),
+                intent: None,
+                confidence: 1.0,
+                provider: "system".to_string(),
+                is_local: true,
+                sub_responses: Vec::new(),
+            });
+        }
+        if trimmed.starts_with("/mission") {
+            // RBAC: Check mission management permission
+            if let Err(e) = self.policy_engine.evaluate("process_manage", &role) {
+                return Err(e);
+            }
+            let mission_prompt = trimmed.replacen("/mission", "", 1).trim().to_string();
+            if mission_prompt.is_empty() {
+                return Ok(AiResponse {
+                    message: "Usage: `/mission <your mission description>`".to_string(),
+                    intent: None,
+                    confidence: 1.0,
+                    provider: "system".to_string(),
+                    is_local: true,
+                    sub_responses: Vec::new(),
+                });
+            }
+            // Add mission to registry (Phase 2 integration)
+            {
+                let ai = self.ai_manager.lock().unwrap_or_else(|e| e.into_inner());
+                ai.mission_registry().register(crate::ai::MissionMetadata {
+                    id: format!("miss_{}", chrono::Utc::now().timestamp()),
+                    name: mission_prompt.clone(),
+                    description: mission_prompt.clone(),
+                    category: "general".to_string(),
+                    tags: vec![],
+                    role: "general".to_string(),
+                    owner: role.clone(),
+                    goals: vec![mission_prompt.clone()],
+                    status: crate::ai::MissionStatus::Active,
+                    tasks: vec![],
+                });
+            }
+
+            // Phase 5 Audit: Log mission creation
+            self.audit_manager.log(
+                &self.config.agent.device_name,
+                &role,
+                "mission_create",
+                &format!("User created mission: {}", mission_prompt),
+                "success",
+                None,
+            );
+
+            return Ok(AiResponse {
+                message: format!("Mission received: \"{}\". Agent will now focus on this mission (Stored in MissionRegistry).", mission_prompt),
+                intent: None,
+                confidence: 1.0,
+                provider: "system".to_string(),
+                is_local: true,
+                sub_responses: Vec::new(),
+            });
+        }
+
+        // Check if parallel mode is enabled via global config
+        if !self.config.ai.consensus_models.is_empty() {
+            is_parallel = true;
+        }
+
+        // Knowledge Base Retrieval (Phase 6)
+        let mut knowledge_context = String::new();
+        let mut doc_titles = Vec::new();
+        {
+            let memory = self.memory_engine.lock().unwrap_or_else(|e| e.into_inner());
+            let matches = memory.knowledge.search(&processed_user_input);
+            if !matches.is_empty() {
+                knowledge_context.push_str("\n\nRelevant Documentation Found:\n");
+                for item in matches.iter().take(2) {
+                    doc_titles.push(item.title.clone());
+                    knowledge_context.push_str(&format!(
+                        "--- {} ---\n{}\n",
+                        item.title,
+                        item.content.chars().take(1000).collect::<String>()
+                    ));
+                }
+            }
+        }
+
+        if !doc_titles.is_empty() {
+            self.event_bus
+                .publish(crate::events::AgentEvent::KnowledgeRetrieved {
+                    query: processed_user_input.clone(),
+                    doc_titles,
+                });
+        }
 
         let sys_info = self.get_system_info();
+        let fleet_ctx = {
+            let pm = self.peer_manager.lock().unwrap_or_else(|e| e.into_inner());
+            format!("Fleet: {} agents connected", pm.list_peers().len())
+        };
+        let mission_ctx = {
+            let ai = self.ai_manager.lock().unwrap_or_else(|e| e.into_inner());
+            format!("Missions: {} active", ai.mission_registry().list().len())
+        };
         let system_context = Some(format!(
-            "CPU: {:.1}%, Memory: {:.1}%, Uptime: {}s",
+            "CPU: {:.1}%, Mem: {:.1}%, {}. {}. Mode: {}{}",
             sys_info.cpu_usage,
             sys_info.memory_usage_percent,
-            self.uptime_secs()
+            fleet_ctx,
+            mission_ctx,
+            self.mode.lock().unwrap_or_else(|e| e.into_inner()),
+            knowledge_context
         ));
 
         let request = AiRequest {
-            user_input: user_input.to_string(),
+            user_input: processed_user_input.clone(),
             available_capabilities: self.get_capabilities(),
             peer_role: role.clone(),
             system_context,
             history,
             model,
             attachments,
+            parallel: is_parallel,
+            strategies: vec!["logic".to_string(), "consensus".to_string()],
+            preferred_language: lang,
         };
+
+        if is_parallel {
+            self.event_bus
+                .publish(crate::events::AgentEvent::ConsensusStarted {
+                    prompt: processed_user_input.clone(),
+                    models: self.config.ai.consensus_models.clone(),
+                });
+        }
 
         let response = {
             let mgr = self.ai_manager.lock().unwrap_or_else(|e| e.into_inner());
-            mgr.process(&request)?
+            let mut resp = mgr.process(&request)?;
+
+            // Automatically handle mission proposals
+            if let Some(ref mut intent) = resp.intent {
+                if let Some(ref mission) = intent.mission {
+                    mgr.mission_registry().register(mission.clone());
+                    info!("AI proposed a new mission: {}", mission.name);
+                }
+            }
+            resp
         };
+
+        if is_parallel {
+            self.event_bus
+                .publish(crate::events::AgentEvent::ConsensusReached {
+                    prompt: processed_user_input.clone(),
+                    result: response.message.clone(),
+                    confidence: response.confidence,
+                });
+        }
+
+        // Phase 5 Audit: Parallel/Consensus results
+        if !response.sub_responses.is_empty() {
+            self.audit_manager.log(
+                &self.config.agent.device_name,
+                &role,
+                "ai_consensus",
+                &format!(
+                    "Consensus reached among {} models for prompt: {}",
+                    response.sub_responses.len(),
+                    processed_user_input
+                ),
+                "success",
+                None,
+            );
+        }
 
         // Add to conversation history
         {
@@ -885,7 +1198,7 @@ impl AgentEngine {
         peer_id: &str,
         user_input: &str,
     ) -> Result<(AiResponse, Option<ExecResponse>), AgentError> {
-        let ai_response = self.chat(peer_id, user_input, None, vec![])?;
+        let ai_response = self.chat(peer_id, user_input, None, vec![], None)?;
 
         if let Some(ref intent) = ai_response.intent {
             // Build execution request from intent
@@ -1294,7 +1607,7 @@ mod tests {
             .add_peer("p1", "User", "mobile", "10.0.0.1", "owner")
             .unwrap();
         // Chat should work even without identity (uses "unknown" for audit)
-        let response = engine.chat("p1", "hello");
+        let response = engine.chat("p1", "hello", None, Vec::new());
         assert!(response.is_ok());
     }
 

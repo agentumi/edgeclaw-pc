@@ -15,6 +15,7 @@ pub async fn handle_chat(
         message: String,
         model: Option<String>,
         attachments: Option<Vec<crate::ai::FileAttachment>>,
+        lang: Option<String>,
     }
 
     let req: ChatReq = match serde_json::from_str(body) {
@@ -31,15 +32,26 @@ pub async fn handle_chat(
         &req.message,
         req.model,
         req.attachments.unwrap_or_default(),
+        req.lang,
     ) {
         Ok(response) => {
+            // CRITICAL: Register proposed mission in the registry so confirm/active can find it
+            if let Some(ref intent) = response.intent {
+                if let Some(ref mission) = intent.mission {
+                    let ai_mgr = engine.ai_manager.lock().unwrap_or_else(|e| e.into_inner());
+                    ai_mgr.mission_registry().register(mission.clone());
+                }
+            }
+
             let json = serde_json::to_vec(&response).unwrap_or_default();
             send_response(stream, 200, "application/json", &json, cors_origin).await
         }
         Err(e) => {
+            println!("[ERROR] Chat interaction failed: {}", e);
+            let status = if matches!(e, AgentError::ConnectionError(_)) { 503 } else { 500 };
             let err = serde_json::json!({"error": e.to_string()});
             let json = serde_json::to_vec(&err).unwrap_or_default();
-            send_response(stream, 500, "application/json", &json, cors_origin).await
+            send_response(stream, status, "application/json", &json, cors_origin).await
         }
     }
 }
@@ -77,4 +89,3 @@ pub async fn handle_chat_models(
     let json = serde_json::to_vec(&models).unwrap_or_default();
     send_response(stream, 200, "application/json", &json, cors_origin).await
 }
-

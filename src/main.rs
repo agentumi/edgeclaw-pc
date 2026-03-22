@@ -15,7 +15,7 @@ use tracing::{error, info, warn};
 
 #[derive(Parser)]
 #[command(name = "edgeclaw-agent")]
-#[command(version = "1.0.0")]
+#[command(version = "2.3.0")]
 #[command(about = "EdgeClaw PC Agent — Zero-Trust Edge AI Executor")]
 struct Cli {
     /// Path to config file
@@ -465,7 +465,7 @@ async fn main() -> anyhow::Result<()> {
             let sys = edgeclaw_agent::system::collect_system_info();
             let healthy = sys.cpu_usage < 95.0 && sys.memory_usage_percent < 95.0;
             if healthy {
-                println!("{{\"status\":\"ok\",\"version\":\"1.0.0\",\"ai\":\"{}\",\"cpu\":{:.1},\"mem\":{:.1}}}",
+                println!("{{\"status\":\"ok\",\"version\":\"2.3.0\",\"ai\":\"{}\",\"cpu\":{:.1},\"mem\":{:.1}}}",
                     ai["provider"], sys.cpu_usage, sys.memory_usage_percent);
                 Ok(())
             } else {
@@ -478,7 +478,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Start => {
             info!(
-                version = "1.0.0",
+                version = "2.3.0",
                 port = config.agent.listen_port,
                 "EdgeClaw Agent starting"
             );
@@ -528,7 +528,7 @@ async fn main() -> anyhow::Result<()> {
 
             // Print agent startup banner
             println!("╔══════════════════════════════════════════╗");
-            println!("║     EdgeClaw PC Agent v1.0.0             ║");
+            println!("║     EdgeClaw PC Agent v2.3.0             ║");
             println!("║     Zero-Trust Edge AI Executor          ║");
             println!("╠══════════════════════════════════════════╣");
             println!("║  ID:   {}  ║", &identity.device_id[..36]);

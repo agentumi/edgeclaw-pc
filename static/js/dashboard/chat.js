@@ -11,8 +11,8 @@ function resolveWsUrl() {
 
     const apiUrl = new URL(API);
     const protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-    const basePort = apiUrl.port ? Number(apiUrl.port) : (apiUrl.protocol === 'https:' ? 443 : 80);
-    const wsPort = overridePort ? Number(overridePort) : basePort + 1;
+    // Default to the EdgeClaw standard WebSocket port (9460) instead of guessing base+1
+    const wsPort = overridePort ? Number(overridePort) : 9460;
 
     return `${protocol}//${apiUrl.hostname}:${wsPort}`;
 }
@@ -27,6 +27,17 @@ export function initChat({ getCurrentMode, appendSessionLog, renderEconomy, fetc
     const profileTabs = document.getElementById('chatProfiles');
 
     if (!chatArea || !chatInput || !sendBtn) return;
+
+    // Restore language preference
+    const langSelect = document.getElementById('aiChatLangSelect');
+    if (langSelect) {
+        const savedLang = localStorage.getItem('edgeclaw_chat_lang');
+        if (savedLang) langSelect.value = savedLang;
+        
+        langSelect.addEventListener('change', () => {
+            localStorage.setItem('edgeclaw_chat_lang', langSelect.value);
+        });
+    }
 
     let sending = false;
     let allQuickActions = [];
@@ -61,11 +72,18 @@ export function initChat({ getCurrentMode, appendSessionLog, renderEconomy, fetc
         typingIndicator.classList.add('active');
         chatArea.scrollTop = chatArea.scrollHeight;
 
+        const langSelect = document.getElementById('aiChatLangSelect');
+        const lang = langSelect ? langSelect.value : (localStorage.getItem('edgeclaw_chat_lang') || 'english');
+        if (langSelect) localStorage.setItem('edgeclaw_chat_lang', lang);
+
         try {
             const res = await apiFetch(`${API}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: text }),
+                body: JSON.stringify({ 
+                    message: text,
+                    lang: lang
+                }),
             });
 
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -112,6 +130,50 @@ export function initChat({ getCurrentMode, appendSessionLog, renderEconomy, fetc
                             <span>${exec.duration_ms || 0}ms</span>
                         </div>
                         <div class="exec-body">${exec.stdout || exec.stderr || '(no output)'}</div>
+                    </div>
+                `;
+            }
+
+            // Intelligent JSON-to-Mission Parser (Collective Intelligence Bridge)
+            let missionData = data.intent && data.intent.mission ? data.intent.mission : null;
+            if (!missionData && data.message && data.message.includes('{')) {
+                try {
+                    const extracted = JSON.parse(data.message.substring(data.message.indexOf('{'), data.message.lastIndexOf('}') + 1));
+                    if (extracted.mission) missionData = extracted.mission;
+                    else if (extracted.id && extracted.tasks) missionData = extracted;
+                } catch(e) {}
+            }
+
+            if (missionData) {
+                const mission = missionData;
+                const tasksHtml = (mission.tasks || []).map(t => `
+                    <div style="display:flex; gap:10px; align-items:center; background:rgba(0,0,0,0.2); padding:8px 12px; border-radius:8px; border-left:2px solid var(--primary-500); margin-bottom:6px;">
+                        <i class="fa-solid fa-microchip" style="font-size:10px; color:var(--text-muted)"></i>
+                        <span style="font-size:11px; color:var(--text-primary); flex:1;">${t.desc}</span>
+                        <span style="font-size:9px; background:var(--surface-900); padding:2px 6px; border-radius:4px; color:var(--primary-300); font-family:monospace;">${t.capability}</span>
+                    </div>
+                `).join('');
+
+                content += `
+                    <div class="mission-proposal-card" style="margin-top:20px; background:linear-gradient(135deg, rgba(88, 28, 135, 0.1), rgba(124, 58, 237, 0.1)); border:1px solid var(--primary-500); border-radius:16px; padding:20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); border-top: 4px solid var(--primary-500);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                            <div style="color:var(--primary-400); font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:2px; display:flex; align-items:center; gap:8px;">
+                                <i class="fa-solid fa-sparkles"></i> MISSION PROPOSED
+                            </div>
+                            <div style="background:var(--primary-600); color:white; font-size:9px; font-weight:700; padding:3px 10px; border-radius:100px; box-shadow: 0 0 15px var(--primary-900);">ATOMIC CI</div>
+                        </div>
+                        <div style="font-size:18px; font-weight:800; color:white; margin-bottom:4px; font-family:'Inter', sans-serif;">${mission.title || 'Untitled Mission'}</div>
+                        <div style="font-size:13px; color:var(--text-muted); line-height:1.5; margin-bottom:16px;">${mission.description || 'No description provided.'}</div>
+                        
+                        <div style="margin-bottom:20px;">
+                            <div style="font-size:10px; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px; font-weight:600;">Task Orchestration</div>
+                            ${tasksHtml}
+                        </div>
+
+                        <button class="btn-primary" style="width:100%; padding:14px; font-size:14px; font-weight:700; background:linear-gradient(to right, var(--primary-600), var(--accent-purple)); border:none; box-shadow:0 4px 15px rgba(124, 58, 237, 0.3);" onclick="confirmMission('${mission.id}')">
+                            <i class="fa-solid fa-bolt-lightning" style="margin-right:10px;"></i> ACTIVATE COLLECTIVE MISSION
+                        </button>
+                        <div style="text-align:center; font-size:9px; color:var(--text-muted); margin-top:10px;">Security: All tasks require owner-defined capability tokens.</div>
                     </div>
                 `;
             }
@@ -404,10 +466,26 @@ export function initAIChat() {
                 <i class="fa-solid fa-sparkles"></i>
             </div>
             <div class="agent-msg-content" style="flex:1; padding-top:6px; font-size:14px; line-height:1.6; color:var(--text-primary);">
-                <div class="typing-indicator active" style="position:relative; background:transparent; padding:0;"><div class="dots" style="position:static;"><span></span><span></span><span></span></div></div>
+                <div style="display:flex; align-items:center; gap:10px; opacity:0.8;">
+                    <div class="typing-indicator active" style="position:relative; background:transparent; padding:0;"><div class="dots" style="position:static;"><span></span><span></span><span></span></div></div>
+                    <span id="orch-timer" style="font-size:11px; font-family:monospace; color:var(--primary-400); font-weight:700; margin-left:4px;">0.0s</span>
+                    <span style="font-size:11px; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:1px;">Orchestrating...</span>
+                </div>
             </div>`;
         messagesArea.appendChild(agentDiv);
         messagesArea.scrollTop = messagesArea.scrollHeight;
+
+        // High-Precision Orchestration Timer
+        const startTime = Date.now();
+        const timerInterval = setInterval(() => {
+            const timerEl = document.getElementById('orch-timer');
+            if (timerEl) {
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                timerEl.textContent = `${elapsed}s`;
+            } else {
+                clearInterval(timerInterval);
+            }
+        }, 100);
 
         try {
             const selectedModel = modelSelect ? modelSelect.value : "";
@@ -422,29 +500,188 @@ export function initAIChat() {
             });
 
             const contentDiv = agentDiv.querySelector('.agent-msg-content');
+            clearInterval(timerInterval); // Stop orchestration pulse
+
             if (res.ok) {
                 const data = await res.json();
-                // Simple markdown-to-html for bold and code
-                let html = (data.message || '')
+                console.log("[EdgeClaw AI] Received payload:", data); // Debugging pulse
+                
+                const decodeUnicode = (str) => {
+                    if (!str || typeof str !== 'string') return str;
+                    return str.replace(/\\u([0-9a-fA-F]{4})/g, (match, grp) => {
+                        return String.fromCharCode(parseInt(grp, 16));
+                    });
+                };
+
+                const rawMsg = data.message || '';
+                
+                // 1. Resilient Unicode & Byte-Level Sanitizer
+                const sanitizeAndDecode = (str) => {
+                    if (!str || typeof str !== 'string') return str;
+                    // Remove trailing partial escapes and artifacts
+                    let sanitized = str.replace(/\\u[0-9a-fA-F]{0,3}$/, '');
+                    try {
+                        return sanitized.replace(/\\u([0-9a-fA-F]{4})/g, (match, grp) => {
+                            return String.fromCharCode(parseInt(grp, 16));
+                        });
+                    } catch(e) { return sanitized; }
+                };
+
+                const cleanedMsg = sanitizeAndDecode(rawMsg);
+                let mainText = cleanedMsg;
+                let missionData = null;
+
+                // 2. High-Fidelity Extraction Engine
+                if (data.intent && data.intent.mission) {
+                    missionData = data.intent.mission;
+                }
+
+                if (!missionData && cleanedMsg.includes('{')) {
+                    try {
+                        const start = cleanedMsg.indexOf('{');
+                        const end = cleanedMsg.lastIndexOf('}');
+                        if (start >= 0 && end > start) {
+                            const candidate = cleanedMsg.substring(start, end + 1);
+                            const parsed = JSON.parse(candidate);
+                            if (parsed.intent && parsed.intent.mission) missionData = parsed.intent.mission;
+                            else if (parsed.mission) missionData = parsed.mission;
+                            else if (parsed.id && parsed.tasks) missionData = parsed;
+                            
+                            // If mission found, trim the junk from main text
+                            if (missionData && start > 5) mainText = cleanedMsg.substring(0, start).trim();
+                            else if (missionData) mainText = ""; // Hide raw JSON if card is ready
+                        }
+                    } catch(e) {}
+                }
+
+                // 3. UI Cleanup: Only show text if it's not a raw JSON dump
+                let isJsonDump = mainText.trim().startsWith('{') && mainText.trim().endsWith('}');
+                let html = (isJsonDump && missionData) ? "" : mainText
                     .replace(/\n/g, '<br>')
                     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                     .replace(/`(.*?)`/g, '<code style="background:var(--surface-700); padding:2px 4px; border-radius:4px;">$1</code>');
                 
+                if (missionData) {
+                    const mission = missionData;
+                    const mTitle = sanitizeAndDecode(mission.title) || "Dynamic Mission Orchestration";
+                    const mDesc = sanitizeAndDecode(mission.description) || "AI-generated collective intelligence workflow for your current objective.";
+                    
+                    const tasksHtml = (mission.tasks || []).map(t => {
+                        const tDesc = sanitizeAndDecode(t.desc) || "Executing atomic capability...";
+                        return `
+                            <div style="display:flex; gap:10px; align-items:center; background:rgba(0,0,0,0.3); padding:10px 14px; border-radius:10px; border-left:3px solid var(--primary-500); margin-bottom:8px; box-shadow:0 2px 5px rgba(0,0,0,0.2);">
+                                <div style="width:20px; height:20px; border-radius:50%; background:var(--surface-600); display:flex; align-items:center; justify-content:center; font-size:9px; color:var(--primary-400); flex-shrink:0;">
+                                    <i class="fa-solid fa-microchip"></i>
+                                </div>
+                                <span style="font-size:12px; color:var(--text-primary); flex:1; font-weight:500;">${tDesc}</span>
+                                <span style="font-size:9px; background:var(--primary-900); padding:3px 8px; border-radius:6px; color:var(--primary-200); font-family:monospace; font-weight:800; text-transform:uppercase; letter-spacing:0.5px;">${t.capability}</span>
+                            </div>
+                        `;
+                    }).join('');
+
+                    html += `
+                        <div class="mission-proposal-card" style="margin-top:10px; background:linear-gradient(165deg, rgba(88, 28, 135, 0.2), rgba(124, 58, 237, 0.1)); border:2px solid var(--primary-600); border-radius:20px; padding:24px; box-shadow: 0 15px 40px rgba(0,0,0,0.4); border-top: 6px solid var(--primary-500); position:relative; overflow:hidden; animation: slideInUp 0.4s ease-out;">
+                            <div style="position:absolute; top:-20px; right:-20px; width:100px; height:100px; background:var(--primary-500); opacity:0.1; border-radius:50%; filter:blur(40px);"></div>
+                            
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                                <div style="color:var(--primary-300); font-size:11px; font-weight:900; text-transform:uppercase; letter-spacing:2px; display:flex; align-items:center; gap:8px;">
+                                    <i class="fa-solid fa-sparkles fa-beat" style="--fa-animation-duration: 2s;"></i> ATOMIC MISSION READY
+                                </div>
+                                <div style="background:rgba(255,255,255,0.05); padding:4px 10px; border-radius:6px; font-size:10px; color:var(--text-muted); font-family:monospace;">${mission.id || 'mission-auto'}</div>
+                            </div>
+                            
+                            <div style="font-size:20px; font-weight:900; color:white; margin-bottom:8px; letter-spacing:-0.5px;">${mTitle}</div>
+                            <div style="font-size:14px; color:var(--text-muted); line-height:1.6; margin-bottom:20px; border-left:2px solid var(--surface-600); padding-left:12px;">${mDesc}</div>
+                            
+                            <div style="margin-bottom:24px;">
+                                <div style="font-size:10px; color:var(--primary-400); text-transform:uppercase; margin-bottom:12px; font-weight:800; letter-spacing:1px;">Orchestration Plan</div>
+                                ${tasksHtml}
+                            </div>
+
+                            <button class="btn-primary" style="width:100%; padding:16px; font-size:14px; font-weight:800; background:linear-gradient(to right, var(--primary-600), var(--accent-purple)); border:none; box-shadow:0 8px 20px rgba(124, 58, 237, 0.4); cursor:pointer;" onclick="window.confirmMission && window.confirmMission('${mission.id}')">
+                                <i class="fa-solid fa-bolt-lightning" style="margin-right:12px;"></i> ACTIVATE MISSION
+                            </button>
+                        </div>
+                    `;
+                }
+
                 contentDiv.innerHTML = html;
             } else {
+                let errorMsg = "Failed to generate response. Check if Local AI is reachable.";
+                try {
+                    const errorData = await res.json();
+                    if (errorData.error) errorMsg = errorData.error;
+                } catch(e) {}
+                
                 contentDiv.innerHTML = `<div style="padding:12px; background:rgba(239, 68, 68, 0.1); border:1px solid var(--accent-red); border-radius:8px; display:flex; gap:10px; align-items:center;">
                     <i class="fa-solid fa-triangle-exclamation" style="color:var(--accent-red)"></i>
-                    <span style="color:var(--accent-red)">Failed to generate response. Check if Local AI is reachable.</span>
+                    <span style="color:var(--accent-red)">${errorMsg}</span>
                 </div>`;
             }
         } catch (e) {
             const contentDiv = agentDiv.querySelector('.agent-msg-content');
-            contentDiv.innerHTML = `<div style="padding:12px; background:rgba(239, 68, 68, 0.1); border:1px solid var(--accent-red); border-radius:8px; display:flex; gap:10px; align-items:center;">
-                <i class="fa-solid fa-plug-circle-xmark" style="color:var(--accent-red)"></i>
-                <span style="color:var(--accent-red)">Connection error. Ensure the EdgeClaw backend is running.</span>
-            </div>`;
+            if (contentDiv) {
+                contentDiv.innerHTML = `<div style="padding:12px; background:rgba(239, 68, 68, 0.1); border:1px solid var(--accent-red); border-radius:8px; display:flex; gap:10px; align-items:center;">
+                    <i class="fa-solid fa-plug-circle-xmark" style="color:var(--accent-red)"></i>
+                    <span style="color:var(--accent-red)">Connection error. Ensure the EdgeClaw backend is running.</span>
+                </div>`;
+            }
         }
         messagesArea.scrollTop = messagesArea.scrollHeight;
     }
 }
 
+export function showChatHelp() {
+    const helpText = `
+        <div style="text-align:left; font-size:12px; line-height:1.6;">
+            <strong>Commands:</strong><br>
+            • <code>/mode [sanctum|high-perf]</code>: UI theme switch<br>
+            • <code>/model [name]</code>: Select specific AI model<br>
+            • <code>/models</code>: List all local models<br>
+            • <code>/parallel [m1,m2]</code>: Task consensus<br>
+            • <code>@[agent]</code>: Route to specific agent<br>
+            • <code>/mission [title]</code>: Setup new workflow<br><br>
+            <em>All data is processed strictly locally by default.</em>
+        </div>
+    `;
+    // Use a custom modal or toast
+    if (window.showToast) {
+        window.showToast('Chat Commands: /mode, /model, /models, /parallel, @mention, /mission', 'info');
+    }
+    
+    // For richer help, let's append a system message to the chat
+    const log = document.getElementById('aiChatMessages');
+    if (log) {
+        const div = document.createElement('div');
+        div.style.background = 'var(--surface-800)';
+        div.style.padding = '16px';
+        div.style.borderRadius = '12px';
+        div.style.border = '1px solid var(--surface-700)';
+        div.style.marginBottom = '16px';
+        div.innerHTML = `
+            <div style="font-weight:600; color:var(--primary-400); margin-bottom:8px;"><i class="fa-solid fa-circle-question"></i> Chat Help</div>
+            ${helpText}
+        `;
+        log.appendChild(div);
+        log.scrollTop = log.scrollHeight;
+    }
+}
+
+export function confirmMission(missionId) {
+    if (!missionId) return;
+    apiFetch(`${API}/api/v2.3/mission/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mission_id: missionId })
+    })
+    .then(res => {
+        if (res.ok) {
+            if (window.showToast) window.showToast('Mission activated successfully!', 'success');
+        } else {
+            console.error('Failed to confirm mission');
+        }
+    })
+    .catch(err => console.error('Error confirming mission:', err));
+}
+
+window.confirmMission = confirmMission;

@@ -375,6 +375,168 @@ impl AgentEngine {
                     }
             }
         });
+
+        // ─── P3-03: Memory Auto-Promotion + Persistence Background Task ────
+        let engine2 = self.clone();
+        tokio::spawn(async move {
+            eprintln!("[V3] Memory Maintenance Engine STARTING...");
+            info!("Starting Memory Maintenance background loop");
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            loop {
+                interval.tick().await;
+
+                // 1. Auto-promote memories (M30→M90→M365) based on reference_count
+                let (promoted_count, expired_count, total_memories) = {
+                    let mut mem = engine2.memory_engine.lock().unwrap_or_else(|e| e.into_inner());
+                    let before_m90 = mem.tiers.m90.len();
+                    let before_m365 = mem.tiers.m365.len();
+                    let before_total = mem.tiers.m30.len() + before_m90 + before_m365;
+
+                    mem.tiers.promote_memories();
+                    mem.tiers.clean_expired(chrono::Utc::now());
+
+                    let after_m90 = mem.tiers.m90.len();
+                    let after_m365 = mem.tiers.m365.len();
+                    let after_total = mem.tiers.m30.len() + after_m90 + after_m365;
+
+                    let promoted = (after_m90 - before_m90) + (after_m365 - before_m365);
+                    let expired = if before_total > after_total + promoted { before_total - after_total - promoted } else { 0 };
+
+                    (promoted, expired, after_total)
+                };
+
+                if promoted_count > 0 || expired_count > 0 {
+                    info!(promoted = promoted_count, expired = expired_count, total = total_memories,
+                        "[P3-03] Memory maintenance cycle completed");
+                }
+
+                // 2. Persist memory state to MEMORY.md every cycle
+                {
+                    let mem = engine2.memory_engine.lock().unwrap_or_else(|e| e.into_inner());
+                    let path = engine2.memory_storage_path();
+                    if let Err(e) = mem.save_to_markdown_file(&path) {
+                        eprintln!("[V3] Memory persistence failed: {}", e);
+                    }
+                }
+            }
+        });
+    }
+
+    /// P1-08: Boot Ritual — inject M0 CoreMemory + Lessons + Persona into AI system context
+    ///
+    /// Called once at startup to prime the AI manager with the agent's identity,
+    /// memory context, and behavioral directives.
+    pub fn boot_ritual(&self) {
+        info!("[P1-08] Executing Boot Ritual...");
+
+        // 1. Gather M0 CoreMemory context
+        let memory_context = {
+            let mem = self.memory_engine.lock().unwrap_or_else(|e| e.into_inner());
+            let mut ctx = String::new();
+
+            // Soul definition
+            if !mem.core.soul.content.is_empty() {
+                ctx.push_str(&format!("[SOUL] {}\n", mem.core.soul.content));
+            }
+
+            // Absolute rules
+            if !mem.core.absolute_rules.is_empty() {
+                ctx.push_str("[RULES]\n");
+                for rule in &mem.core.absolute_rules {
+                    ctx.push_str(&format!("- {}\n", rule));
+                }
+            }
+
+            // User profile
+            if !mem.core.user_profile.name.is_empty() {
+                ctx.push_str(&format!("[USER] {}\n", mem.core.user_profile.name));
+                for (k, v) in &mem.core.user_profile.preferences {
+                    ctx.push_str(&format!("  {}: {}\n", k, v));
+                }
+            }
+
+            // Top lessons
+            let top_lessons: Vec<_> = mem.lessons.lessons.iter()
+                .filter(|l| l.effectiveness > 0.5)
+                .take(10)
+                .collect();
+            if !top_lessons.is_empty() {
+                ctx.push_str("[LESSONS]\n");
+                for lesson in top_lessons {
+                    ctx.push_str(&format!("- {} (eff: {:.0}%, applied: {}x)\n",
+                        lesson.pattern, lesson.effectiveness * 100.0, lesson.applied_count));
+                }
+            }
+
+            // Recent M365 high-importance memories
+            let critical_memories: Vec<_> = mem.tiers.m365.iter()
+                .filter(|m| m.importance >= 3)
+                .take(5)
+                .collect();
+            if !critical_memories.is_empty() {
+                ctx.push_str("[CRITICAL MEMORIES]\n");
+                for m in critical_memories {
+                    ctx.push_str(&format!("- {}\n", m.content));
+                }
+            }
+
+            ctx
+        };
+
+        // 2. Gather Quantum Hub context
+        let quantum_context = {
+            let qe = self.quantum_engine.lock().unwrap_or_else(|e| e.into_inner());
+            let stats = qe.hub.stats();
+            format!(
+                "[QUANTUM HUB] E-Max: {} patterns | C-Max: {} patterns | Insights: {} | Cycles: {}\n",
+                stats.e_max_count, stats.c_max_count, stats.failure_insights_count, stats.total_cycles
+            )
+        };
+
+        // 3. Gather process type
+        let process_type = self.process_type();
+
+        // 4. Build boot context string
+        let boot_context = format!(
+            "=== EDGECLAW BOOT RITUAL ===\n\
+             Device: {}\n\
+             Process Mode: {:?}\n\
+             \n{}\
+             {}\
+             === END BOOT RITUAL ===",
+            self.config.agent.device_name,
+            process_type,
+            memory_context,
+            quantum_context,
+        );
+
+        // 5. Inject as system message into chat history
+        {
+            let mut history = self.chat_history.lock().unwrap_or_else(|e| e.into_inner());
+
+            // Remove any previous boot ritual message
+            history.retain(|msg| {
+                !(msg.role == crate::ai::ChatRole::System
+                    && msg.content.contains("EDGECLAW BOOT RITUAL"))
+            });
+
+            // Insert boot ritual at the beginning
+            history.insert(0, ChatMessage {
+                role: crate::ai::ChatRole::System,
+                content: boot_context.clone(),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            });
+        }
+
+        let mem_line_count = memory_context.lines().count();
+        info!(
+            memory_lines = mem_line_count,
+            process_type = ?process_type,
+            "[P1-08] Boot Ritual complete — {} memory context lines injected",
+            mem_line_count
+        );
     }
     /// Create a new engine with the given config
     pub fn new(config: AgentConfig) -> Self {

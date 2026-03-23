@@ -505,6 +505,9 @@ async fn main() -> anyhow::Result<()> {
             // V2.4 Start background autonomous threads
             engine.clone().start_background_tasks();
 
+            // P1-08: Boot Ritual — inject memory + persona context into AI
+            engine.boot_ritual();
+
             let num_agents = config.webui.effective_max_agents();
             let mut effective_ws_port = config.websocket.port;
 

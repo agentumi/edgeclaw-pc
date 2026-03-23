@@ -130,6 +130,8 @@ pub struct AgentEngine {
     process_type: Mutex<crate::ai::ProcessType>,
     /// V3: 양자 메모리 오케스트레이터
     quantum_engine: Mutex<crate::quantum_engine::QuantumOrchestrator>,
+    /// P1: Agent Persona (traits, specializations, communication style)
+    persona: Mutex<crate::persona::AgentPersona>,
 }
 
 impl AgentEngine {
@@ -357,6 +359,12 @@ impl AgentEngine {
                                          eprintln!("[V3] Mission '{}' archived as E-Max pattern (efficiency: {:.2})", m.name, efficiency);
                                      }
                                      
+                                     // P1-06: Auto-update persona specialization on mission completion
+                                     if let Ok(mut persona) = engine.persona.lock() {
+                                         let domain = if m.category.is_empty() { "general" } else { &m.category };
+                                         persona.record_task_completion(domain);
+                                     }
+
                                      changed = true;
                                  }
                              }
@@ -485,7 +493,10 @@ impl AgentEngine {
             ctx
         };
 
-        // 2. Gather Quantum Hub context
+        // 2. Gather Persona context (P1-09: CommunicationStyle injection)
+        let persona_context = self.persona_system_prompt();
+
+        // 3. Gather Quantum Hub context
         let quantum_context = {
             let qe = self.quantum_engine.lock().unwrap_or_else(|e| e.into_inner());
             let stats = qe.hub.stats();
@@ -495,24 +506,26 @@ impl AgentEngine {
             )
         };
 
-        // 3. Gather process type
+        // 4. Gather process type
         let process_type = self.process_type();
 
-        // 4. Build boot context string
+        // 5. Build boot context string
         let boot_context = format!(
             "=== EDGECLAW BOOT RITUAL ===\n\
              Device: {}\n\
              Process Mode: {:?}\n\
              \n{}\
              {}\
+             {}\
              === END BOOT RITUAL ===",
             self.config.agent.device_name,
             process_type,
+            persona_context,
             memory_context,
             quantum_context,
         );
 
-        // 5. Inject as system message into chat history
+        // 6. Inject as system message into chat history
         {
             let mut history = self.chat_history.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -686,6 +699,10 @@ impl AgentEngine {
             mode: Mutex::new("sanctum".to_string()),
             process_type: Mutex::new(crate::ai::ProcessType::Fleet),
             quantum_engine: Mutex::new(crate::quantum_engine::QuantumOrchestrator::new()),
+            persona: Mutex::new(crate::persona::AgentPersona::from_preset(
+                &config.agent.device_name,
+                crate::persona::PersonaPreset::Executor,
+            )),
             config,
         }
     }
@@ -763,6 +780,19 @@ impl AgentEngine {
     ) -> Option<crate::quantum_engine::FailureInsight> {
         let mut qe = self.quantum_engine.lock().unwrap_or_else(|e| e.into_inner());
         qe.handle_failure(mission_id, failure_desc, error_magnitude)
+    }
+
+    // ─── P1: Persona Management ────────────────────────────────
+
+    /// Access the current agent persona
+    pub fn persona(&self) -> &Mutex<crate::persona::AgentPersona> {
+        &self.persona
+    }
+
+    /// Generate persona system prompt for AI injection (P1-09)
+    pub fn persona_system_prompt(&self) -> String {
+        let persona = self.persona.lock().unwrap_or_else(|e| e.into_inner());
+        persona.to_system_prompt()
     }
 
     // ─── Clients ───────────────────────────────────────────

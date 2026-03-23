@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EdgeClaw Agent — Chat</title>
+<title>EdgeClaw Agent ??Chat</title>
 <style>
 :root {
   --bg: #0f1117;
@@ -33,7 +33,7 @@ body {
   overflow: hidden;
 }
 
-/* ── Header ── */
+/* ???? Header ???? */
 .header {
   background: var(--surface);
   border-bottom: 1px solid rgba(255,255,255,0.06);
@@ -75,7 +75,7 @@ body {
   padding: 2px 10px;
 }
 
-/* ── Profile Tabs ── */
+/* ???? Profile Tabs ???? */
 .profile-tabs {
   background: var(--surface);
   border-bottom: 1px solid rgba(255,255,255,0.06);
@@ -101,7 +101,7 @@ body {
   color: #fff;
 }
 
-/* ── Quick Actions ── */
+/* ???? Quick Actions ???? */
 .quick-actions {
   background: var(--surface);
   border-bottom: 1px solid rgba(255,255,255,0.06);
@@ -152,7 +152,7 @@ body {
   color: #000;
 }
 
-/* ── Chat Messages ── */
+/* ???? Chat Messages ???? */
 .chat-area {
   flex: 1;
   overflow-y: auto;
@@ -224,7 +224,7 @@ body {
   display: flex; align-items: center; gap: 6px;
 }
 
-/* ── Execution Result ── */
+/* ???? Execution Result ???? */
 .exec-result {
   margin-top: 8px;
   border-radius: 8px;
@@ -273,7 +273,7 @@ body {
   overflow-y: auto;
 }
 
-/* ── Typing Indicator ── */
+/* ???? Typing Indicator ???? */
 .typing {
   display: none;
   align-items: center;
@@ -296,7 +296,7 @@ body {
 }
 .typing-text { font-size: 12px; color: var(--text-muted); }
 
-/* ── Input Area ── */
+/* ???? Input Area ???? */
 .input-area {
   background: var(--surface);
   border-top: 1px solid rgba(255,255,255,0.06);
@@ -348,7 +348,7 @@ body {
 .send-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 .send-btn svg { width: 20px; height: 20px; }
 
-/* ── Responsive ── */
+/* ???? Responsive ???? */
 @media (max-width: 600px) {
   .msg { max-width: 92%; }
   .header { padding: 10px 14px; }
@@ -389,7 +389,7 @@ body {
 <!-- Chat Area -->
 <div class="chat-area" id="chatArea">
   <div class="msg system">
-    <div class="msg-content">EdgeClaw Agent Chat — Zero-Trust Edge AI<br>Type <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-size:12px;">help</code> for available commands</div>
+    <div class="msg-content">EdgeClaw Agent Chat ??Zero-Trust Edge AI<br>Type <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-size:12px;">help</code> for available commands</div>
   </div>
 </div>
 
@@ -428,7 +428,7 @@ let sending = false;
 let allActions = [];
 let activeProfile = 'all';
 
-// ── Profile Tab Switching ──
+// ???? Profile Tab Switching ????
 document.getElementById('profileTabs').addEventListener('click', (e) => {
   const tab = e.target.closest('.profile-tab');
   if (!tab) return;
@@ -438,13 +438,13 @@ document.getElementById('profileTabs').addEventListener('click', (e) => {
   renderQuickActions();
 });
 
-// ── Auto-resize textarea ──
+// ???? Auto-resize textarea ????
 chatInput.addEventListener('input', () => {
   chatInput.style.height = 'auto';
   chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
 });
 
-// ── Send on Enter (Shift+Enter for newline) ──
+// ???? Send on Enter (Shift+Enter for newline) ????
 chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -454,7 +454,7 @@ chatInput.addEventListener('keydown', (e) => {
 
 sendBtn.addEventListener('click', sendMessage);
 
-// ── Add message to UI ──
+// ???? Add message to UI ????
 function addMessage(role, text, meta) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
@@ -467,38 +467,44 @@ function addMessage(role, text, meta) {
   content = content.replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-size:12px;">$1</code>');
   content = content.replace(/\n/g, '<br>');
 
-  let intentHtml = '';
-  if (meta && meta.intent) {
-    intentHtml = `<div class="msg-intent">&#9654; [${escapeHtml(meta.intent.capability)}] ${escapeHtml(meta.intent.command)}</div>`;
+  // Intelligent JSON-to-Mission Parser
+  let missionData = meta && meta.intent && meta.intent.mission ? meta.intent.mission : null;
+  if (!missionData && text.includes('{')) {
+    try {
+      const extracted = JSON.parse(text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1));
+      if (extracted.mission) missionData = extracted.mission;
+      else if (extracted.id && extracted.tasks) missionData = extracted;
+    } catch(e) {}
   }
 
-  // Execution result display
-  let execHtml = '';
-  if (meta && meta.exec_result) {
-    const exec = meta.exec_result;
-    const statusClass = exec.success ? 'success' : 'failed';
-    const statusIcon = exec.success ? '&#10003;' : '&#10007;';
-    const statusLabel = exec.success ? 'Executed Successfully' : 'Execution Failed';
-    const duration = exec.duration_ms ? `${exec.duration_ms}ms` : '';
-    const exitCode = exec.exit_code !== null ? ` (exit: ${exec.exit_code})` : '';
+  if (missionData) {
+    const mission = missionData;
+    const tasksHtml = (mission.tasks || []).map(t => `
+        <div style="background:rgba(255,255,255,0.05); padding:6px 10px; border-radius:6px; border-left:2px solid var(--primary); margin-top:5px; font-size:11px; display:flex; justify-content:space-between;">
+            <span>${t.desc}</span>
+            <code style="opacity:0.6; font-size:9px;">${t.capability}</code>
+        </div>
+    `).join('');
 
-    execHtml = `<div class="exec-result">`;
-    execHtml += `<div class="exec-header ${statusClass}">${statusIcon} ${statusLabel}${exitCode}<span class="duration">${duration}</span></div>`;
-    if (exec.stdout && exec.stdout.trim()) {
-      execHtml += `<div class="exec-output">${escapeHtml(exec.stdout)}</div>`;
-    }
-    if (exec.stderr && exec.stderr.trim()) {
-      execHtml += `<div class="exec-stderr">${escapeHtml(exec.stderr)}</div>`;
-    }
-    if (!exec.stdout?.trim() && !exec.stderr?.trim()) {
-      execHtml += `<div class="exec-output" style="color:var(--text-muted);font-style:italic;">(no output)</div>`;
-    }
-    execHtml += `</div>`;
+    execHtml += `
+      <div style="margin-top:15px; background:var(--surface2); border:1px solid var(--primary); border-radius:12px; padding:15px; box-shadow:0 8px 24px rgba(0,0,0,0.2);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <div style="color:var(--primary-light); font-size:10px; font-weight:700; letter-spacing:1px; text-transform:uppercase;"><i class="fa-solid fa-sparkles"></i> PROPOSED MISSION</div>
+            <div style="background:var(--primary); color:white; font-size:9px; padding:2px 8px; border-radius:10px;">CI ENGINE</div>
+        </div>
+        <div style="font-weight:700; font-size:16px; margin-bottom:6px;">${mission.title || 'Untitled'}</div>
+        <div style="font-size:12px; color:var(--text-muted); line-height:1.4; margin-bottom:12px;">${mission.description || ''}</div>
+        <div style="margin-bottom:15px;">${tasksHtml}</div>
+        <button class="send-btn" style="width:100%; height:auto; padding:12px; font-weight:700; font-size:13px;" onclick="confirmMission('${mission.id}')">
+            ACTIVATE CI WORKFLOW
+        </button>
+      </div>
+    `;
   }
 
   let metaHtml = '';
   if (meta && meta.provider) {
-    metaHtml = `<div class="msg-meta">${escapeHtml(meta.provider)} · ${(meta.confidence * 100).toFixed(0)}%</div>`;
+    metaHtml = `<div class="msg-meta">${escapeHtml(meta.provider)} 夷?${(meta.confidence * 100).toFixed(0)}%</div>`;
   } else if (role === 'user') {
     metaHtml = `<div class="msg-meta">${new Date().toLocaleTimeString()}</div>`;
   }
@@ -514,7 +520,7 @@ function escapeHtml(str) {
   return d.innerHTML;
 }
 
-// ── Send message ──
+// ???? Send message ????
 async function sendMessage() {
   const text = chatInput.value.trim();
   if (!text || sending) return;
@@ -557,7 +563,7 @@ async function sendMessage() {
   }
 }
 
-// ── Render quick actions (grouped by profile/group) ──
+// ???? Render quick actions (grouped by profile/group) ????
 function renderQuickActions() {
   const filtered = activeProfile === 'all'
     ? allActions
@@ -598,7 +604,7 @@ function renderQuickActions() {
   }
 }
 
-// ── Load quick actions ──
+// ???? Load quick actions ????
 async function loadQuickActions() {
   try {
     const res = await fetch(`${API}/api/quick-actions`);
@@ -608,13 +614,13 @@ async function loadQuickActions() {
   } catch (_) {}
 }
 
-// ── Load status ──
+// ???? Load status ????
 async function loadStatus() {
   try {
     const res = await fetch(`${API}/api/status`);
     if (!res.ok) throw new Error();
     const data = await res.json();
-    headerSub.textContent = `${data.provider || 'none'} · Port ${data.port || '?'} · ${data.capabilities || 0} caps`;
+    headerSub.textContent = `${data.provider || 'none'} 夷?Port ${data.port || '?'} 夷?${data.capabilities || 0} caps`;
     statusText.textContent = 'Online';
     statusBadge.querySelector('.dot').style.background = 'var(--success)';
     statusBadge.style.color = 'var(--success)';
@@ -626,7 +632,7 @@ async function loadStatus() {
   }
 }
 
-// ── Load agent info ──
+// ???? Load agent info ????
 async function loadAgents() {
   try {
     const res = await fetch(`${API}/api/agents`);
@@ -634,13 +640,13 @@ async function loadAgents() {
     const data = await res.json();
     const tier = data.license_tier || 'free';
     const max = data.max_agents || 1;
-    agentBadge.textContent = `${tier} · ${max} agent${max > 1 ? 's' : ''}`;
+    agentBadge.textContent = `${tier} 夷?${max} agent${max > 1 ? 's' : ''}`;
   } catch (_) {
     agentBadge.textContent = '';
   }
 }
 
-// ── Init ──
+// ???? Init ????
 loadStatus();
 loadQuickActions();
 loadAgents();
@@ -649,10 +655,11 @@ chatInput.focus();
 // Refresh status every 30s
 setInterval(loadStatus, 30000);
 
-// ── WebSocket Real-Time Events ──
+// ???? WebSocket Real-Time Events ????
 let ws = null;
 let wsReconnectTimer = null;
-const WS_PORT = parseInt(window.location.port || '9444') + 1; // Default: 9445
+// Smart WebSocket port resolution
+const WS_PORT = window.EDGECLAW_WS_PORT || 9460; 
 const WS_URL = `ws://${window.location.hostname}:${WS_PORT}`;
 
 function connectWebSocket() {
@@ -721,13 +728,13 @@ function handleWsEvent(data) {
 
     case 'CommandStarted':
       if (payload) {
-        addSystemEvent(`⚡ Executing: ${payload.command || '...'}`);
+        addSystemEvent(`??Executing: ${payload.command || '...'}`);
       }
       break;
 
     case 'CommandCompleted':
       if (payload) {
-        const icon = payload.success ? '✅' : '❌';
+        const icon = payload.success ? '?? : '??;
         const ms = payload.duration_ms || 0;
         addSystemEvent(`${icon} Command completed (${ms}ms, exit: ${payload.exit_code ?? '?'})`);
       }
@@ -735,26 +742,26 @@ function handleWsEvent(data) {
 
     case 'PeerConnected':
       if (payload) {
-        addSystemEvent(`🔗 Peer connected: ${payload.device_name || payload.peer_id}`);
+        addSystemEvent(`?逾?Peer connected: ${payload.device_name || payload.peer_id}`);
       }
       break;
 
     case 'PeerDisconnected':
       if (payload) {
-        addSystemEvent(`🔌 Peer disconnected: ${payload.peer_id} (${payload.reason || ''})`);
+        addSystemEvent(`?逾?Peer disconnected: ${payload.peer_id} (${payload.reason || ''})`);
       }
       break;
 
     case 'Alert':
       if (payload) {
-        const sev = payload.severity === 'Critical' ? '🔴' : payload.severity === 'Warning' ? '🟡' : 'ℹ️';
+        const sev = payload.severity === 'Critical' ? '?逾? : payload.severity === 'Warning' ? '??? : '?諭꾪닔';
         addSystemEvent(`${sev} ${payload.message}`);
       }
       break;
 
     case 'StatusChange':
       if (payload) {
-        addSystemEvent(`📡 Status: ${payload.previous} → ${payload.current}`);
+        addSystemEvent(`?諭?Status: ${payload.previous} ??${payload.current}`);
         loadStatus(); // Refresh status
       }
       break;

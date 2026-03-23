@@ -155,6 +155,8 @@ pub struct IdentityConfigUpdate {
     pub messenger: Option<String>,
     #[serde(default)]
     pub phone: Option<String>,
+    #[serde(default)]
+    pub language: Option<String>,
 }
 
 /// PUT /api/config/identity — Update agent identity fields (JSON body).
@@ -211,6 +213,9 @@ pub async fn handle_config_identity_update(
     }
     if let Some(value) = req.phone.as_deref().map(str::trim) {
         config.agent.phone = value.to_string();
+    }
+    if let Some(value) = req.language.as_deref().map(str::trim) {
+        config.agent.language = value.to_string();
     }
     config.save(&config_path)?;
 

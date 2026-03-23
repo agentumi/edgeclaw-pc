@@ -1,0 +1,12 @@
+[
+  {
+    "role": "User",
+    "content": "AgentUmi.xyz 비즈니스 분석과 텔레그램 마케팅 로드맵",
+    "timestamp": "2026-03-22T08:15:09.853631700+00:00"
+  },
+  {
+    "role": "Assistant",
+    "content": "{\n  \"message\": \"Here is the proposed business automation mission plan.\",\n  \"intent\": {\n    \"capability\": \"create_mission\",\n    \"mission\": {\n      \"id\": \"global-mission-002\",\n      \"title\": \"AgentUmi XYZ Business Analysis and Telegram Marketing Roadmap\",\n      \"description\": \"Implement a comprehensive business analysis and Telegram marketing strategy for AgentUmi.xyz, ensuring a seamless customer experience.\",\n      \"tasks\": [\n        { \"id\": \"t1\", \"desc\": \"Conduct market research (10 minutes)\", \"capability\": \"status_query\", \"command\": \"market_research\" },\n        { \"id\": \"t2\", \"desc\": \"Analyze competitors' social media presence (30 minutes)\", \"capability\": \"shell_exec\", \"command\": \"competitor_analysis\" },\n        { \"id\": \"t3\", \"desc\": \"Develop a Telegram marketing strategy (1 hour)\", \"capability\": \"config_edit\", \"command\": \"telegram_marketing\" }\n      ]\n    }\n  }\n}",
+    "timestamp": "2026-03-22T08:15:09.853657500+00:00"
+  }
+]

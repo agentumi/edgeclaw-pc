@@ -50,7 +50,7 @@ impl Default for AiSummaryConfig {
             provider: "ollama".to_string(),
             model: "llama3:8b".to_string(),
             api_key: None,
-            ollama_url: "http://localhost:11434".to_string(),
+            ollama_url: "http://127.0.0.1:11434".to_string(),
             max_activities: 50,
         }
     }
@@ -636,7 +636,7 @@ mod tests {
 
     #[test]
     fn test_provider_cost_estimation() {
-        let ollama = OllamaProvider::new("http://localhost:11434", "llama3");
+        let ollama = OllamaProvider::new("http://127.0.0.1:11434", "llama3");
         assert_eq!(ollama.estimated_cost(1000), 0.0);
 
         let openai = OpenAiProvider::new("key", "gpt-4o-mini");
@@ -796,7 +796,7 @@ mod tests {
         let config2 = AiSummaryConfig {
             enabled: true,
             provider: "ollama".into(),
-            ollama_url: "http://localhost:9999".into(), // Ensure failure by using a dead port
+            ollama_url: "http://127.0.0.1:9999".into(), // Ensure failure by using a dead port
             ..Default::default()
         };
         let summarizer2 = SessionSummarizer::new(config2);

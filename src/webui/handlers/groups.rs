@@ -29,7 +29,7 @@ pub async fn handle_group_create(
     let json_bytes = serde_json::to_vec(&group).unwrap_or_default();
     send_response(stream, 201, "application/json", &json_bytes, cors_origin).await
 }
-/// POST /api/v2.3/groups/:id/members
+/// POST /api/groups/:id/members
 pub async fn handle_group_add_member(
     stream: &mut TcpStream,
     engine: &AgentEngine,

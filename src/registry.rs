@@ -44,6 +44,10 @@ pub struct AgentInfo {
     pub status: AgentStatus,
     pub capabilities: Vec<String>,
     pub version: String,
+    #[serde(default)]
+    pub persona: String,
+    #[serde(default)]
+    pub performance_rating: f64,
     pub last_heartbeat: DateTime<Utc>,
     pub registered_at: DateTime<Utc>,
 }
@@ -260,6 +264,8 @@ mod tests {
             status: AgentStatus::Online,
             capabilities: vec!["status_query".to_string()],
             version: "1.0.0".to_string(),
+            persona: String::new(),
+            performance_rating: 0.0,
             last_heartbeat: Utc::now(),
             registered_at: Utc::now(),
         }

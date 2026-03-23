@@ -33,13 +33,13 @@ rotation = "daily"
 max_files = 30
 
 [ai]
-# Primary provider: "none", "ollama", "openai", "claude"
+# Primary provider: "none", "ollama", "openai", "claude", "gpt-oss"
 primary = "ollama"
 
 [ai.local]
 endpoint = "http://localhost:11434"
 model = "llama3.2:3b"
-timeout_ms = 5000
+timeout_ms = 180000
 
 [ai.cloud]
 provider = "openai"
@@ -47,11 +47,17 @@ model = "gpt-4o-mini"
 endpoint = "https://api.openai.com"
 timeout_ms = 30000
 
+[ai.gpt_oss]
+model = "gpt-oss-120b"
+endpoint = "https://api.edgeclaw.ai/v1/gpt-oss"
+timeout_ms = 30000
+
 [ai.policy]
 escalation_threshold = 0.6
 never_cloud = ["password", "secret", "private_key", "token", "credential", "api_key"]
 require_consent = true
 audit_ai_calls = true
+consensus_models = ["llama3:latest", "qwen2.5-coder:7b", "llama3.2:3b"]
 
 [webui]
 enabled = true

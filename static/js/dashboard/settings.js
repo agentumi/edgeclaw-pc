@@ -40,16 +40,71 @@ export async function loadSettingsIdentity() {
         if (res.ok) {
             const config = await res.json();
             const agent = config.agent || {};
-            const nameEl = document.getElementById('settings-identity-name');
-            const roleEl = document.getElementById('settings-identity-role');
-            const avatarEl = document.getElementById('settings-identity-avatar');
             
-            if (nameEl) nameEl.textContent = agent.display_name || agent.device_name || 'EdgeClaw User';
-            if (roleEl) roleEl.textContent = agent.role || 'Administrator';
-            if (avatarEl && agent.avatar_url) avatarEl.src = agent.avatar_url;
+            // Map values to actual input fields from settings.html
+            const el = (id) => document.getElementById(id);
+            if (el('settingsDisplayName')) el('settingsDisplayName').value = agent.display_name || '';
+            if (el('settingsDeviceName')) el('settingsDeviceName').value = agent.device_name || '';
+            if (el('settingsAvatarUrl')) el('settingsAvatarUrl').value = agent.avatar_url || '';
+            if (el('settingsPersona')) el('settingsPersona').value = agent.persona || '';
+            if (el('settingsRole')) el('settingsRole').value = agent.role || '';
+            if (el('settingsEmail')) el('settingsEmail').value = agent.email || '';
+            if (el('settingsMessenger')) el('settingsMessenger').value = agent.messenger || '';
+            if (el('settingsPhone')) el('settingsPhone').value = agent.phone || '';
+
+            if (el('settingsAvatarPreview') && agent.avatar_url) {
+                el('settingsAvatarPreview').src = agent.avatar_url;
+                el('settingsAvatarPreview').style.display = 'block';
+            }
+            
+            // Bind Save Button Event (Inject Persona)
+            const saveBtn = el('settingsIdentitySaveBtn');
+            if (saveBtn) {
+                // Ensure no duplicate bindings by replacing the node
+                const newBtn = saveBtn.cloneNode(true);
+                saveBtn.parentNode.replaceChild(newBtn, saveBtn);
+                newBtn.addEventListener('click', saveIdentityConfig);
+            }
         }
-    } catch (e) {}
+    } catch (e) { console.error("[V2.4] Persona Load Error", e); }
 }
+
+async function saveIdentityConfig() {
+    const el = (id) => document.getElementById(id)?.value || '';
+    const payload = {
+        display_name: el('settingsDisplayName'),
+        device_name: el('settingsDeviceName'),
+        avatar_url: el('settingsAvatarUrl'),
+        persona: el('settingsPersona'),
+        role: el('settingsRole'),
+        email: el('settingsEmail'),
+        messenger: el('settingsMessenger'),
+        phone: el('settingsPhone'),
+        language: document.getElementById('aiChatLangSelect')?.value || 'english'
+    };
+
+    const btn = document.getElementById('settingsIdentitySaveBtn');
+    if (btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+
+    try {
+        const res = await apiFetch(`${API}/api/config/identity`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+            showToast('Persona successfully injected & persistent!', 'success');
+        } else {
+            showToast('Failed to save persona.', 'error');
+        }
+    } catch (e) {
+        showToast('Network error while saving persona.', 'error');
+    } finally {
+        if (btn) btn.innerHTML = '<i class="fa-solid fa-check"></i> Save';
+    }
+}
+
 
 export function copyApiKey() {
     const keyEl = document.getElementById('settingsApiKey');

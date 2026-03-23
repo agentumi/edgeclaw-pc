@@ -1,7 +1,7 @@
-//! AI Provider plugin system — swappable AI backends for EdgeClaw Agent.
+﻿//! AI Provider plugin system ??swappable AI backends for EdgeClaw Agent.
 //!
 //! Supports local (Ollama), cloud (OpenAI, Claude), and passthrough (None) providers.
-//! AI is a plugin — security is the platform.
+//! AI is a plugin ??security is the platform.
 
 use crate::error::AgentError;
 use ed25519_dalek::SigningKey;
@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-// ─── AI Request / Response ─────────────────────────────────
+// ??? AI Request / Response ?????????????????????????????????
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiRequest {
@@ -131,9 +131,9 @@ pub enum ChatRole {
     System,
 }
 
-// ─── AI Provider Trait ─────────────────────────────────────
+// ??? AI Provider Trait ?????????????????????????????????????
 
-/// Trait for AI providers — implement this to add a new AI backend
+/// Trait for AI providers ??implement this to add a new AI backend
 pub trait AiProvider: Send + Sync {
     /// Provider name (e.g., "ollama", "openai", "claude")
     fn name(&self) -> &str;
@@ -156,7 +156,7 @@ pub trait AiProvider: Send + Sync {
     }
 }
 
-// ─── Ollama Provider (Local) ───────────────────────────────
+// ??? Ollama Provider (Local) ???????????????????????????????
 
 /// Local AI provider using Ollama
 pub struct OllamaProvider {
@@ -293,20 +293,20 @@ Respond in JSON: {{"message": "your analysis summary", "intent": null, "confiden
         // Define language-specific rules and few-shot examples
         let (lang_rules, mission_example) = if lang == "korean" || lang == "ko" {
             (
-                r#"- Use PROFESSIONAL MODERN KOREAN (표준어). NO dialects.
+                r#"- Use PROFESSIONAL MODERN KOREAN (?쒖???. NO dialects.
 - ALL 'message', 'title', and 'description' MUST be in KOREAN HANGUL. 
 - Use RAW UTF-8 Korean. NO Unicode escapes."#,
                 r#"{{
-  "message": "사용자 요구사항을 분석한 마케팅 자동화 기획안입니다.",
+  "message": "?ъ슜???붽뎄?ы빆??遺꾩꽍??留덉????먮룞??湲고쉷?덉엯?덈떎.",
   "intent": {{
     "capability": "create_mission",
     "mission": {{
       "id": "tel-campaign-001",
-      "title": "텔레그램 바이럴 마케팅 오케스트레이션",
-      "description": "사용자 유입 데이터를 실시간 분석하여 최적화된 마케팅 메시지를 자동 전송하는 시스템을 구축합니다.",
+      "title": "?붾젅洹몃옩 諛붿씠??留덉????ㅼ??ㅽ듃?덉씠??,
+      "description": "?ъ슜???좎엯 ?곗씠?곕? ?ㅼ떆媛?遺꾩꽍?섏뿬 理쒖쟻?붾맂 留덉???硫붿떆吏瑜??먮룞 ?꾩넚?섎뒗 ?쒖뒪?쒖쓣 援ъ텞?⑸땲??",
       "tasks": [
-        {{ "id": "t1", "desc": "사용자 활동 데이터베이스 분석", "capability": "status_query", "command": "db_query" }},
-        {{ "id": "t2", "desc": "바이럴 메시지 자동 생성 및 발송", "capability": "shell_exec", "command": "viral_exec" }}
+        {{ "id": "t1", "desc": "?ъ슜???쒕룞 ?곗씠?곕쿋?댁뒪 遺꾩꽍", "capability": "status_query", "command": "db_query" }},
+        {{ "id": "t2", "desc": "諛붿씠??硫붿떆吏 ?먮룞 ?앹꽦 諛?諛쒖넚", "capability": "shell_exec", "command": "viral_exec" }}
       ]
     }}
   }}
@@ -510,7 +510,7 @@ impl AiProvider for OllamaProvider {
     }
 }
 
-// ─── OpenAI Provider (Cloud) ───────────────────────────────
+// ??? OpenAI Provider (Cloud) ???????????????????????????????
 
 /// Cloud AI provider using OpenAI API
 pub struct OpenAiProvider {
@@ -626,7 +626,7 @@ impl AiProvider for OpenAiProvider {
     }
 }
 
-// ─── Claude Provider (Cloud) ───────────────────────────────
+// ??? Claude Provider (Cloud) ???????????????????????????????
 
 /// Cloud AI provider using Anthropic Claude API
 pub struct ClaudeProvider {
@@ -727,7 +727,7 @@ impl AiProvider for ClaudeProvider {
         Ok(())
     }
 }
-// ─── GPT-OSS 120B Provider (Cloud) ─────────────────────────
+// ??? GPT-OSS 120B Provider (Cloud) ?????????????????????????
 
 /// Premium AI provider using EdgeClaw GPT-OSS 120B
 pub struct GptOssProvider {
@@ -810,9 +810,9 @@ impl AiProvider for GptOssProvider {
     }
 }
 
-// ─── None Provider (Passthrough) ───────────────────────────
+// ??? None Provider (Passthrough) ???????????????????????????
 
-/// No AI — just parses simple commands directly
+/// No AI ??just parses simple commands directly
 pub struct NoneProvider;
 
 impl Default for NoneProvider {
@@ -850,57 +850,57 @@ impl NoneProvider {
         _raw: &str,
     ) -> Option<ParsedIntent> {
         match cmd {
-            // ── System Status ──
-            "status" | "상태" => Some(ParsedIntent {
+            // ?? System Status ??
+            "status" | "?곹깭" => Some(ParsedIntent {
                 capability: "status_query".to_string(),
                 command: "systeminfo | findstr /B /C:\"OS Name\" /C:\"OS Version\" /C:\"System Type\" /C:\"Total Physical\"".to_string(),
                 args: vec![],
                 needs_confirmation: false,
                 mission: None,
             }),
-            "cpu" | "cpu사용량" => Some(ParsedIntent {
+            "cpu" | "cpu?ъ슜?? => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "wmic cpu get loadpercentage,name /format:list".to_string(),
                 args: vec![],
                 needs_confirmation: false,
                 mission: None,
             }),
-            "memory" | "메모리" | "ram" => Some(ParsedIntent {
+            "memory" | "硫붾え由? | "ram" => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "powershell -Command \"Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory | Format-List\"".to_string(),
                 args: vec![],
                 needs_confirmation: false,
                 mission: None,
             }),
-            "disk" | "디스크" => Some(ParsedIntent {
+            "disk" | "?붿뒪?? => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "powershell -Command \"Get-PSDrive -PSProvider FileSystem | Format-Table Name,Used,Free,@{N='Total';E={$_.Used+$_.Free}} -AutoSize\"".to_string(),
                 args: vec![],
                 needs_confirmation: false,
                 mission: None,
             }),
-            "ps" | "process" | "프로세스" => Some(ParsedIntent {
+            "ps" | "process" | "?꾨줈?몄뒪" => Some(ParsedIntent {
                 capability: "process_manage".to_string(),
                 command: "powershell -Command \"Get-Process | Sort-Object CPU -Descending | Select-Object -First 20 Name,Id,CPU,WorkingSet64 | Format-Table -AutoSize\"".to_string(),
                 args: vec![],
                 needs_confirmation: false,
                 mission: None,
             }),
-            "network" | "네트워크" | "ip" => Some(ParsedIntent {
+            "network" | "?ㅽ듃?뚰겕" | "ip" => Some(ParsedIntent {
                 capability: "network_scan".to_string(),
                 command: "ipconfig /all".to_string(),
                 args: vec![],
                 needs_confirmation: false,
                 mission: None,
             }),
-            "port" | "포트" | "ports" => Some(ParsedIntent {
+            "port" | "?ы듃" | "ports" => Some(ParsedIntent {
                 capability: "network_scan".to_string(),
                 command: "netstat -an | findstr LISTENING".to_string(),
                 args: vec![],
                 needs_confirmation: false,
                 mission: None,
             }),
-            "uptime" | "가동시간" => Some(ParsedIntent {
+            "uptime" | "媛?숈떆媛? => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "powershell -Command \"(Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime | Select-Object Days,Hours,Minutes | Format-List\"".to_string(),
                 args: vec![],
@@ -908,15 +908,15 @@ impl NoneProvider {
                 mission: None,
             }),
 
-            // ── Service / Process Management ──
-            "services" | "서비스" | "service" => Some(ParsedIntent {
+            // ?? Service / Process Management ??
+            "services" | "?쒕퉬?? | "service" => Some(ParsedIntent {
                 capability: "status_query".to_string(),
                 command: "powershell -Command \"Get-Service | Where-Object {$_.Status -eq 'Running'} | Select-Object -First 30 Name,DisplayName,Status | Format-Table -AutoSize\"".to_string(),
                 args: vec![],
                 needs_confirmation: false,
                 mission: None,
             }),
-            "restart" | "재시작" => {
+            "restart" | "?ъ떆?? => {
                 if arg1.is_empty() {
                     return None;
                 }
@@ -928,7 +928,7 @@ impl NoneProvider {
                     mission: None,
                 })
             }
-            "stop" | "중지" => {
+            "stop" | "以묒?" => {
                 if arg1.is_empty() { return None; }
                 Some(ParsedIntent {
                     capability: "shell_exec".to_string(),
@@ -956,15 +956,15 @@ impl NoneProvider {
                 })
             }
 
-            // ── File Operations ──
-            "ls" | "dir" | "파일" | "list" => Some(ParsedIntent {
+            // ?? File Operations ??
+            "ls" | "dir" | "?뚯씪" | "list" => Some(ParsedIntent {
                 capability: "file_read".to_string(),
                 command: format!("dir /B {}", if arg1.is_empty() { "." } else { arg1 }),
                 args: vec![],
                 needs_confirmation: false,
                 mission: None,
             }),
-            "cat" | "type" | "읽기" | "read" => {
+            "cat" | "type" | "?쎄린" | "read" => {
                 if arg1.is_empty() { return None; }
                 Some(ParsedIntent {
                     capability: "file_read".to_string(),
@@ -974,7 +974,7 @@ impl NoneProvider {
                     mission: None,
                 })
             }
-            "find" | "search" | "검색" => {
+            "find" | "search" | "寃?? => {
                 if arg1.is_empty() { return None; }
                 Some(ParsedIntent {
                     capability: "file_read".to_string(),
@@ -985,8 +985,8 @@ impl NoneProvider {
                 })
             }
 
-            // ── Log Analysis ──
-            "log" | "logs" | "로그" => Some(ParsedIntent {
+            // ?? Log Analysis ??
+            "log" | "logs" | "濡쒓렇" => Some(ParsedIntent {
                 capability: "log_read".to_string(),
                 command: format!(
                     "powershell -Command \"Get-EventLog -LogName {} -Newest 30 | Format-Table TimeGenerated,EntryType,Message -AutoSize\"",
@@ -996,7 +996,7 @@ impl NoneProvider {
                 needs_confirmation: false,
                 mission: None,
             }),
-            "errors" | "에러" | "오류" => Some(ParsedIntent {
+            "errors" | "?먮윭" | "?ㅻ쪟" => Some(ParsedIntent {
                 capability: "log_read".to_string(),
                 command: "powershell -Command \"Get-EventLog -LogName Application -EntryType Error -Newest 20 | Format-Table TimeGenerated,Source,Message -AutoSize\"".to_string(),
                 args: vec![],
@@ -1004,7 +1004,7 @@ impl NoneProvider {
                 mission: None,
             }),
 
-            // ── Docker ──
+            // ?? Docker ??
             "docker" => match arg1 {
                 "ps" | "list" | "" => Some(ParsedIntent {
                     capability: "docker_manage".to_string(),
@@ -1058,7 +1058,7 @@ impl NoneProvider {
                 _ => None,
             },
 
-            // ── Git Operations (Software Dev) ──
+            // ?? Git Operations (Software Dev) ??
             "git" => match arg1 {
                 "status" | "" => Some(ParsedIntent {
                     capability: "shell_exec".to_string(),
@@ -1112,8 +1112,8 @@ impl NoneProvider {
                 _ => None,
             },
 
-            // ── Build / CI (Software Dev) ──
-            "build" | "빌드" => Some(ParsedIntent {
+            // ?? Build / CI (Software Dev) ??
+            "build" | "鍮뚮뱶" => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
                 command: if arg1.is_empty() {
                     "cargo build 2>&1".to_string()
@@ -1124,7 +1124,7 @@ impl NoneProvider {
                 needs_confirmation: false,
                 mission: None,
             }),
-            "test" | "테스트" => Some(ParsedIntent {
+            "test" | "?뚯뒪?? => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
                 command: if arg1.is_empty() {
                     "cargo test 2>&1".to_string()
@@ -1135,21 +1135,21 @@ impl NoneProvider {
                 needs_confirmation: false,
                 mission: None,
             }),
-            "lint" | "clippy" | "린트" => Some(ParsedIntent {
+            "lint" | "clippy" | "由고듃" => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
                 command: "cargo clippy --all-targets -- -D warnings 2>&1".to_string(),
                 args: vec![],
                 needs_confirmation: false,
                 mission: None,
             }),
-            "fmt" | "format" | "포맷" => Some(ParsedIntent {
+            "fmt" | "format" | "?щ㎎" => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
                 command: "cargo fmt 2>&1".to_string(),
                 args: vec![],
                 needs_confirmation: false,
                 mission: None,
             }),
-            "deploy" | "배포" => Some(ParsedIntent {
+            "deploy" | "諛고룷" => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
                 command: if arg1.is_empty() {
                     "echo 'Specify target: deploy staging | deploy production'".to_string()
@@ -1160,14 +1160,14 @@ impl NoneProvider {
                 needs_confirmation: true,
                 mission: None,
             }),
-            "deps" | "dependencies" | "의존성" => Some(ParsedIntent {
+            "deps" | "dependencies" | "?섏〈?? => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
                 command: "cargo tree --depth 1".to_string(),
                 args: vec![],
                 needs_confirmation: false,
                 mission: None,
             }),
-            "audit" | "감사" => Some(ParsedIntent {
+            "audit" | "媛먯궗" => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
                 command: "cargo audit 2>&1".to_string(),
                 args: vec![],
@@ -1175,7 +1175,7 @@ impl NoneProvider {
                 mission: None,
             }),
 
-            // ── npm / Node.js ──
+            // ?? npm / Node.js ??
             "npm" => match arg1 {
                 "test" => Some(ParsedIntent {
                     capability: "shell_exec".to_string(),
@@ -1210,8 +1210,8 @@ impl NoneProvider {
                 _ => None,
             },
 
-            // ── Database (Software Dev) ──
-            "db" | "database" | "데이터베이스" => match arg1 {
+            // ?? Database (Software Dev) ??
+            "db" | "database" | "?곗씠?곕쿋?댁뒪" => match arg1 {
                 "backup" => Some(ParsedIntent {
                     capability: "shell_exec".to_string(),
                     command: "powershell -Command \"$ts = Get-Date -Format 'yyyyMMdd_HHmmss'; echo 'DB backup: backup_$ts.sql created'\"".to_string(),
@@ -1221,13 +1221,13 @@ impl NoneProvider {
                 }),
                 "size" => Some(ParsedIntent {
                     capability: "status_query".to_string(),
-                    command: "echo 'Database monitoring not yet configured — install a database agent plugin to enable'".to_string(),
+                    command: "echo 'Database monitoring not yet configured ??install a database agent plugin to enable'".to_string(),
                     args: vec![], needs_confirmation: false,
                     mission: None,
                 }),
                 "connections" => Some(ParsedIntent {
                     capability: "status_query".to_string(),
-                    command: "echo 'Database monitoring not yet configured — install a database agent plugin to enable'".to_string(),
+                    command: "echo 'Database monitoring not yet configured ??install a database agent plugin to enable'".to_string(),
                     args: vec![], needs_confirmation: false,
                     mission: None,
                 }),
@@ -1239,8 +1239,8 @@ impl NoneProvider {
                 }),
             },
 
-            // ── Marketing Automation ──
-            "report" | "리포트" | "보고서" => Some(ParsedIntent {
+            // ?? Marketing Automation ??
+            "report" | "由ы룷?? | "蹂닿퀬?? => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
                 command: format!(
                     "powershell -Command \"$d = Get-Date -Format 'yyyy-MM-dd'; echo '=== {} Report ($d) ==='; echo 'Generating...'\"",
@@ -1250,17 +1250,17 @@ impl NoneProvider {
                 needs_confirmation: false,
                 mission: None,
             }),
-            "analytics" | "분석" => Some(ParsedIntent {
+            "analytics" | "遺꾩꽍" => Some(ParsedIntent {
                 capability: "status_query".to_string(),
-                command: "echo 'Analytics module not yet configured — use system monitoring or install an analytics plugin'".to_string(),
+                command: "echo 'Analytics module not yet configured ??use system monitoring or install an analytics plugin'".to_string(),
                 args: vec![],
                 needs_confirmation: false,
                 mission: None,
             }),
-            "campaign" | "캠페인" => match arg1 {
+            "campaign" | "罹좏럹?? => match arg1 {
                 "list" | "" => Some(ParsedIntent {
                     capability: "status_query".to_string(),
-                    command: "echo 'Campaign management not yet configured — install a marketing plugin to enable'".to_string(),
+                    command: "echo 'Campaign management not yet configured ??install a marketing plugin to enable'".to_string(),
                     args: vec![], needs_confirmation: false,
                     mission: None,
                 }),
@@ -1272,24 +1272,24 @@ impl NoneProvider {
                 }),
                 _ => None,
             },
-            "seo" | "검색최적화" => Some(ParsedIntent {
+            "seo" | "寃?됱턀?곹솕" => Some(ParsedIntent {
                 capability: "status_query".to_string(),
                 command: format!(
-                    "echo 'SEO analysis for: {} — install an SEO plugin to enable'",
+                    "echo 'SEO analysis for: {} ??install an SEO plugin to enable'",
                     if arg1.is_empty() { "all" } else { arg1 }
                 ),
                 args: vec![],
                 needs_confirmation: false,
                 mission: None,
             }),
-            "schedule" | "스케줄" | "예약" => Some(ParsedIntent {
+            "schedule" | "?ㅼ?以? | "?덉빟" => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
                 command: "powershell -Command \"Get-ScheduledTask | Where-Object {$_.State -eq 'Ready'} | Select-Object -First 20 TaskName,State,LastRunTime | Format-Table -AutoSize\"".to_string(),
                 args: vec![],
                 needs_confirmation: false,
                 mission: None,
             }),
-            "backup" | "백업" => Some(ParsedIntent {
+            "backup" | "諛깆뾽" => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
                 command: "powershell -Command \"$ts = Get-Date -Format 'yyyyMMdd_HHmmss'; echo '=== Backup Started ($ts) ==='; echo 'Configure backup targets in agent.toml [backup] section'\"".to_string(),
                 args: vec![],
@@ -1297,7 +1297,7 @@ impl NoneProvider {
                 mission: None,
             }),
 
-            // ── Utility ──
+            // ?? Utility ??
             "ping" => Some(ParsedIntent {
                 capability: "network_scan".to_string(),
                 command: format!("ping -n 4 {}", if arg1.is_empty() { "google.com" } else { arg1 }),
@@ -1305,7 +1305,7 @@ impl NoneProvider {
                 needs_confirmation: false,
                 mission: None,
             }),
-            "env" | "환경" => Some(ParsedIntent {
+            "env" | "?섍꼍" => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "set".to_string(),
                 args: vec![],
@@ -1319,7 +1319,7 @@ impl NoneProvider {
                 needs_confirmation: false,
                 mission: None,
             }),
-            "help" | "도움말" | "명령어" => Some(ParsedIntent {
+            "help" | "?꾩?留? | "紐낅졊?? => Some(ParsedIntent {
                 capability: "status_query".to_string(),
                 command: "echo '=== EdgeClaw Commands ===' && echo. && echo [System] status, cpu, memory, disk, ps, network, port, uptime, services && echo [Files] ls, cat, find, log, errors && echo [DevOps] docker ps/logs/restart, git status/log/pull/push && echo [Build] build, test, lint, fmt, deploy, deps, audit && echo [Node] npm test/build/start/audit/outdated && echo [DB] db backup/size/connections && echo [Marketing] report, analytics, campaign, seo, schedule && echo [Misc] ping, env, whoami, backup, help'".to_string(),
                 args: vec![],
@@ -1333,55 +1333,55 @@ impl NoneProvider {
     #[cfg(not(target_os = "windows"))]
     fn parse_linux_command(cmd: &str, arg1: &str, arg2: &str, _raw: &str) -> Option<ParsedIntent> {
         match cmd {
-            "status" | "상태" => Some(ParsedIntent {
+            "status" | "?곹깭" => Some(ParsedIntent {
                 capability: "status_query".to_string(),
                 command: "uname -a && uptime && free -h | head -2".to_string(),
                 args: vec![], needs_confirmation: false,
                 mission: None,
             }),
-            "cpu" | "cpu사용량" => Some(ParsedIntent {
+            "cpu" | "cpu?ъ슜?? => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "top -bn1 | head -20".to_string(),
                 args: vec![], needs_confirmation: false,
                 mission: None,
             }),
-            "memory" | "메모리" | "ram" => Some(ParsedIntent {
+            "memory" | "硫붾え由? | "ram" => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "free -h".to_string(),
                 args: vec![], needs_confirmation: false,
                 mission: None,
             }),
-            "disk" | "디스크" => Some(ParsedIntent {
+            "disk" | "?붿뒪?? => Some(ParsedIntent {
                 capability: "system_info".to_string(),
                 command: "df -h".to_string(),
                 args: vec![], needs_confirmation: false,
                 mission: None,
             }),
-            "ps" | "process" | "프로세스" => Some(ParsedIntent {
+            "ps" | "process" | "?꾨줈?몄뒪" => Some(ParsedIntent {
                 capability: "process_manage".to_string(),
                 command: "ps aux --sort=-pcpu | head -20".to_string(),
                 args: vec![], needs_confirmation: false,
                 mission: None,
             }),
-            "network" | "네트워크" | "ip" => Some(ParsedIntent {
+            "network" | "?ㅽ듃?뚰겕" | "ip" => Some(ParsedIntent {
                 capability: "network_scan".to_string(),
                 command: "ip addr show".to_string(),
                 args: vec![], needs_confirmation: false,
                 mission: None,
             }),
-            "port" | "포트" | "ports" => Some(ParsedIntent {
+            "port" | "?ы듃" | "ports" => Some(ParsedIntent {
                 capability: "network_scan".to_string(),
                 command: "ss -tlnp".to_string(),
                 args: vec![], needs_confirmation: false,
                 mission: None,
             }),
-            "services" | "서비스" | "service" => Some(ParsedIntent {
+            "services" | "?쒕퉬?? | "service" => Some(ParsedIntent {
                 capability: "status_query".to_string(),
                 command: "systemctl list-units --type=service --state=running".to_string(),
                 args: vec![], needs_confirmation: false,
                 mission: None,
             }),
-            "restart" | "재시작" => {
+            "restart" | "?ъ떆?? => {
                 if arg1.is_empty() { return None; }
                 Some(ParsedIntent {
                     capability: "shell_exec".to_string(),
@@ -1390,7 +1390,7 @@ impl NoneProvider {
                     mission: None,
                 })
             }
-            "stop" | "중지" => {
+            "stop" | "以묒?" => {
                 if arg1.is_empty() { return None; }
                 Some(ParsedIntent {
                     capability: "shell_exec".to_string(),
@@ -1399,25 +1399,25 @@ impl NoneProvider {
                     mission: None,
                 })
             }
-            "log" | "logs" | "로그" => Some(ParsedIntent {
+            "log" | "logs" | "濡쒓렇" => Some(ParsedIntent {
                 capability: "log_read".to_string(),
                 command: format!("tail -50 {}", if arg1.is_empty() { "/var/log/syslog" } else { arg1 }),
                 args: vec![], needs_confirmation: false,
                 mission: None,
             }),
-            "errors" | "에러" | "오류" => Some(ParsedIntent {
+            "errors" | "?먮윭" | "?ㅻ쪟" => Some(ParsedIntent {
                 capability: "log_read".to_string(),
                 command: "journalctl -p err --since '1 hour ago' | tail -30".to_string(),
                 args: vec![], needs_confirmation: false,
                 mission: None,
             }),
-            "ls" | "dir" | "파일" | "list" => Some(ParsedIntent {
+            "ls" | "dir" | "?뚯씪" | "list" => Some(ParsedIntent {
                 capability: "file_read".to_string(),
                 command: format!("ls -la {}", if arg1.is_empty() { "." } else { arg1 }),
                 args: vec![], needs_confirmation: false,
                 mission: None,
             }),
-            "cat" | "읽기" | "read" => {
+            "cat" | "?쎄린" | "read" => {
                 if arg1.is_empty() { return None; }
                 Some(ParsedIntent {
                     capability: "file_read".to_string(),
@@ -1452,11 +1452,11 @@ impl NoneProvider {
                 "diff" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "git diff --stat".to_string(), args: vec![], needs_confirmation: false }),
                 _ => None,
             },
-            "build" | "빌드" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: if arg1.is_empty() { "cargo build 2>&1".to_string() } else { format!("cargo build --{} 2>&1", arg1) }, args: vec![], needs_confirmation: false, mission: None }),
-            "test" | "테스트" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: if arg1.is_empty() { "cargo test 2>&1".to_string() } else { format!("cargo test {} 2>&1", arg1) }, args: vec![], needs_confirmation: false, mission: None }),
-            "lint" | "clippy" | "린트" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "cargo clippy --all-targets -- -D warnings 2>&1".to_string(), args: vec![], needs_confirmation: false, mission: None }),
-            "deploy" | "배포" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: format!("echo 'Deploying to {}...' && cargo build --release 2>&1", if arg1.is_empty() { "staging" } else { arg1 }), args: vec![], needs_confirmation: true, mission: None }),
-            "help" | "도움말" | "명령어" => Some(ParsedIntent {
+            "build" | "鍮뚮뱶" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: if arg1.is_empty() { "cargo build 2>&1".to_string() } else { format!("cargo build --{} 2>&1", arg1) }, args: vec![], needs_confirmation: false, mission: None }),
+            "test" | "?뚯뒪?? => Some(ParsedIntent { capability: "shell_exec".to_string(), command: if arg1.is_empty() { "cargo test 2>&1".to_string() } else { format!("cargo test {} 2>&1", arg1) }, args: vec![], needs_confirmation: false, mission: None }),
+            "lint" | "clippy" | "由고듃" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: "cargo clippy --all-targets -- -D warnings 2>&1".to_string(), args: vec![], needs_confirmation: false, mission: None }),
+            "deploy" | "諛고룷" => Some(ParsedIntent { capability: "shell_exec".to_string(), command: format!("echo 'Deploying to {}...' && cargo build --release 2>&1", if arg1.is_empty() { "staging" } else { arg1 }), args: vec![], needs_confirmation: true, mission: None }),
+            "help" | "?꾩?留? | "紐낅졊?? => Some(ParsedIntent {
                 capability: "status_query".to_string(),
                 command: "echo '=== EdgeClaw Commands ===\n[System] status, cpu, memory, disk, ps, network, port, services\n[Files] ls, cat, log, errors\n[DevOps] docker ps/logs/restart, git status/log/pull/push\n[Build] build, test, lint, deploy\n[Misc] ping, env, whoami, backup, help'".to_string(),
                 args: vec![], needs_confirmation: false,
@@ -1468,7 +1468,7 @@ impl NoneProvider {
                 args: vec![], needs_confirmation: false,
                 mission: None,
             }),
-            "backup" | "백업" => Some(ParsedIntent {
+            "backup" | "諛깆뾽" => Some(ParsedIntent {
                 capability: "shell_exec".to_string(),
                 command: "echo 'Backup started...' && date".to_string(),
                 args: vec![], needs_confirmation: true,
@@ -1521,7 +1521,7 @@ impl AiProvider for NoneProvider {
     }
 }
 
-// ─── AI Manager ────────────────────────────────────────────
+// ??? AI Manager ????????????????????????????????????????????
 
 pub struct MissionRegistry {
     pub missions: RwLock<HashMap<String, MissionMetadata>>,
@@ -1638,7 +1638,7 @@ impl AiManager {
             Ok(response) => {
                 if response.confidence < self.escalation_threshold && response.intent.is_some() {
                     Ok(AiResponse {
-                        message: format!("{}\n\n⚠️ Low confidence ({:.0}%).", response.message, response.confidence * 100.0),
+                        message: format!("{}\n\n?좑툘 Low confidence ({:.0}%).", response.message, response.confidence * 100.0),
                         ..response
                     })
                 } else {
@@ -1728,7 +1728,7 @@ impl AiManager {
             }
         }
 
-        best.message = format!("🤝 [Consensus View] {}\n\n(참여 모델: {})", 
+        best.message = format!("?쩃 [Consensus View] {}\n\n(李몄뿬 紐⑤뜽: {})", 
             best.message, models.join(", "));
         
         Ok(best)
@@ -1804,7 +1804,7 @@ impl AiManager {
     }
 }
 
-// ─── HTTP Helpers (ureq — supports HTTP + HTTPS) ──────────────────────────
+// ??? HTTP Helpers (ureq ??supports HTTP + HTTPS) ??????????????????????????
 
 /// Simple GET with timeout (supports both HTTP and HTTPS)
 fn ureq_get_with_timeout(url: &str, timeout: Duration) -> Result<String, AgentError> {
@@ -1975,7 +1975,7 @@ fn parse_cloud_response(content: &str, provider: &str) -> Result<AiResponse, Age
     }
 }
 
-// ─── Quick Actions ─────────────────────────────────────────
+// ??? Quick Actions ?????????????????????????????????????????
 
 /// Industry work profile for categorized quick actions
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2028,9 +2028,9 @@ pub struct QuickAction {
 pub fn default_quick_actions() -> Vec<QuickAction> {
     let mut actions = Vec::new();
 
-    // ══════════════════════════════════════════════════════
-    //  SYSTEM — Common operations for all industries
-    // ══════════════════════════════════════════════════════
+    // ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
+    //  SYSTEM ??Common operations for all industries
+    // ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
     actions.push(QuickAction {
         label: "Server Status".to_string(),
         icon: "monitor".to_string(),
@@ -2158,9 +2158,9 @@ pub fn default_quick_actions() -> Vec<QuickAction> {
         group: "Help".to_string(),
     });
 
-    // ══════════════════════════════════════════════════════
-    //  SOFTWARE DEVELOPMENT COMPANY — Work Stories
-    // ══════════════════════════════════════════════════════
+    // ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
+    //  SOFTWARE DEVELOPMENT COMPANY ??Work Stories
+    // ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
 
     // --- Git Operations ---
     actions.push(QuickAction {
@@ -2173,7 +2173,7 @@ pub fn default_quick_actions() -> Vec<QuickAction> {
         group: "Git".to_string(),
     });
     actions.push(QuickAction {
-        label: "Git Log (최근 커밋)".to_string(),
+        label: "Git Log (理쒓렐 而ㅻ컠)".to_string(),
         icon: "history".to_string(),
         command: "git log".to_string(),
         capability: "shell_exec".to_string(),
@@ -2334,9 +2334,9 @@ pub fn default_quick_actions() -> Vec<QuickAction> {
         group: "Node.js".to_string(),
     });
 
-    // ══════════════════════════════════════════════════════
-    //  MARKETING COMPANY — Work Stories
-    // ══════════════════════════════════════════════════════
+    // ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
+    //  MARKETING COMPANY ??Work Stories
+    // ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
 
     // --- Campaign Management ---
     actions.push(QuickAction {
@@ -2418,9 +2418,9 @@ pub fn default_quick_actions() -> Vec<QuickAction> {
         group: "Automation".to_string(),
     });
 
-    // ══════════════════════════════════════════════════════
-    //  DEVOPS — Infrastructure & Operations
-    // ══════════════════════════════════════════════════════
+    // ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
+    //  DEVOPS ??Infrastructure & Operations
+    // ?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧?먥븧
 
     // --- Docker ---
     actions.push(QuickAction {
@@ -2517,7 +2517,7 @@ pub fn quick_actions_by_profile(profile: Option<WorkProfile>) -> Vec<QuickAction
     }
 }
 
-// ─── Tests ─────────────────────────────────────────────────
+// ??? Tests ?????????????????????????????????????????????????
 
 #[cfg(test)]
 mod tests {
@@ -2593,7 +2593,7 @@ mod tests {
         let provider = NoneProvider::new();
 
         let request = AiRequest {
-            user_input: "상태".to_string(),
+            user_input: "?곹깭".to_string(),
             available_capabilities: vec!["status_query".to_string()],
             peer_role: "owner".to_string(),
             system_context: None,
@@ -2608,7 +2608,7 @@ mod tests {
         assert_eq!(response.intent.unwrap().capability, "status_query");
 
         let request = AiRequest {
-            user_input: "디스크".to_string(),
+            user_input: "?붿뒪??.to_string(),
             available_capabilities: vec!["system_info".to_string()],
             peer_role: "owner".to_string(),
             system_context: None,

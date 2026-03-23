@@ -69,6 +69,9 @@ pub struct AgentSection {
     /// Linked mobile number.
     #[serde(default)]
     pub phone: String,
+    /// The primary language for AI Orchestration and UI (default: English)
+    #[serde(default = "default_language")]
+    pub language: String,
     #[serde(default = "default_listen_port")]
     pub listen_port: u16,
     #[serde(default = "default_max_connections")]
@@ -76,6 +79,10 @@ pub struct AgentSection {
     /// Storage path for databases, logs, and identities (default: system data dir + /edgeclaw)
     #[serde(default)]
     pub storage_path: Option<String>,
+}
+
+fn default_language() -> String {
+    "English".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -519,7 +526,7 @@ fn default_ai_model() -> String {
     "llama3:8b".to_string()
 }
 fn default_ollama_url() -> String {
-    "http://localhost:11434".to_string()
+    "http://127.0.0.1:11434".to_string()
 }
 
 impl Default for AiSummarySection {
@@ -597,6 +604,7 @@ fn default_agent() -> AgentSection {
         email: String::new(),
         messenger: String::new(),
         phone: String::new(),
+        language: default_language(),
         listen_port: default_listen_port(),
         max_connections: default_max_connections(),
         storage_path: None,
@@ -669,9 +677,18 @@ pub struct AiConfig {
     /// Cloud AI settings
     #[serde(default)]
     pub cloud: AiCloudConfig,
+    /// GPT-OSS Cloud settings
+    #[serde(default)]
+    pub gpt_oss: GptOssConfig,
+    /// HuggingFace Inference API settings
+    #[serde(default)]
+    pub huggingface: HuggingFaceConfig,
     /// AI policy settings
     #[serde(default)]
     pub policy: AiPolicyConfig,
+    /// Parallel consensus models (e.g. ["llama3.2:3b", "mistral", "phi"])
+    #[serde(default)]
+    pub consensus_models: Vec<String>,
 }
 
 /// Local AI provider settings (Ollama)
@@ -705,6 +722,48 @@ pub struct AiCloudConfig {
     pub timeout_ms: u64,
 }
 
+/// GPT-OSS Cloud AI provider settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GptOssConfig {
+    /// Model name
+    #[serde(default = "default_gpt_oss_model")]
+    pub model: String,
+    /// API endpoint
+    #[serde(default = "default_gpt_oss_endpoint")]
+    pub endpoint: String,
+    /// Timeout in milliseconds
+    #[serde(default = "default_cloud_timeout")]
+    pub timeout_ms: u64,
+}
+
+/// HuggingFace Inference API settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HuggingFaceConfig {
+    /// Model name (e.g. "mistralai/Mistral-7B-v0.1")
+    #[serde(default = "default_hf_model")]
+    pub model: String,
+    /// API key (not shown in logs)
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Timeout in milliseconds
+    #[serde(default = "default_cloud_timeout")]
+    pub timeout_ms: u64,
+}
+
+impl Default for HuggingFaceConfig {
+    fn default() -> Self {
+        Self {
+            model: default_hf_model(),
+            api_key: None,
+            timeout_ms: default_cloud_timeout(),
+        }
+    }
+}
+
+fn default_hf_model() -> String {
+    "mistralai/Mistral-7B-Instruct-v0.3".to_string()
+}
+
 /// AI policy settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiPolicyConfig {
@@ -723,7 +782,7 @@ pub struct AiPolicyConfig {
 }
 
 fn default_ai_primary() -> String {
-    "none".to_string()
+    "ollama".to_string()
 }
 fn default_ollama_endpoint() -> String {
     "http://localhost:11434".to_string()
@@ -732,7 +791,7 @@ fn default_ollama_model() -> String {
     "llama3:8b".to_string()
 }
 fn default_ai_timeout() -> u64 {
-    15000
+    300000
 }
 fn default_cloud_provider() -> String {
     "openai".to_string()
@@ -744,7 +803,13 @@ fn default_cloud_endpoint() -> String {
     "https://api.openai.com".to_string()
 }
 fn default_cloud_timeout() -> u64 {
-    30000
+    120000
+}
+fn default_gpt_oss_model() -> String {
+    "gpt-oss-120b".to_string()
+}
+fn default_gpt_oss_endpoint() -> String {
+    "https://api.edgeclaw.ai/v1/gpt-oss".to_string()
 }
 fn default_escalation_threshold() -> f64 {
     0.6
@@ -766,7 +831,20 @@ impl Default for AiConfig {
             primary: default_ai_primary(),
             local: AiLocalConfig::default(),
             cloud: AiCloudConfig::default(),
+            gpt_oss: GptOssConfig::default(),
+            huggingface: HuggingFaceConfig::default(),
             policy: AiPolicyConfig::default(),
+            consensus_models: Vec::new(),
+        }
+    }
+}
+
+impl Default for GptOssConfig {
+    fn default() -> Self {
+        Self {
+            model: default_gpt_oss_model(),
+            endpoint: default_gpt_oss_endpoint(),
+            timeout_ms: default_cloud_timeout(),
         }
     }
 }

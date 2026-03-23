@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EdgeClaw — Sessions</title>
+<title>EdgeClaw Sessions</title>
 <style>
 :root { --bg: #1a1a2e; --surface: #16213e; --card: #0f3460; --accent: #e94560; --text: #eee; --muted: #999; --border: #2a2a4a; --success: #4ade80; --warn: #fbbf24; }
 [data-theme="light"] { --bg: #f5f5f5; --surface: #fff; --card: #e8e8e8; --accent: #e94560; --text: #222; --muted: #666; --border: #ddd; }
@@ -37,7 +37,7 @@ h1 { font-size: 1.3rem; margin-bottom: 1rem; }
 </head>
 <body>
 <nav>
-  <span class="logo">🔷 EdgeClaw</span>
+  <span class="logo">🛡️ EdgeClaw</span>
   <div class="links">
     <a href="/">Chat</a>
     <a href="/dashboard">Dashboard</a>
@@ -57,9 +57,9 @@ h1 { font-size: 1.3rem; margin-bottom: 1rem; }
   </div>
   <div id="sessions-list"></div>
   <div class="pagination">
-    <button id="prev-btn" disabled onclick="prevPage()">← Prev</button>
+    <button id="prev-btn" disabled onclick="prevPage()">⏮️ Prev</button>
     <span id="page-info" style="line-height:2.2;font-size:0.85rem;color:var(--muted)"></span>
-    <button id="next-btn" disabled onclick="nextPage()">Next →</button>
+    <button id="next-btn" disabled onclick="nextPage()">Next ⏭️</button>
   </div>
 </div>
 <script>
@@ -85,20 +85,21 @@ async function loadSessions() {
       const ended = s.ended_at ? new Date(s.ended_at).toLocaleString() : 'ongoing';
       card.innerHTML = `
         <div class="session-header">
-          <span class="session-agent">${s.agent_name || s.agent_id || ''} — ${s.project || ''}</span>
+          <span class="session-agent">${s.agent_name || s.agent_id || ''} ${s.project || ''}</span>
           <span class="session-status ${status}">${status}</span>
         </div>
         <div class="session-meta">
-          <span>⏰ ${started} → ${ended}</span>
+          <span>📅 ${started}</span>
+          <span>🕒 ${ended}</span>
           <span>💰 $${(s.total_cost_usd || 0).toFixed(4)}</span>
-          <span>🔤 ${((s.total_input_tokens || 0) + (s.total_output_tokens || 0)).toLocaleString()} tokens</span>
-          <span>📝 ${s.turns || 0} turns</span>
+          <span>🪙 ${((s.total_input_tokens || 0) + (s.total_output_tokens || 0)).toLocaleString()} tokens</span>
+          <span>💬 ${s.turns || 0} turns</span>
           <span>📁 ${(s.files_modified || []).length} files</span>
         </div>
-        ${s.summary ? `<div class="session-summary">${s.summary}</div>` : ''}`;
+        ${s.summary ? '<div class="session-summary">' + s.summary + '</div>' : ''}`;
       list.appendChild(card);
     });
-    document.getElementById('page-info').textContent = `${offset+1}–${Math.min(offset+limit,total)} of ${total}`;
+    document.getElementById('page-info').textContent = (offset+1) + " - " + Math.min(offset+limit,total) + " of " + total;
     document.getElementById('prev-btn').disabled = offset === 0;
     document.getElementById('next-btn').disabled = offset + limit >= total;
   } catch(e) { console.error(e); }

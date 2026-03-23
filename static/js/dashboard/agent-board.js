@@ -202,7 +202,7 @@ export async function inspectAgentBoard(agentId, cachedAgents) {
         profileEl.className = `badge ${agent.profile === 'Orchestrator' ? 'badge-purple' : 'badge-blue'}`;
     }
     if (reputationEl) {
-        reputationEl.textContent = agent.reputation || '4.8';
+        reputationEl.textContent = agent.performance_rating ? agent.performance_rating.toFixed(1) : '5.0';
     }
 
     if (window.loadAgentProfileDetails) await window.loadAgentProfileDetails(agentId, agent);
@@ -332,7 +332,7 @@ function renderAgentList() {
             <td style="padding:16px;">
                 <span class="badge ${n.status === 'online' ? 'badge-green' : 'badge-gold'}">${n.status}</span>
             </td>
-            <td style="padding:16px; font-family:var(--font-mono); font-size:11px;">127.0.0.1:8443</td>
+            <td style="padding:16px; font-family:var(--font-mono); font-size:11px;">${n.address || '127.0.0.1'}:${n.port || '8443'}</td>
             <td style="padding:16px;"><span class="badge badge-blue">Worker</span></td>
             <td style="padding:16px; text-align:right;">
                 <button class="ec-icon-btn" onclick="inspectAgentBoard('${n.id}')"><i class="fa-solid fa-eye"></i></button>

@@ -321,7 +321,11 @@ impl ActivityCollector {
             | AgentEvent::MetricUpdate { .. }
             | AgentEvent::CommandOutput { .. }
             | AgentEvent::ActivityRecorded { .. }
-            | AgentEvent::MemoryUpdated => None,
+            | AgentEvent::MemoryUpdated
+            | AgentEvent::MissionStatusChanged { .. }
+            | AgentEvent::ConsensusStarted { .. }
+            | AgentEvent::ConsensusReached { .. }
+            | AgentEvent::KnowledgeRetrieved { .. } => None,
         }
     }
 }

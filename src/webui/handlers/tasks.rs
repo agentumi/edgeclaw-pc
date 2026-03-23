@@ -314,3 +314,60 @@ pub async fn handle_task_assign(
         }
     }
 }
+
+/// POST /api/mission/confirm — Confirm a proposed AI mission
+pub async fn handle_mission_confirm(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    #[derive(serde::Deserialize)]
+    struct ConfirmReq {
+        mission_id: String,
+    }
+
+    let req: ConfirmReq = match serde_json::from_str(body) {
+        Ok(r) => r,
+        Err(e) => {
+            let err = serde_json::json!({"error": format!("invalid JSON: {}", e)});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            return send_response(stream, 400, "application/json", &json, cors_origin).await;
+        }
+    };
+
+    let res: Result<crate::ai::MissionMetadata, String> = {
+        let ai_mgr = match engine.ai_manager.lock() {
+            Ok(a) => a,
+            Err(e) => e.into_inner(),
+        };
+        let registry = ai_mgr.mission_registry();
+        let mut missions = match registry.missions.write() {
+            Ok(m) => m,
+            Err(e) => e.into_inner(),
+        };
+        if let Some(m) = missions.get_mut(&req.mission_id) {
+            m.status = crate::ai::MissionStatus::Planning; // Change to Planning to start
+            Ok(m.clone())
+        } else {
+            let known: Vec<String> = missions.keys().cloned().collect();
+            println!("[V2.4] Mission ID '{}' not in registry. Known: {:?}", req.mission_id, known);
+            Err(format!("mission not found: {}. Known: {:?}", req.mission_id, known))
+        }
+    };
+
+    match res {
+        Ok(m) => {
+            tracing::info!(mission_id = %m.id, "Mission confirmed and starting");
+            let resp = serde_json::json!({"success": true, "mission": m});
+            let json = serde_json::to_vec(&resp).unwrap_or_default();
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+        Err(e) => {
+            tracing::error!(id = %req.mission_id, error = %e, "Mission confirmation failed: not in registry");
+            let err = serde_json::json!({"error": e});
+            let json = serde_json::to_vec(&err).unwrap_or_default();
+            send_response(stream, 404, "application/json", &json, cors_origin).await
+        }
+    }
+}

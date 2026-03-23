@@ -32,6 +32,16 @@ function selectAgent(id) {
 }
 export let cachedAgents = [];
 
+function updateTopbarIdentity(agentConfig) {
+    const initialsEl = document.getElementById('user-initials');
+    if (!initialsEl || !agentConfig) return;
+    
+    const name = agentConfig.display_name || agentConfig.device_name || 'Agent';
+    const initials = name.split(/[\s-]+/).map(p => p[0]).join('').toUpperCase().slice(0, 2);
+    initialsEl.textContent = initials || '--';
+    initialsEl.title = name;
+}
+
 /**
  * Fetch All Agents (Fleet)
  */
@@ -342,6 +352,8 @@ Object.assign(window, {
     addGroupPolicyOverride: fleet.addGroupPolicyOverride,
     removeGsOverride: fleet.removeGsOverride,
     saveGroupSettings: fleet.saveGroupSettings,
+    fetchFleet: fetchFleet,
+    fetchAgents: fetchFleet,
 });
 
 // Initialize
@@ -351,8 +363,14 @@ async function init() {
     // 1. Setup global state
     try {
         console.log('[Dashboard] Fetching initial state...');
-        await mission.fetchStatus();
+        const status = await mission.fetchStatus();
         console.log('[Dashboard] Status fetched.');
+
+        const configRes = await apiFetch(`${API}/api/config`);
+        if (configRes.ok) {
+            const config = await configRes.json();
+            updateTopbarIdentity(config.agent);
+        }
         
         await fetchFleet();
         console.log('[Dashboard] Fleet fetched.');

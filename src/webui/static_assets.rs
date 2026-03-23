@@ -2,7 +2,7 @@
 pub const CHAT_HTML: &str = include_str!("../../static/chat.html");
 
 /// Embedded HTML dashboard page (compiled into the binary)
-pub const DASHBOARD_HTML: &str = include_str!("../../static/dashboard.html");
+pub const DASHBOARD_HTML: &str = include_str!("../../static/dashboard_new.html");
 
 /// Embedded dashboard CSS
 pub const DASHBOARD_CSS: &str = include_str!("../../static/dashboard.css");
@@ -10,7 +10,30 @@ pub const DASHBOARD_CSS: &str = include_str!("../../static/dashboard.css");
 /// Embedded dashboard JS modules
 pub const DASHBOARD_CORE_JS: &str = include_str!("../../static/js/dashboard/core.js");
 pub const DASHBOARD_CHAT_JS: &str = include_str!("../../static/js/dashboard/chat.js");
+pub const DASHBOARD_EXTENSIONS_JS: &str = include_str!("../../static/js/dashboard/extensions.js");
+pub const DASHBOARD_TEMPLATES_JS: &str = include_str!("../../static/js/dashboard/templates.js");
+pub const DASHBOARD_TASKS_JS: &str = include_str!("../../static/js/dashboard/tasks.js");
+pub const DASHBOARD_MARKETPLACE_JS: &str = include_str!("../../static/js/dashboard/marketplace.js");
+pub const DASHBOARD_AGENT_BOARD_JS: &str = include_str!("../../static/js/dashboard/agent-board.js");
+pub const DASHBOARD_MEMORY_JS: &str = include_str!("../../static/js/dashboard/memory.js");
+pub const DASHBOARD_MISSION_JS: &str = include_str!("../../static/js/dashboard/mission.js");
+pub const DASHBOARD_SETTINGS_JS: &str = include_str!("../../static/js/dashboard/settings.js");
 pub const DASHBOARD_INDEX_JS: &str = include_str!("../../static/js/dashboard/index.js");
+pub const DASHBOARD_LOADER_JS: &str = include_str!("../../static/js/dashboard/loader.js");
+pub const DASHBOARD_V2_JS: &str = include_str!("../../static/js/dashboard/v2.js");
+
+/// Embedded HTML views (partials)
+pub const VIEW_DASHBOARD_HTML: &str = include_str!("../../static/views/dashboard.html");
+pub const VIEW_AICHAT_HTML: &str = include_str!("../../static/views/aichat.html");
+pub const VIEW_CHAT_HTML: &str = include_str!("../../static/views/chat.html");
+pub const VIEW_FLEET_HTML: &str = include_str!("../../static/views/fleet.html");
+pub const VIEW_BOARD_HTML: &str = include_str!("../../static/views/board.html");
+pub const VIEW_MEMORY_HTML: &str = include_str!("../../static/views/memory.html");
+pub const VIEW_MARKET_HTML: &str = include_str!("../../static/views/market.html");
+pub const VIEW_AUTOMATIONS_HTML: &str = include_str!("../../static/views/automations.html");
+pub const VIEW_EXTENSIONS_HTML: &str = include_str!("../../static/views/extensions.html");
+pub const VIEW_SETTINGS_HTML: &str = include_str!("../../static/views/settings.html");
+pub const VIEW_MODALS_HTML: &str = include_str!("../../static/views/modals.html");
 
 /// Embedded HTML activity feed page (compiled into the binary)
 pub const ACTIVITY_FEED_HTML: &str = include_str!("../../static/activity_feed.html");

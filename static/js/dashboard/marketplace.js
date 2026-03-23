@@ -136,7 +136,7 @@ export function renderMarketGraph() {
     const nodes = [
         { x: 80, y: 70, label: 'Data', icon: '📊' },
         { x: 180, y: 70, label: 'ML Model', icon: '🧠' },
-        { x: 300, y: 70, label: 'Aggregator', icon: '🔗' },
+        { x: 300, y: 70, label: 'Aggregator', icon: '🔌' },
         { x: 420, y: 70, label: 'Report', icon: '📄' }
     ];
 

@@ -165,12 +165,57 @@ impl LessonStore {
     }
 }
 
+/// Phase 6: Knowledge Base Item (Docs 학습용)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct KnowledgeItem {
+    pub title: String,
+    pub keywords: Vec<String>,
+    pub summary: String,
+    pub content: String,
+    pub group_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct KnowledgeBase {
+    pub items: Vec<KnowledgeItem>,
+}
+
+impl KnowledgeBase {
+    pub fn add_item(&mut self, item: KnowledgeItem) {
+        self.items.push(item);
+    }
+
+    pub fn search(&self, input: &str) -> Vec<KnowledgeItem> {
+        let input_lower = input.to_lowercase();
+        self.items
+            .iter()
+            .filter(|item| {
+                item.title.to_lowercase().contains(&input_lower)
+                    || item
+                        .keywords
+                        .iter()
+                        .any(|kw| input_lower.contains(&kw.to_lowercase()))
+            })
+            .cloned()
+            .collect()
+    }
+
+    pub fn search_by_group(&self, group_id: &str) -> Vec<KnowledgeItem> {
+        self.items
+            .iter()
+            .filter(|item| item.group_id.as_deref() == Some(group_id))
+            .cloned()
+            .collect()
+    }
+}
+
 /// Phase 0: MemoryEngine 메인 구조체
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct MemoryEngine {
     pub core: CoreMemory,
     pub tiers: TieredMemory,
     pub lessons: LessonStore,
+    pub knowledge: KnowledgeBase,
 }
 
 impl MemoryEngine {

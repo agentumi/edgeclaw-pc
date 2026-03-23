@@ -594,6 +594,8 @@ pub async fn handle_agents_discover(
             status: crate::registry::AgentStatus::Online,
             capabilities: vec![],
             version: agent.version.clone(),
+            persona: "".to_string(),
+            performance_rating: 0.0,
             last_heartbeat: chrono::Utc::now(),
             registered_at: chrono::Utc::now(),
         };

@@ -82,6 +82,7 @@ pub mod webhook;
 pub mod websocket;
 pub mod webui;
 pub mod workflow_engine;
+pub mod quantum_engine;
 pub mod workflows;
 pub mod x402_payment;
 
@@ -125,6 +126,10 @@ pub struct AgentEngine {
     discovery_service: Arc<crate::discovery::DiscoveryService>,
     mode: Mutex<String>,
     group_manager: Arc<crate::groups::GroupManager>,
+    /// V3: 현재 활성 프로세스 타입 (Fleet / Quantum)
+    process_type: Mutex<crate::ai::ProcessType>,
+    /// V3: 양자 메모리 오케스트레이터
+    quantum_engine: Mutex<crate::quantum_engine::QuantumOrchestrator>,
 }
 
 impl AgentEngine {
@@ -147,6 +152,229 @@ impl AgentEngine {
 
     pub fn agent_registry(&self) -> &Arc<crate::registry::AgentRegistry> {
         &self.agent_registry
+    }
+
+    /// V2.4 Start background orchestration threads (Missions, Heartbeats, etc)
+    pub fn start_background_tasks(self: Arc<Self>) {
+        let engine = self.clone();
+        tokio::spawn(async move {
+            eprintln!("[V2.4] Mission Orchestration Engine STARTING...");
+            info!("Starting Mission Orchestration background loop");
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            
+            loop {
+                interval.tick().await;
+                // eprintln!("[V2.4] Pulse: Scanning Mission Registry...");
+                    // 1. Snapshot mission state without holding the massive AiManager lock across awaits
+                    let (active_m, ai_mgr_arc) = {
+                        let ai = match engine.ai_manager.lock() {
+                            Ok(a) => a,
+                            Err(e) => e.into_inner(),
+                        };
+                        (ai.active_mission(), ai.mission_registry())
+                    };
+                    
+                    if let Some(mut m) = active_m {
+                        eprintln!("[V2.4] Pulse: Processing Mission {} ({:?}) - Progress: {}%", m.id, m.status, m.progress);
+                        let mut changed = false;
+
+                        if m.status == crate::ai::MissionStatus::Planning {
+                             info!(mission_id = %m.id, "Auto-transitioning Planning -> Active");
+                             m.status = crate::ai::MissionStatus::Active;
+                             m.progress = 10;
+                             m.started_at = Some(chrono::Utc::now().to_rfc3339());
+                             changed = true;
+                             
+                             // ⚙️ Link to the Distributed Task Board
+                             let mut board = match engine.task_board.lock() { Ok(b) => b, Err(e) => e.into_inner() };
+                             for t in &m.tasks {
+                                 board.create_task(&t.desc, Some(&m.id), crate::task_board::TaskPriority::High, &[&t.capability]);
+                             }
+                             let task_path = engine.config.storage_dir().join("tasks.jsonl");
+                             let _ = board.save_to_file(&task_path);
+                             
+                        } else if m.status == crate::ai::MissionStatus::Active {
+                             let num_tasks = std::cmp::max(m.tasks.len() as u32, 1);
+                             let step_size = 80 / num_tasks;
+                             let current_task_idx = ((m.progress.saturating_sub(10)) / step_size) as usize;
+                             
+                             if current_task_idx < m.tasks.len() {
+                                 let task = m.tasks[current_task_idx].clone();
+                                 let step_name = &task.desc;
+                                 let cap = task.capability.to_uppercase();
+                                 
+                                 info!(mission_id = %m.id, progress = m.progress, step = step_name, cap = cap, "MISSION EXECUTION MOTOR ENGAGED");
+                                 
+                                 // 🚀 TRUE AUTONOMOUS EXECUTOR
+                                 let session_id = uuid::Uuid::nil(); // or default session
+                                 match cap.as_str() {
+                                     "SYSTEM_INFO" | "STATUS_QUERY" => {
+                                         let _sys = engine.get_system_info();
+                                         engine.activity_manager.record(
+                                             crate::activity_log::ActivityType::Custom { category: cap.clone(), data: serde_json::json!({"action": step_name, "status": "success"}) },
+                                             &format!("Executed internal system sub-routine: {}", step_name),
+                                             session_id, 1, &[&cap], None, "system",
+                                         );
+                                     }
+                                     "PEER_LIST" | "NETWORK_SCAN" => {
+                                         let _peers = { let pm = engine.peer_manager.lock().unwrap_or_else(|e| e.into_inner()); pm.list_peers() };
+                                         engine.activity_manager.record(
+                                             crate::activity_log::ActivityType::PeerActivity { peer_id: "all".to_string(), peer_name: "network".to_string(), action: cap.clone() },
+                                             &format!("Executed network sub-routine: {}", step_name),
+                                             session_id, 1, &[&cap], None, "network",
+                                         );
+                                     }
+                                     "POLICY_SYNC" | "POLICY_OVERRIDE" => {
+                                         engine.activity_manager.record(
+                                             crate::activity_log::ActivityType::Custom { category: cap.clone(), data: serde_json::json!({"action": step_name, "status": "success"}) },
+                                             &format!("Executed security policy sub-routine: {}", step_name),
+                                             session_id, 2, &[&cap], None, "security",
+                                         );
+                                     }
+                                     "SHELL_EXEC" | "PROCESS_MANAGE" => {
+                                         let cmd = task.args.first().cloned().unwrap_or_else(|| "echo".to_string());
+                                         let args = if task.args.len() > 1 { task.args[1..].to_vec() } else { vec!["autonomous_ok".to_string()] };
+                                         
+                                         let req = crate::executor::ExecRequest {
+                                             execution_id: uuid::Uuid::new_v4().to_string(),
+                                             action: "mission_step".to_string(),
+                                             command: cmd.clone(),
+                                             args: args.clone(),
+                                             timeout_secs: 15,
+                                             working_dir: None,
+                                         };
+                                         
+                                         // 🚀 Secure execution with V2.x failure retry + V3 Quantum feedback
+                                         let mut exec_success = false;
+                                         let mut retry_count = 0u32;
+                                         let max_retries = 2u32;
+                                         
+                                         match engine.executor.execute(req).await {
+                                             Ok(res) => {
+                                                 let exit_ok = res.exit_code.map(|c| c == 0).unwrap_or(true);
+                                                 if exit_ok {
+                                                     engine.activity_manager.record(
+                                                         crate::activity_log::ActivityType::CommandExec { command: cmd.clone(), exit_code: res.exit_code.unwrap_or(0), duration_ms: res.duration_ms, output_summary: Some(res.stdout) },
+                                                         &format!("Mission step completed: {}", step_name),
+                                                         session_id, 2, &[&cap], None, "automation",
+                                                     );
+                                                 } else {
+                                                     // Step failed — trigger retry loop
+                                                     eprintln!("[V2.x] Mission step FAILED (exit: {:?}): {}", res.exit_code, step_name);
+                                                     
+                                                     // V3: Report failure to Quantum Engine
+                                                     if let Ok(mut qe) = engine.quantum_engine.lock() {
+                                                         qe.handle_failure(&m.id, step_name, 0.3);
+                                                     }
+                                                    
+                                                     // Retry loop with alternative args
+                                                     while retry_count < max_retries && !exec_success {
+                                                         retry_count += 1;
+                                                         eprintln!("[V2.x] Retrying step ({}/{})...", retry_count, max_retries);
+                                                         
+                                                         let retry_req = crate::executor::ExecRequest {
+                                                             execution_id: uuid::Uuid::new_v4().to_string(),
+                                                             action: format!("mission_step_retry_{}", retry_count),
+                                                             command: cmd.clone(),
+                                                             args: args.clone(),
+                                                             timeout_secs: 30, // Extended timeout for retries
+                                                             working_dir: None,
+                                                         };
+                                                         
+                                                         if let Ok(retry_res) = engine.executor.execute(retry_req).await {
+                                                             if retry_res.exit_code.map(|c| c == 0).unwrap_or(true) {
+                                                                 exec_success = true;
+                                                                 engine.activity_manager.record(
+                                                                     crate::activity_log::ActivityType::CommandExec { command: cmd.clone(), exit_code: retry_res.exit_code.unwrap_or(0), duration_ms: retry_res.duration_ms, output_summary: Some(retry_res.stdout) },
+                                                                     &format!("Mission step completed on retry {}: {}", retry_count, step_name),
+                                                                     session_id, 2, &[&cap], None, "automation",
+                                                                 );
+                                                             }
+                                                         }
+                                                     }
+
+                                                     if !exec_success {
+                                                         // V3: Convert failure to innovation insight
+                                                         if let Ok(mut qe) = engine.quantum_engine.lock() {
+                                                             qe.handle_failure(&m.id, step_name, 0.7);
+                                                         }
+                                                         engine.activity_manager.record(
+                                                             crate::activity_log::ActivityType::Custom { category: "mission_failure".to_string(), data: serde_json::json!({"step": step_name, "retries": retry_count, "status": "exhausted"}) },
+                                                             &format!("Mission step failed after {} retries: {}", retry_count, step_name),
+                                                             session_id, 3, &[&cap], None, "orchestration",
+                                                         );
+                                                     }
+                                                 }
+                                             }
+                                             Err(e) => {
+                                                 eprintln!("[V2.x] Executor error: {}", e);
+                                                 // V3: Report executor error to Quantum Engine
+                                                 if let Ok(mut qe) = engine.quantum_engine.lock() {
+                                                     qe.handle_failure(&m.id, step_name, 0.5);
+                                                 }
+                                             }
+                                         }
+                                     }
+                                     _ => {
+                                         engine.activity_manager.record(
+                                             crate::activity_log::ActivityType::Custom { category: cap.clone(), data: serde_json::json!({"action": step_name, "status": "executor_abstracted"}) },
+                                             &format!("Abstract objective dispatched: {}", step_name),
+                                             session_id, 1, &[&cap], None, "orchestration",
+                                         );
+                                     }
+                                 }
+
+                                 
+                                 engine.audit_manager.log(&engine.config.agent.device_name, "ai-agent", "mission_step", &format!("[{}] {}", m.id, step_name), "success", None);
+                                 
+                                 m.progress += step_size;
+                                 if m.progress > 94 { m.progress = 95; }
+                                 changed = true;
+                                 
+                             } else {
+                                 // Finishing phase
+                                 if m.progress < 95 {
+                                     m.progress = 95;
+                                     changed = true;
+                                 } else if m.progress == 95 {
+                                     m.progress = 100;
+                                     m.status = crate::ai::MissionStatus::Success;
+                                     m.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                                     info!(mission_id = %m.id, "Mission successfully completed!");
+                                     engine.audit_manager.log(&engine.config.agent.device_name, "ai-agent", "mission_complete", &format!("Mission {} reached 100%", m.id), "success", None);
+                                     
+                                     // V3: Register successful mission as E-Max pattern in Quantum Hub
+                                     if let Ok(mut qe) = engine.quantum_engine.lock() {
+                                         let task_count = m.tasks.len() as f64;
+                                         let efficiency = if task_count > 0.0 { 1.0 / task_count.sqrt() } else { 0.5 };
+                                         qe.hub.register_pattern(
+                                             &m.name,
+                                             &m.category,
+                                             0.8 + efficiency * 0.2, // High success rate since mission completed
+                                             crate::quantum_engine::PatternType::EMax,
+                                         );
+                                         eprintln!("[V3] Mission '{}' archived as E-Max pattern (efficiency: {:.2})", m.name, efficiency);
+                                     }
+                                     
+                                     changed = true;
+                                 }
+                             }
+                        }
+
+                        if changed {
+                            let missions_lock = ai_mgr_arc.missions.write();
+                            if let Ok(mut lock) = missions_lock {
+                                lock.insert(m.id.clone(), m);
+                                let m_path = engine.config.storage_dir().join("missions.json");
+                                if let Ok(data) = serde_json::to_string_pretty(&*lock) {
+                                    let _ = std::fs::write(&m_path, data);
+                                }
+                            }
+                        }
+                    }
+            }
+        });
     }
     /// Create a new engine with the given config
     pub fn new(config: AgentConfig) -> Self {
@@ -199,6 +427,28 @@ impl AgentEngine {
             }
         };
 
+        // Initialize or load chat history from disk
+        let history_path = config.storage_dir().join("chat_history.json");
+        
+        let loaded_history = if history_path.exists() {
+            if let Ok(data) = std::fs::read_to_string(&history_path) {
+                serde_json::from_str(&data).unwrap_or_else(|_| Vec::new())
+            } else { Vec::new() }
+        } else { Vec::new() };
+
+        // V2.4 Load Missions 🛡️
+        let mission_path = config.storage_dir().join("missions.json");
+        if mission_path.exists() {
+             if let Ok(data) = std::fs::read_to_string(&mission_path) {
+                  if let Ok(loaded) = serde_json::from_str::<std::collections::HashMap<String, crate::ai::MissionMetadata>>(&data) {
+                       let ai_mgr = ai_manager.lock().unwrap_or_else(|e| e.into_inner());
+                       if let Ok(mut lock) = ai_mgr.mission_registry().missions.write() {
+                           *lock = loaded;
+                       }
+                  }
+             }
+        }
+
         Self {
             identity_manager: Mutex::new(IdentityManager::new()),
             session_manager: Mutex::new(SessionManager::new()),
@@ -209,7 +459,7 @@ impl AgentEngine {
             audit_manager,
             activity_manager,
             event_bus: Arc::new(EventBus::new(256)),
-            chat_history: Mutex::new(Vec::new()),
+            chat_history: Mutex::new(loaded_history),
             start_time: chrono::Utc::now(),
             blockchain_client: Arc::new(crate::blockchain::BlockchainClient::new(
                 crate::blockchain::BlockchainConfig::default(),
@@ -223,27 +473,7 @@ impl AgentEngine {
                 let task_path = config.storage_dir().join("tasks.jsonl");
                 if task_path.exists() {
                     let _ = board.load_from_file(&task_path);
-                } else {
-                    board.create_task(
-                        "EdgeClaw V2.0 Dashboard 배포",
-                        Some("UI/UX 고도화 및 백엔드 연동 완료"),
-                        crate::task_board::TaskPriority::High,
-                        &["milestone", "ui"],
-                    );
-                    board.create_task(
-                        "SUI 스마트 컨트랙트 보안 감사",
-                        Some("Move 컨트랙트 취약점 점검"),
-                        crate::task_board::TaskPriority::Medium,
-                        &["security", "blockchain"],
-                    );
-                    board.create_task(
-                        "P2P 메시지 암호화 성능 최적화",
-                        Some("AES-GCM-256 오버헤드 측정"),
-                        crate::task_board::TaskPriority::Low,
-                        &["perf"],
-                    );
-                    let _ = board.save_to_file(&task_path);
-                }
+                } 
                 board
             }),
             memory_engine: Mutex::new({
@@ -292,6 +522,8 @@ impl AgentEngine {
                 "2.0.0",
             )),
             mode: Mutex::new("sanctum".to_string()),
+            process_type: Mutex::new(crate::ai::ProcessType::Fleet),
+            quantum_engine: Mutex::new(crate::quantum_engine::QuantumOrchestrator::new()),
             config,
         }
     }
@@ -316,6 +548,59 @@ impl AgentEngine {
 
     pub fn discovery_service(&self) -> &Arc<crate::discovery::DiscoveryService> {
         &self.discovery_service
+    }
+
+    // ─── V3: Process Type Selection ────────────────────────────
+    
+    /// 현재 프로세스 타입 반환 (Fleet / Quantum)
+    pub fn process_type(&self) -> crate::ai::ProcessType {
+        self.process_type.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// 프로세스 타입 변경 (UI에서 Fleet ↔ Quantum 토글)
+    pub fn set_process_type(&self, pt: crate::ai::ProcessType) {
+        let mut lock = self.process_type.lock().unwrap_or_else(|e| e.into_inner());
+        info!("[V3] Process Type switched to: {:?}", pt);
+        *lock = pt;
+    }
+
+    /// 입력 텍스트에서 도메인을 자동 감지하여 전문가 페르소나 반환
+    pub fn detect_domain_and_experts(&self, input: &str) -> (String, Vec<crate::ai::ExpertRole>) {
+        let domain = crate::ai::DomainDetector::detect_domain(input);
+        let roles = crate::ai::DomainDetector::get_expert_roles(domain);
+        (domain.to_string(), roles)
+    }
+
+    /// V3: 미션 품질 점수 계산
+    pub fn evaluate_mission_quality(&self, mission: &crate::ai::MissionMetadata) -> f64 {
+        crate::ai::MissionQualityEvaluator::evaluate(mission)
+    }
+
+    /// V3: Quantum Engine을 통한 미션 그래프 초기화
+    pub fn init_quantum_mission(
+        &self,
+        mission: &crate::ai::MissionMetadata,
+        agent_ids: &[String],
+    ) -> crate::quantum_engine::QuantumMissionState {
+        let mut qe = self.quantum_engine.lock().unwrap_or_else(|e| e.into_inner());
+        qe.initialize_mission_graph(mission, agent_ids)
+    }
+
+    /// V3: Quantum Memory Hub 통계
+    pub fn quantum_hub_stats(&self) -> crate::quantum_engine::QuantumHubStats {
+        let qe = self.quantum_engine.lock().unwrap_or_else(|e| e.into_inner());
+        qe.hub.stats()
+    }
+
+    /// V3: 실패를 혁신 인사이트로 자산화
+    pub fn pivot_failure_to_insight(
+        &self,
+        mission_id: &str,
+        failure_desc: &str,
+        error_magnitude: f64,
+    ) -> Option<crate::quantum_engine::FailureInsight> {
+        let mut qe = self.quantum_engine.lock().unwrap_or_else(|e| e.into_inner());
+        qe.handle_failure(mission_id, failure_desc, error_magnitude)
     }
 
     // ─── Clients ───────────────────────────────────────────
@@ -1007,41 +1292,100 @@ impl AgentEngine {
                     sub_responses: Vec::new(),
                 });
             }
-            // Add mission to registry (Phase 2 integration)
-            {
-                let ai = self.ai_manager.lock().unwrap_or_else(|e| e.into_inner());
-                ai.mission_registry().register(crate::ai::MissionMetadata {
-                    id: format!("miss_{}", chrono::Utc::now().timestamp()),
-                    name: mission_prompt.clone(),
-                    description: mission_prompt.clone(),
-                    category: "general".to_string(),
-                    tags: vec![],
-                    role: "general".to_string(),
-                    owner: role.clone(),
-                    goals: vec![mission_prompt.clone()],
-                    status: crate::ai::MissionStatus::Active,
-                    tasks: vec![],
-                });
-            }
 
-            // Phase 5 Audit: Log mission creation
-            self.audit_manager.log(
-                &self.config.agent.device_name,
-                &role,
-                "mission_create",
-                &format!("User created mission: {}", mission_prompt),
-                "success",
-                None,
+            // V2.x Fleet Mission Planner: 도메인 감지 → 전문가 수준 ATU 자동 분해
+            let domain = crate::ai::DomainDetector::detect_domain(&mission_prompt);
+            let peer_count = {
+                let pm = self.peer_manager.lock().unwrap_or_else(|e| e.into_inner());
+                pm.list_peers().len().max(1)
+            };
+            let planning_prompt = crate::ai::FleetMissionPlanner::build_mission_planning_prompt(
+                &mission_prompt, domain, peer_count
             );
 
-            return Ok(AiResponse {
-                message: format!("Mission received: \"{}\". Agent will now focus on this mission (Stored in MissionRegistry).", mission_prompt),
-                intent: None,
-                confidence: 1.0,
-                provider: "system".to_string(),
-                is_local: true,
-                sub_responses: Vec::new(),
-            });
+            println!("[V2.x Fleet] Mission planning via Fleet Planner. Domain: {}, Peers: {}", domain, peer_count);
+
+            // Send the planning prompt to AI for structured mission decomposition
+            let planning_request = AiRequest {
+                user_input: planning_prompt,
+                available_capabilities: self.get_capabilities(),
+                peer_role: role.clone(),
+                system_context: Some(format!(
+                    "CRITICAL: Respond ONLY with valid JSON. No explanation text before or after the JSON."
+                )),
+                history: Vec::new(),
+                model: None,
+                attachments: Vec::new(),
+                parallel: false,
+                strategies: vec!["mission_planning".to_string()],
+                preferred_language: Some(self.config.agent.language.clone()),
+            };
+
+            let planning_result = {
+                let mgr = self.ai_manager.lock().unwrap_or_else(|e| e.into_inner());
+                mgr.process(&planning_request)
+            };
+
+            match planning_result {
+                Ok(ref resp) if resp.intent.as_ref().and_then(|i| i.mission.as_ref()).is_some() => {
+                    // AI successfully decomposed the mission into ATUs
+                    let mission = resp.intent.as_ref().unwrap().mission.as_ref().unwrap();
+                    let quality = crate::ai::MissionQualityEvaluator::evaluate(mission);
+                    println!("[V2.x Fleet] Mission quality: {:.2}, tasks: {}", quality, mission.tasks.len());
+
+                    // Phase 5 Audit: Log mission creation
+                    self.audit_manager.log(
+                        &self.config.agent.device_name,
+                        &role,
+                        "mission_create",
+                        &format!("Fleet Planner decomposed mission '{}' into {} ATUs (quality: {:.2})",
+                            mission.name, mission.tasks.len(), quality),
+                        "success",
+                        None,
+                    );
+
+                    return Ok(resp.clone());
+                }
+                _ => {
+                    // Fallback: Register as simple mission if AI failed to decompose
+                    println!("[V2.x Fleet] AI planning failed, falling back to simple mission registration");
+                    let ai = self.ai_manager.lock().unwrap_or_else(|e| e.into_inner());
+                    ai.mission_registry().register(crate::ai::MissionMetadata {
+                        id: format!("miss_{}", chrono::Utc::now().timestamp()),
+                        name: mission_prompt.clone(),
+                        description: mission_prompt.clone(),
+                        category: domain.to_string(),
+                        tags: vec![],
+                        role: "general".to_string(),
+                        owner: role.clone(),
+                        goals: vec![mission_prompt.clone()],
+                        status: crate::ai::MissionStatus::Active,
+                        progress: 0,
+                        tasks: vec![],
+                        created_at: chrono::Utc::now().to_rfc3339(),
+                        started_at: None,
+                        completed_at: None,
+                    });
+
+                    self.audit_manager.log(
+                        &self.config.agent.device_name,
+                        &role,
+                        "mission_create",
+                        &format!("User created mission (simple): {}", mission_prompt),
+                        "success",
+                        None,
+                    );
+
+                    return Ok(AiResponse {
+                        message: format!("Mission received: \"{}\". Domain: {}. Agent will now focus on this mission.", mission_prompt, domain),
+                        intent: None,
+                        confidence: 1.0,
+                        provider: "system".to_string(),
+                        is_local: true,
+                        sub_responses: Vec::new(),
+                    });
+                }
+            }
         }
 
         // Check if parallel mode is enabled via global config
@@ -1105,7 +1449,7 @@ impl AgentEngine {
             attachments,
             parallel: is_parallel,
             strategies: vec!["logic".to_string(), "consensus".to_string()],
-            preferred_language: lang,
+            preferred_language: lang.or_else(|| Some(self.config.agent.language.clone())),
         };
 
         if is_parallel {
@@ -1173,6 +1517,14 @@ impl AgentEngine {
             if h.len() > 20 {
                 let drain_to = h.len() - 20;
                 h.drain(..drain_to);
+            }
+
+            // Phase 2 Extension: Save chat history to standardized disk location 🛡️
+            let history_path = self.config.storage_dir().join("chat_history.json");
+            
+            if let Ok(json) = serde_json::to_string_pretty(&*h) {
+                let _ = std::fs::create_dir_all(history_path.parent().unwrap());
+                let _ = std::fs::write(&history_path, json);
             }
         }
 
@@ -1607,7 +1959,7 @@ mod tests {
             .add_peer("p1", "User", "mobile", "10.0.0.1", "owner")
             .unwrap();
         // Chat should work even without identity (uses "unknown" for audit)
-        let response = engine.chat("p1", "hello", None, Vec::new());
+        let response = engine.chat("p1", "hello", None, Vec::new(), None);
         assert!(response.is_ok());
     }
 

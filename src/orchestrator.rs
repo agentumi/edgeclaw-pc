@@ -228,6 +228,8 @@ mod tests {
             status,
             capabilities: vec!["status_query".to_string()],
             version: "1.0.0".to_string(),
+            persona: String::new(),
+            performance_rating: 0.0,
             last_heartbeat: Utc::now(),
             registered_at: Utc::now(),
         }

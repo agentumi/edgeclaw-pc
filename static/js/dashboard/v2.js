@@ -1,4 +1,4 @@
-// 🌐 EdgeClaw V2.2 & V2.3 Visual Fleet & Governance Controller
+// ???EdgeClaw V2.2 & V2.4 Visual Fleet & Governance Controller
 import { API, AppState, apiFetch, showToast, setTranslatedText } from './core.js';
 
 let lastGroups = [];
@@ -8,7 +8,7 @@ let fleetGraphAnimId = null;
  * Initialize Fleet Governance View
  */
 export function initFleetGovernance() {
-    console.log("V2.3 Fleet Governance Initialized");
+    console.log("V2.4 Fleet Governance Initialized");
     fetchGroups();
     
     // Auto-refresh groups every 10 seconds
@@ -20,7 +20,7 @@ export function initFleetGovernance() {
  */
 export async function fetchGroups() {
     try {
-        const res = await apiFetch(`${API}/api/v2.3/groups`);
+        const res = await apiFetch(`${API}/api/groups`);
         if (res.ok) {
             const groups = await res.json();
             lastGroups = groups;
@@ -41,7 +41,7 @@ export function showCreateGroupModal() {
     const name = prompt("Enter Team Name:");
     if (!name) return;
     
-    apiFetch(`${API}/api/v2.3/groups`, {
+    apiFetch(`${API}/api/groups`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -207,7 +207,7 @@ window.saveGroupSettings = async () => {
     
     try {
         // First sync memory setting
-        await apiFetch(`${API}/api/v2.3/groups/${currentGsGroupId}/memory/sync`, {
+        await apiFetch(`${API}/api/groups/${currentGsGroupId}/memory/sync`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sync: syncMemory })
@@ -216,7 +216,7 @@ window.saveGroupSettings = async () => {
         // Then sync each override (In a real systems we would do this in one batch, but here we use the specific endpoint)
         // For simplicity, we just save the local state and refresh
         for (const [cap, allowed] of Object.entries(currentGsOverrides)) {
-            await apiFetch(`${API}/api/v2.3/groups/${currentGsGroupId}/policy`, {
+            await apiFetch(`${API}/api/groups/${currentGsGroupId}/policy`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ capability: cap, allowed })
@@ -248,7 +248,7 @@ function escapeHtml(value) {
 
 function renderFleetVisualMap(groups) {
     // Placeholder for future D3.js or Canvas-based fleet visualizer
-    console.log("[V2.3] Visual map rendering for groups:", groups.length);
+    console.log("[V2.4] Visual map rendering for groups:", groups.length);
 }
 
 initFleetGovernance();

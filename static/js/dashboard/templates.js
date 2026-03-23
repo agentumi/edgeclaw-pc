@@ -86,9 +86,9 @@ export function renderTemplates() {
             business: { name: 'Business', icon: '💼', color: '#3b82f6', templates: [] },
             dev: { name: 'Development', icon: '💻', color: '#8b5cf6', templates: [] },
             devops: { name: 'DevOps', icon: '⚙️', color: '#6366f1', templates: [] },
-            marketing: { name: 'Marketing', icon: '📣', color: '#f59e0b', templates: [] },
+            marketing: { name: 'Marketing', icon: '📈', color: '#f59e0b', templates: [] },
             security: { name: 'Security', icon: '🛡️', color: '#ef4444', templates: [] },
-            system: { name: 'System', icon: '💻', color: '#64748b', templates: [] }
+            system: { name: 'System', icon: '🖥️', color: '#64748b', templates: [] }
         };
         
         filtered.forEach(t => {
@@ -206,7 +206,7 @@ export async function submitCreateAutomation() {
             description: desc || '',
             category,
             tags,
-            icon: category === 'investment' ? ' ' : category === 'dev' ? ' ' : category === 'marketing' ? ' ' : ' ',
+            icon: category === 'investment' ? '💰' : category === 'dev' ? '💻' : category === 'marketing' ? '📈' : '🤖',
             state: 'active',
             run_count: 0,
             avg_duration: 0

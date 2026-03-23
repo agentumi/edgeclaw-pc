@@ -15,7 +15,7 @@ use tracing::{error, info, warn};
 
 #[derive(Parser)]
 #[command(name = "edgeclaw-agent")]
-#[command(version = "2.3.0")]
+#[command(version = "2.4.0")]
 #[command(about = "EdgeClaw PC Agent — Zero-Trust Edge AI Executor")]
 struct Cli {
     /// Path to config file
@@ -478,7 +478,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Start => {
             info!(
-                version = "2.3.0",
+                version = "2.4.0",
                 port = config.agent.listen_port,
                 "EdgeClaw Agent starting"
             );
@@ -501,6 +501,9 @@ async fn main() -> anyhow::Result<()> {
 
             // Register web-client as owner peer for chat
             engine.add_peer("web-client", "WebUI", "browser", "127.0.0.1", "owner")?;
+
+            // V2.4 Start background autonomous threads
+            engine.clone().start_background_tasks();
 
             let num_agents = config.webui.effective_max_agents();
             let mut effective_ws_port = config.websocket.port;
@@ -528,7 +531,7 @@ async fn main() -> anyhow::Result<()> {
 
             // Print agent startup banner
             println!("╔══════════════════════════════════════════╗");
-            println!("║     EdgeClaw PC Agent v2.3.0             ║");
+            println!("║     EdgeClaw PC Agent v2.4.0             ║");
             println!("║     Zero-Trust Edge AI Executor          ║");
             println!("╠══════════════════════════════════════════╣");
             println!("║  ID:   {}  ║", &identity.device_id[..36]);
@@ -932,6 +935,8 @@ async fn main() -> anyhow::Result<()> {
                                         status: edgeclaw_agent::registry::AgentStatus::Online,
                                         capabilities: vec![],
                                         version: "unknown".into(),
+                                        persona: "".into(),
+                                        performance_rating: 0.0,
                                         last_heartbeat: chrono::Utc::now(),
                                         registered_at: chrono::Utc::now(),
                                     };

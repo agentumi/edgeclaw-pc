@@ -202,25 +202,55 @@ impl PolicyEngine {
         capability_name: &str,
         role_str: &str,
     ) -> Result<PolicyDecision, AgentError> {
+        self.evaluate_with_overrides(capability_name, role_str, &std::collections::HashMap::new())
+    }
+
+    /// Evaluate a capability request with group-level overrides.
+    pub fn evaluate_with_overrides(
+        &self,
+        capability_name: &str,
+        role_str: &str,
+        overrides: &std::collections::HashMap<String, bool>,
+    ) -> Result<PolicyDecision, AgentError> {
         let role = Role::parse(role_str)?;
         let cap = self.capabilities.iter().find(|c| c.name == capability_name);
 
         match cap {
             Some(capability) => {
-                let allowed = capability.risk_level <= role.max_allowed_risk();
-                Ok(PolicyDecision {
-                    allowed,
-                    reason: if allowed {
+                // Group override takes precedence if it exists
+                let allowed = if let Some(&group_allowed) = overrides.get(capability_name) {
+                    group_allowed
+                } else {
+                    capability.risk_level <= role.max_allowed_risk()
+                };
+
+                let reason = if let Some(&group_allowed) = overrides.get(capability_name) {
+                    if group_allowed {
                         format!(
-                            "role '{}' can access '{}' (risk: {:?})",
-                            role_str, capability_name, capability.risk_level
+                            "group override allowed '{}' for role '{}'",
+                            capability_name, role_str
                         )
                     } else {
                         format!(
-                            "role '{}' cannot access '{}' — requires higher privilege (risk: {:?})",
-                            role_str, capability_name, capability.risk_level
+                            "group override denied '{}' for role '{}'",
+                            capability_name, role_str
                         )
-                    },
+                    }
+                } else if allowed {
+                    format!(
+                        "role '{}' can access '{}' (risk: {:?})",
+                        role_str, capability_name, capability.risk_level
+                    )
+                } else {
+                    format!(
+                        "role '{}' cannot access '{}' — requires higher privilege (risk: {:?})",
+                        role_str, capability_name, capability.risk_level
+                    )
+                };
+
+                Ok(PolicyDecision {
+                    allowed,
+                    reason,
                     risk_level: capability.risk_level as u8,
                     capability: capability_name.to_string(),
                     role: role_str.to_string(),
@@ -228,25 +258,37 @@ impl PolicyEngine {
                 })
             }
             None => {
-                if self.default_deny {
-                    Ok(PolicyDecision {
-                        allowed: false,
-                        reason: format!("unknown capability: '{capability_name}' — default deny"),
-                        risk_level: 255,
-                        capability: capability_name.to_string(),
-                        role: role_str.to_string(),
-                        required_tier: VerificationTier::TEE, // Default to highest isolation
-                    })
+                // Handle unknown capability
+                let allowed = overrides
+                    .get(capability_name)
+                    .copied()
+                    .unwrap_or(!self.default_deny);
+                let reason = if let Some(&group_allowed) = overrides.get(capability_name) {
+                    if group_allowed {
+                        format!(
+                            "group override allowed unknown capability '{}'",
+                            capability_name
+                        )
+                    } else {
+                        format!(
+                            "group override denied unknown capability '{}'",
+                            capability_name
+                        )
+                    }
+                } else if self.default_deny {
+                    format!("unknown capability: '{capability_name}' — default deny")
                 } else {
-                    Ok(PolicyDecision {
-                        allowed: true,
-                        reason: "permissive mode — unknown capability allowed".to_string(),
-                        risk_level: 0,
-                        capability: capability_name.to_string(),
-                        role: role_str.to_string(),
-                        required_tier: VerificationTier::Reputation,
-                    })
-                }
+                    "permissive mode — unknown capability allowed".to_string()
+                };
+
+                Ok(PolicyDecision {
+                    allowed,
+                    reason,
+                    risk_level: 255,
+                    capability: capability_name.to_string(),
+                    role: role_str.to_string(),
+                    required_tier: VerificationTier::TEE,
+                })
             }
         }
     }
@@ -441,5 +483,48 @@ mod tests {
         assert!(!staking.can_verify("val_4"));
         staking.deposit_stake("val_4", 50.0); // total 110.0
         assert!(staking.can_verify("val_4"));
+    }
+
+    #[test]
+    fn test_policy_override_allow() {
+        let engine = PolicyEngine::new();
+        let mut overrides = std::collections::HashMap::new();
+        // admin is normally denied shell_exec
+        overrides.insert("shell_exec".to_string(), true);
+
+        let d = engine
+            .evaluate_with_overrides("shell_exec", "admin", &overrides)
+            .unwrap();
+        assert!(d.allowed);
+        assert!(d.reason.contains("group override allowed"));
+    }
+
+    #[test]
+    fn test_policy_override_deny() {
+        let engine = PolicyEngine::new();
+        let mut overrides = std::collections::HashMap::new();
+        // admin is normally allowed docker_manage
+        overrides.insert("docker_manage".to_string(), false);
+
+        let d = engine
+            .evaluate_with_overrides("docker_manage", "admin", &overrides)
+            .unwrap();
+        assert!(!d.allowed);
+        assert!(d.reason.contains("group override denied"));
+    }
+
+    #[test]
+    fn test_policy_override_unknown() {
+        let engine = PolicyEngine::new();
+        let mut overrides = std::collections::HashMap::new();
+        overrides.insert("custom_cap".to_string(), true);
+
+        let d = engine
+            .evaluate_with_overrides("custom_cap", "viewer", &overrides)
+            .unwrap();
+        assert!(d.allowed);
+        assert!(d
+            .reason
+            .contains("group override allowed unknown capability"));
     }
 }

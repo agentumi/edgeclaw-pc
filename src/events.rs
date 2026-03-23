@@ -133,6 +133,29 @@ pub enum AgentEvent {
 
     /// Memory engine contents were updated (Core, Tier, or Lesson)
     MemoryUpdated,
+
+    /// Mission status changed (V2.2 UI)
+    MissionStatusChanged {
+        mission_id: String,
+        status: String,
+        last_action: String,
+    },
+
+    /// AI Consensus in progress (V2.2 UI)
+    ConsensusStarted { prompt: String, models: Vec<String> },
+
+    /// AI Consensus reached (V2.2 UI)
+    ConsensusReached {
+        prompt: String,
+        result: String,
+        confidence: f64,
+    },
+
+    /// Knowledge Retrieval event (V2.2 UI)
+    KnowledgeRetrieved {
+        query: String,
+        doc_titles: Vec<String>,
+    },
 }
 
 /// Output stream type

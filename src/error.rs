@@ -14,6 +14,9 @@ pub enum AgentError {
     #[error("connection error: {0}")]
     ConnectionError(String),
 
+    #[error("ai error: {0}")]
+    AiError(String),
+
     #[error("policy denied: {0}")]
     PolicyDenied(String),
 

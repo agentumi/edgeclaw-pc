@@ -561,3 +561,66 @@ pub async fn handle_memory_lesson_add(
     let json = serde_json::to_vec(&lesson).unwrap_or_default();
     send_response(stream, 200, "application/json", &json, cors_origin).await
 }
+/// GET /api/memory/knowledge — List knowledge items
+pub async fn handle_memory_knowledge_list(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    group_id: Option<&str>,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let items = {
+        let memory = engine
+            .memory_engine()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(gid) = group_id {
+            memory.knowledge.search_by_group(gid)
+        } else {
+            memory.knowledge.items.clone()
+        }
+    };
+    let json = serde_json::to_vec(&items).unwrap_or_default();
+    send_response(stream, 200, "application/json", &json, cors_origin).await
+}
+
+/// POST /api/memory/knowledge — Create a knowledge item
+pub async fn handle_memory_knowledge_add(
+    stream: &mut TcpStream,
+    engine: &AgentEngine,
+    body: &str,
+    cors_origin: &str,
+) -> Result<(), AgentError> {
+    let item: crate::memory_engine::KnowledgeItem = serde_json::from_str(body)?;
+    {
+        let mut memory = engine
+            .memory_engine()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        memory.knowledge.add_item(item.clone());
+        memory.save_to_markdown_file(&engine.memory_storage_path())?;
+    }
+
+    // Broadcast if shared memory is enabled for the group
+    if let Some(ref gid) = item.group_id {
+        if let Some(group) = engine.group_manager().get_group(gid) {
+            if group.sync_memory {
+                // In a real implementation, we would broadcast this via ECNP/Gossip
+                engine.record_activity(
+                    ActivityType::Custom {
+                        category: "memory_sync".into(),
+                        data: serde_json::json!({"group": gid, "title": item.title}),
+                    },
+                    &format!("Shared knowledge to group {}: {}", gid, item.title),
+                    Uuid::new_v4(),
+                    2,
+                    &["memory", "sync", gid],
+                    None,
+                    "all",
+                );
+            }
+        }
+    }
+
+    let json = serde_json::to_vec(&item).unwrap_or_default();
+    send_response(stream, 201, "application/json", &json, cors_origin).await
+}

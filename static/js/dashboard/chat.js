@@ -43,6 +43,21 @@ export function initChat({ getCurrentMode, appendSessionLog, renderEconomy, fetc
     let allQuickActions = [];
     let currentProfileFilter = 'all';
 
+    // Hydrate chat history from backend on startup
+    apiFetch(`${API}/api/chat/history`)
+        .then(res => res.json())
+        .then(history => {
+            if (history && Array.isArray(history)) {
+                history.forEach(msg => {
+                    const role = msg.role.toLowerCase();
+                    if (role === 'system') return; // Hide internal system prompts from UI by default
+                    addMsg(role === 'user' ? 'user' : 'agent', msg.content, null);
+                });
+                chatArea.scrollTop = chatArea.scrollHeight;
+            }
+        })
+        .catch(err => console.error("[V2.3] Failed to hydrate chat history:", err));
+
     const resolveMode = () => (typeof getCurrentMode === 'function' ? getCurrentMode() : 'sanctum');
 
     chatInput.addEventListener('input', () => {
@@ -170,7 +185,7 @@ export function initChat({ getCurrentMode, appendSessionLog, renderEconomy, fetc
                             ${tasksHtml}
                         </div>
 
-                        <button class="btn-primary" style="width:100%; padding:14px; font-size:14px; font-weight:700; background:linear-gradient(to right, var(--primary-600), var(--accent-purple)); border:none; box-shadow:0 4px 15px rgba(124, 58, 237, 0.3);" onclick="confirmMission('${mission.id}')">
+                        <button id="btn-activate-${mission.id}" class="btn-primary" style="width:100%; padding:14px; font-size:14px; font-weight:700; background:linear-gradient(to right, var(--primary-600), var(--accent-purple)); border:none; box-shadow:0 4px 15px rgba(124, 58, 237, 0.3);" onclick="confirmMission('${mission.id}', this)">
                             <i class="fa-solid fa-bolt-lightning" style="margin-right:10px;"></i> ACTIVATE COLLECTIVE MISSION
                         </button>
                         <div style="text-align:center; font-size:9px; color:var(--text-muted); margin-top:10px;">Security: All tasks require owner-defined capability tokens.</div>
@@ -598,7 +613,7 @@ export function initAIChat() {
                                 ${tasksHtml}
                             </div>
 
-                            <button class="btn-primary" style="width:100%; padding:16px; font-size:14px; font-weight:800; background:linear-gradient(to right, var(--primary-600), var(--accent-purple)); border:none; box-shadow:0 8px 20px rgba(124, 58, 237, 0.4); cursor:pointer;" onclick="window.confirmMission && window.confirmMission('${mission.id}')">
+                            <button class="btn-primary" style="width:100%; padding:16px; font-size:14px; font-weight:800; background:linear-gradient(to right, var(--primary-600), var(--accent-purple)); border:none; box-shadow:0 8px 20px rgba(124, 58, 237, 0.4); cursor:pointer;" onclick="window.confirmMission && window.confirmMission('${mission.id}', this)">
                                 <i class="fa-solid fa-bolt-lightning" style="margin-right:12px;"></i> ACTIVATE MISSION
                             </button>
                         </div>
@@ -635,12 +650,12 @@ export function showChatHelp() {
     const helpText = `
         <div style="text-align:left; font-size:12px; line-height:1.6;">
             <strong>Commands:</strong><br>
-            • <code>/mode [sanctum|high-perf]</code>: UI theme switch<br>
-            • <code>/model [name]</code>: Select specific AI model<br>
-            • <code>/models</code>: List all local models<br>
-            • <code>/parallel [m1,m2]</code>: Task consensus<br>
-            • <code>@[agent]</code>: Route to specific agent<br>
-            • <code>/mission [title]</code>: Setup new workflow<br><br>
+            ??<code>/mode [sanctum|high-perf]</code>: UI theme switch<br>
+            ??<code>/model [name]</code>: Select specific AI model<br>
+            ??<code>/models</code>: List all local models<br>
+            ??<code>/parallel [m1,m2]</code>: Task consensus<br>
+            ??<code>@[agent]</code>: Route to specific agent<br>
+            ??<code>/mission [title]</code>: Setup new workflow<br><br>
             <em>All data is processed strictly locally by default.</em>
         </div>
     `;
@@ -667,21 +682,71 @@ export function showChatHelp() {
     }
 }
 
-export function confirmMission(missionId) {
+export function confirmMission(missionId, el) {
     if (!missionId) return;
-    apiFetch(`${API}/api/v2.3/mission/confirm`, {
+    
+    // Immediate UI feedback
+    if (el) {
+        el.disabled = true;
+        el.innerHTML = '<i class="fa-solid fa-sync fa-spin"></i> Activating Mission...';
+        el.style.background = 'var(--surface-600)';
+    }
+
+    apiFetch(`${API}/api/mission/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mission_id: missionId })
     })
-    .then(res => {
+    .then(async res => {
         if (res.ok) {
-            if (window.showToast) window.showToast('Mission activated successfully!', 'success');
+            if (window.showToast) window.showToast('Mission activated! Starting autonomous execution...', 'success');
+            
+            // Poll for progress and update the button live
+            if (el) {
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const statusRes = await apiFetch(`${API}/api/v1/mission/active`);
+                        if (statusRes.ok) {
+                            const data = await statusRes.json();
+                            if (data.id === missionId) {
+                                const pct = data.progress ?? 0;
+                                const status = (data.status || 'Active').toUpperCase();
+                                el.innerHTML = `<i class="fa-solid fa-microchip"></i> ${status}: ${pct}%`;
+                                
+                                // Successful completion
+                                if (pct >= 100 || status === 'SUCCESS' || status === 'COMPLETED') {
+                                    el.innerHTML = '<i class="fa-solid fa-check-double"></i> MISSION SUCCESSFUL';
+                                    el.style.background = 'var(--accent-green)';
+                                    clearInterval(pollInterval);
+                                }
+                            }
+                        }
+                    } catch (e) {
+                         console.error("Button poll error:", e);
+                         clearInterval(pollInterval);
+                    }
+                }, 10000); // 10s poll to match heartbeat
+            }
+
+            // V2.4 Refresh dashboard data immediately
+            if (window.fetchDashboardData) window.fetchDashboardData();
         } else {
             console.error('Failed to confirm mission');
+            if (window.showToast) window.showToast('Failed to activate mission.', 'error');
+            if (el) {
+                el.disabled = false;
+                el.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Activation Failed';
+            }
         }
     })
-    .catch(err => console.error('Error confirming mission:', err));
+    .catch(err => {
+        console.error('Error confirming mission:', err);
+        if (window.showToast) window.showToast('Network error while activating.', 'error');
+        if (el) {
+            el.disabled = false;
+            el.innerHTML = '<i class="fa-solid fa-bolt-lightning"></i> Retry Activation';
+        }
+    });
 }
 
 window.confirmMission = confirmMission;

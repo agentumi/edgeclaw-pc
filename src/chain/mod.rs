@@ -1,12 +1,12 @@
+use crate::error::AgentError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
-use crate::error::AgentError;
 
-pub mod sui;
 pub mod eth;
-pub mod solana;
 pub mod others;
+pub mod solana;
+pub mod sui;
 
 // ─── Chain Types ───────────────────────────────────────────
 
@@ -140,17 +140,34 @@ pub trait ChainProvider: Send + Sync {
     fn is_connected(&self) -> bool;
     fn connect(&mut self) -> Result<(), AgentError>;
     fn disconnect(&mut self) -> Result<(), AgentError>;
-    
-    fn register_device(&self, public_key: &str, device_name: &str, device_type: &str) -> Result<ChainDeviceRecord, AgentError>;
+
+    fn register_device(
+        &self,
+        public_key: &str,
+        device_name: &str,
+        device_type: &str,
+    ) -> Result<ChainDeviceRecord, AgentError>;
     fn lookup_device(&self, public_key: &str) -> Result<Option<ChainDeviceRecord>, AgentError>;
-    
-    fn mint_policy(&self, owner: &str, role: &str, capabilities: Vec<String>, expires_at: u64, issuer: &str) -> Result<ChainPolicy, AgentError>;
+
+    fn mint_policy(
+        &self,
+        owner: &str,
+        role: &str,
+        capabilities: Vec<String>,
+        expires_at: u64,
+        issuer: &str,
+    ) -> Result<ChainPolicy, AgentError>;
     fn verify_policy(&self, policy_id: &str) -> Result<bool, AgentError>;
     fn revoke_policy(&self, policy_id: &str) -> Result<ChainTxResult, AgentError>;
-    
-    fn anchor_audit(&self, batch_start: u64, batch_end: u64, batch_hash: &str) -> Result<ChainAuditAnchor, AgentError>;
+
+    fn anchor_audit(
+        &self,
+        batch_start: u64,
+        batch_end: u64,
+        batch_hash: &str,
+    ) -> Result<ChainAuditAnchor, AgentError>;
     fn verify_audit_chain(&self) -> Result<bool, AgentError>;
-    
+
     fn get_balance(&self, address: &str) -> Result<ChainBalance, AgentError>;
     fn status(&self) -> ChainProviderStatus;
 }
@@ -183,19 +200,37 @@ pub struct OfflineCacheEntry {
     pub retries: u32,
 }
 
+impl Default for MultiChainClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MultiChainClient {
     pub fn new() -> Self {
-        Self { providers: HashMap::new(), primary: None, offline_cache: Vec::new() }
+        Self {
+            providers: HashMap::new(),
+            primary: None,
+            offline_cache: Vec::new(),
+        }
     }
-    pub fn register_provider(&mut self, chain: ChainType, config: ChainProviderConfig) -> Result<(), AgentError> {
+    pub fn register_provider(
+        &mut self,
+        chain: ChainType,
+        config: ChainProviderConfig,
+    ) -> Result<(), AgentError> {
         let provider = create_provider(chain, config);
         self.providers.insert(chain, provider);
-        if self.primary.is_none() { self.primary = Some(chain); }
+        if self.primary.is_none() {
+            self.primary = Some(chain);
+        }
         Ok(())
     }
     pub fn set_primary(&mut self, chain: ChainType) -> Result<(), AgentError> {
         if !self.providers.contains_key(&chain) {
-            return Err(AgentError::NotFound(format!("chain provider not registered: {chain}")));
+            return Err(AgentError::NotFound(format!(
+                "chain provider not registered: {chain}"
+            )));
         }
         self.primary = Some(chain);
         Ok(())
@@ -236,18 +271,27 @@ pub struct MultiChainConfig {
     pub cross_chain_audit: bool,
 }
 
-fn default_primary() -> String { "sui".to_string() }
+fn default_primary() -> String {
+    "sui".to_string()
+}
 
 impl Default for MultiChainConfig {
     fn default() -> Self {
-        Self { enabled: false, primary_chain: "sui".to_string(), chains: HashMap::new(), cross_chain_audit: false }
+        Self {
+            enabled: false,
+            primary_chain: "sui".to_string(),
+            chains: HashMap::new(),
+            cross_chain_audit: false,
+        }
     }
 }
 
 impl MultiChainConfig {
     pub fn build_client(&self) -> Result<MultiChainClient, AgentError> {
         let mut client = MultiChainClient::new();
-        if !self.enabled { return Ok(client); }
+        if !self.enabled {
+            return Ok(client);
+        }
         for (name, cfg) in &self.chains {
             let chain_type = match name.as_str() {
                 "sui" => ChainType::Sui,

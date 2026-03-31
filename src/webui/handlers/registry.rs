@@ -1,9 +1,9 @@
 use crate::error::AgentError;
+use crate::registry::AgentStatus;
 use crate::webui::http::send_response;
 use crate::AgentEngine;
-use crate::registry::AgentStatus;
-use tokio::net::TcpStream;
 use serde::Deserialize;
+use tokio::net::TcpStream;
 
 /// GET /api/agents — List all agents in the registry
 pub async fn handle_list_agents(
@@ -52,10 +52,16 @@ pub async fn handle_update_agent(
         }
     };
 
-    if let Some(n) = req.name { info.name = n; }
-    if let Some(p) = req.profile { info.profile = p; }
-    if let Some(per) = req.persona { info.persona = per; }
-    
+    if let Some(n) = req.name {
+        info.name = n;
+    }
+    if let Some(p) = req.profile {
+        info.profile = p;
+    }
+    if let Some(per) = req.persona {
+        info.persona = per;
+    }
+
     if let Some(s_str) = req.status {
         match s_str.to_lowercase().as_str() {
             "online" => info.status = AgentStatus::Online,
@@ -67,7 +73,7 @@ pub async fn handle_update_agent(
     }
 
     registry.register(info.clone())?;
-    
+
     let resp = serde_json::json!({"success": true, "agent": info});
     let json = serde_json::to_vec(&resp).unwrap_or_default();
     send_response(stream, 200, "application/json", &json, cors_origin).await

@@ -111,6 +111,9 @@ impl NightlyDistiller {
                         source_errors: ids,
                         applied_count: 0,
                         effectiveness: 1.0, // base effectiveness
+                        domain: String::new(),
+                        success_count: 0,
+                        failure_count: count as u32,
                     };
                     engine.lessons.add_lesson(new_lesson);
                     info!("New lesson extracted: {}", pattern);

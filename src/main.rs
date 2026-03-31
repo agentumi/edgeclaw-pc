@@ -708,6 +708,38 @@ async fn main() -> anyhow::Result<()> {
                         Ok(MessageType::Telemetry) => {
                             info!(peer = %msg.peer_addr, "telemetry received");
                         }
+                        // P3-02: Memory Sync
+                        Ok(MessageType::MemorySyncRequest) | Ok(MessageType::MemorySyncResponse) => {
+                            info!(peer = %msg.peer_addr, "MemorySync received");
+                            if let Ok(diff) = serde_json::from_slice::<edgeclaw_agent::memory_engine::MemoryDiff>(&msg.message.payload) {
+                                let (mem_count, lesson_count) = _handler_engine.import_memory_diff(&diff);
+                                info!(
+                                    peer = %msg.peer_addr,
+                                    mem_imported = mem_count,
+                                    lessons_imported = lesson_count,
+                                    "Memory synced successfully"
+                                );
+                            } else {
+                                warn!(peer = %msg.peer_addr, "Invalid MemoryDiff payload");
+                            }
+                        }
+                        // P0-06: Task Board Sync
+                        Ok(MessageType::TaskCreate) | Ok(MessageType::TaskUpdate) => {
+                            info!(peer = %msg.peer_addr, "Task sync received");
+                            if let Ok(
+                                edgeclaw_agent::task_board::TaskSyncMessage::TaskCreate { task }
+                                | edgeclaw_agent::task_board::TaskSyncMessage::TaskUpdate { task },
+                            ) = edgeclaw_agent::task_board::TaskSyncMessage::from_bytes(&msg.message.payload)
+                            {
+                                let mut board = _handler_engine
+                                    .task_board()
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner());
+                                if board.merge_remote(&task) {
+                                    info!(task_id = %task.id, "Merged remote task update");
+                                }
+                            }
+                        }
                         Ok(mt) => {
                             info!(
                                 peer = %msg.peer_addr,

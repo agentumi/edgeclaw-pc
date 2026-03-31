@@ -466,3 +466,99 @@
         </div>
     </div>
 </div>
+
+<!-- Modal: P7-02 Mission Wizard -->
+<div id="missionWizardModal" style="display:none; position:fixed; z-index:9999; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); align-items:center; justify-content:center;">
+    <div style="background:var(--surface-900); border:1px solid var(--surface-700); border-radius:12px; width:90%; max-width:600px; padding:24px; box-shadow:0 0 40px rgba(0,0,0,0.6);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+            <div>
+                <h2 style="font-size:18px; margin:0;"><i class="fa-solid fa-wand-magic-sparkles" style="color:var(--primary-400); margin-right:8px;"></i>Mission Creation Wizard</h2>
+                <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Step-by-step setup for a new autonomous mission.</div>
+            </div>
+            <i class="fa-solid fa-times" style="cursor:pointer; color:var(--text-muted);" onclick="closeModal('missionWizardModal')"></i>
+        </div>
+        <div>
+            <div id="wizardStep1">
+                <h4 style="margin-bottom:12px; font-size:14px;">Step 1: Mission Objective</h4>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block; font-size:11px; margin-bottom:4px; color:var(--text-muted); font-weight:700;">Mission Name</label>
+                    <input id="wizardMissionName" type="text" style="width:100%; padding:10px; background:var(--surface-800); border:1px solid var(--surface-600); border-radius:6px; color:white; box-sizing:border-box;" placeholder="e.g. Audit Cloud Infrastructure">
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block; font-size:11px; margin-bottom:4px; color:var(--text-muted); font-weight:700;">High-level Goal</label>
+                    <textarea id="wizardMissionGoal" rows="3" style="width:100%; padding:10px; background:var(--surface-800); border:1px solid var(--surface-600); border-radius:6px; color:white; box-sizing:border-box;" placeholder="Describe what the agent should achieve..."></textarea>
+                </div>
+                <div style="text-align:right;">
+                    <button class="btn btn-primary" onclick="document.getElementById('wizardStep1').style.display='none'; document.getElementById('wizardStep2').style.display='block';">Next Step <i class="fa-solid fa-arrow-right"></i></button>
+                </div>
+            </div>
+            
+            <div id="wizardStep2" style="display:none;">
+                <h4 style="margin-bottom:12px; font-size:14px;">Step 2: Assign Agents & Constraints</h4>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+                    <div>
+                        <label style="display:block; font-size:11px; margin-bottom:4px; color:var(--text-muted); font-weight:700;">Primary Agent</label>
+                        <select id="wizardAgentSelect" style="width:100%; padding:10px; background:var(--surface-800); border:1px solid var(--surface-600); border-radius:6px; color:white;">
+                            <option value="local">Local Agent</option>
+                            <option value="fleet">Fleet Consensus (Auto-distribute)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:11px; margin-bottom:4px; color:var(--text-muted); font-weight:700;">Max Execution Time</label>
+                        <input id="wizardTimeout" type="text" style="width:100%; padding:10px; background:var(--surface-800); border:1px solid var(--surface-600); border-radius:6px; color:white; box-sizing:border-box;" placeholder="e.g. 1h, 30m">
+                    </div>
+                </div>
+                <div style="margin-top:24px; display:flex; justify-content:space-between;">
+                    <button class="btn" onclick="document.getElementById('wizardStep2').style.display='none'; document.getElementById('wizardStep1').style.display='block';"><i class="fa-solid fa-arrow-left"></i> Back</button>
+                    <button class="btn btn-primary" style="background:var(--accent-green);" onclick="submitMissionWizard()"><i class="fa-solid fa-rocket"></i> Launch Mission</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: P7-03 Live Stream Terminal -->
+<div id="liveStreamModal" style="display:none; position:fixed; z-index:10000; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); align-items:center; justify-content:center;">
+    <div style="background:var(--surface-950); border:1px solid var(--primary-500); border-radius:12px; width:90%; max-width:1000px; height:80vh; display:flex; flex-direction:column; box-shadow:0 0 40px rgba(124, 58, 237, 0.4);">
+        <div style="padding:16px 24px; border-bottom:1px solid var(--surface-700); display:flex; justify-content:space-between; align-items:center;">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <div style="width:10px; height:10px; border-radius:50%; background:var(--accent-green); animation:pulse 2s infinite;"></div>
+                <h3 style="margin:0; font-size:16px; font-family:var(--font-mono); color:var(--primary-300);"><i class="fa-solid fa-terminal" style="margin-right:8px;"></i>LIVE STREAM TERMINAL</h3>
+            </div>
+            <div style="display:flex; gap:8px;">
+                <button class="btn" onclick="document.getElementById('liveStreamOutput').innerHTML=''" style="font-size:11px; padding:4px 10px;">Clear</button>
+                <i class="fa-solid fa-times" style="cursor:pointer; color:var(--text-muted); padding:8px;" onclick="closeModal('liveStreamModal')"></i>
+            </div>
+        </div>
+        <div id="liveStreamOutput" style="flex:1; overflow-y:auto; padding:20px; font-family:var(--font-mono); font-size:13px; color:#d1d5db; line-height:1.6; background:#050508;">
+            <div style="color:var(--text-muted);">[System] Terminal initialized. Awaiting stdout/stderr streams...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: P7-06 Template Browser Quick View -->
+<div id="templateBrowserModal" style="display:none; position:fixed; z-index:9999; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); align-items:center; justify-content:center;">
+    <div style="background:var(--surface-900); border:1px solid var(--surface-700); border-radius:12px; width:90%; max-width:800px; padding:24px; box-shadow:0 0 40px rgba(0,0,0,0.6);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+            <div>
+                <h2 style="font-size:18px; margin:0;"><i class="fa-solid fa-book-bookmark" style="color:var(--accent-gold); margin-right:8px;"></i>Template Browser</h2>
+                <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Quickly select and import a workflow template.</div>
+            </div>
+            <i class="fa-solid fa-times" style="cursor:pointer; color:var(--text-muted);" onclick="closeModal('templateBrowserModal')"></i>
+        </div>
+        <div style="background:var(--surface-900);">
+            <div style="display:flex; gap:12px; margin-bottom:16px;">
+                <input id="tbSearch" type="text" style="flex:1; padding:10px; background:var(--surface-800); border:1px solid var(--surface-600); border-radius:6px; color:white;" placeholder="Search templates..." oninput="window.searchTemplateBrowser(this.value)">
+                <select id="tbCategory" style="width:160px; padding:10px; background:var(--surface-800); border:1px solid var(--surface-600); border-radius:6px; color:white;" onchange="window.searchTemplateBrowser(document.getElementById('tbSearch').value)">
+                    <option value="all">All Categories</option>
+                    <option value="investment">Investment</option>
+                    <option value="security">Security</option>
+                    <option value="dev">Development</option>
+                </select>
+            </div>
+            <div id="tbGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:12px; max-height:400px; overflow-y:auto; padding-right:8px;">
+                <div style="text-align:center; padding:20px; color:var(--text-muted); grid-column:1/-1;">Loading templates...</div>
+            </div>
+        </div>
+    </div>
+</div>

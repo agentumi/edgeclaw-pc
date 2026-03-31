@@ -60,4 +60,346 @@
                     </div>
                 </div>
             </div>
+
+            <!-- ─── P7-05: Fleet vs Quantum Comparison Panel ───────────────── -->
+            <div style="margin-top:32px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                    <h3 style="font-size:18px; font-weight:700; margin:0;"><i class="fa-solid fa-code-compare" style="color:var(--accent-cyan); margin-right:10px;"></i>Fleet vs Quantum Comparison</h3>
+                    <button class="btn" onclick="loadFleetQuantumComparison()" style="font-size:11px;"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                </div>
+
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:24px;">
+                    <!-- Fleet Process Card -->
+                    <div class="card" id="comparison-fleet-card" style="padding:24px; border-color:var(--primary-400); position:relative; overflow:hidden;">
+                        <div style="position:absolute; top:0; left:0; right:0; height:3px; background:linear-gradient(90deg, var(--primary-400), var(--primary-600));"></div>
+                        <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px;">
+                            <div style="width:42px; height:42px; border-radius:12px; background:rgba(99,102,241,0.15); display:flex; align-items:center; justify-content:center;">
+                                <i class="fa-solid fa-users-gear" style="color:var(--primary-400); font-size:18px;"></i>
+                            </div>
+                            <div>
+                                <div style="font-size:16px; font-weight:700;">Fleet Process</div>
+                                <div style="font-size:11px; color:var(--text-muted);">Parallel expert ensemble</div>
+                            </div>
+                            <span class="badge badge-blue" style="margin-left:auto;" id="fleet-active-badge">Active</span>
+                        </div>
+                        <div id="fleet-comparison-stats" style="display:flex; flex-direction:column; gap:14px;">
+                            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                                <span style="color:var(--text-muted);">Completed Missions</span>
+                                <span style="font-weight:700;" id="fc-missions">—</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                                <span style="color:var(--text-muted);">Avg Quality Score</span>
+                                <span style="font-weight:700; color:var(--accent-green);" id="fc-quality">—</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                                <span style="color:var(--text-muted);">Expert Roles Used</span>
+                                <span style="font-weight:700;" id="fc-experts">—</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                                <span style="color:var(--text-muted);">Avg Tasks/Mission</span>
+                                <span style="font-weight:700;" id="fc-tasks">—</span>
+                            </div>
+                            <div style="margin-top:8px;">
+                                <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
+                                    <span style="color:var(--text-muted);">Throughput</span>
+                                    <span id="fc-throughput-pct">0%</span>
+                                </div>
+                                <div style="height:6px; background:var(--surface-700); border-radius:3px;">
+                                    <div id="fc-throughput-bar" style="width:0%; height:100%; background:linear-gradient(90deg, var(--primary-400), var(--primary-500)); border-radius:3px; transition:width 0.6s ease;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quantum Process Card -->
+                    <div class="card" id="comparison-quantum-card" style="padding:24px; border-color:var(--accent-purple); position:relative; overflow:hidden;">
+                        <div style="position:absolute; top:0; left:0; right:0; height:3px; background:linear-gradient(90deg, var(--accent-purple), #a78bfa);"></div>
+                        <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px;">
+                            <div style="width:42px; height:42px; border-radius:12px; background:rgba(168,85,247,0.15); display:flex; align-items:center; justify-content:center;">
+                                <i class="fa-solid fa-atom" style="color:var(--accent-purple); font-size:18px;"></i>
+                            </div>
+                            <div>
+                                <div style="font-size:16px; font-weight:700;">Quantum Process</div>
+                                <div style="font-size:11px; color:var(--text-muted);">Probability-based amplification</div>
+                            </div>
+                            <span class="badge" style="margin-left:auto; background:rgba(168,85,247,0.2); color:var(--accent-purple);" id="quantum-active-badge">Standby</span>
+                        </div>
+                        <div id="quantum-comparison-stats" style="display:flex; flex-direction:column; gap:14px;">
+                            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                                <span style="color:var(--text-muted);">E-Max Patterns</span>
+                                <span style="font-weight:700;" id="qc-emax">—</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                                <span style="color:var(--text-muted);">C-Max Patterns</span>
+                                <span style="font-weight:700; color:var(--accent-purple);" id="qc-cmax">—</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                                <span style="color:var(--text-muted);">Failure Insights</span>
+                                <span style="font-weight:700; color:var(--accent-amber);" id="qc-insights">—</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                                <span style="color:var(--text-muted);">Total Cycles</span>
+                                <span style="font-weight:700;" id="qc-cycles">—</span>
+                            </div>
+                            <div style="margin-top:8px;">
+                                <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
+                                    <span style="color:var(--text-muted);">Entropy</span>
+                                    <span id="qc-entropy-pct">0%</span>
+                                </div>
+                                <div style="height:6px; background:var(--surface-700); border-radius:3px;">
+                                    <div id="qc-entropy-bar" style="width:0%; height:100%; background:linear-gradient(90deg, var(--accent-purple), #a78bfa); border-radius:3px; transition:width 0.6s ease;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Mission-by-Mission Comparison Table -->
+                <div class="card" style="margin-top:20px; padding:20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                        <h4 style="font-size:14px; font-weight:600; margin:0;"><i class="fa-solid fa-table-cells" style="color:var(--accent-cyan); margin-right:8px;"></i>Mission Comparison History</h4>
+                        <div style="display:flex; gap:8px;">
+                            <select id="comparison-filter" onchange="filterComparisonTable()" style="background:var(--surface-700); border:1px solid var(--surface-600); color:var(--text-primary); padding:4px 10px; border-radius:6px; font-size:11px;">
+                                <option value="all">All Missions</option>
+                                <option value="fleet">Fleet Only</option>
+                                <option value="quantum">Quantum Only</option>
+                                <option value="completed">Completed</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table style="width:100%; font-size:12px; border-collapse:collapse;" id="comparison-table">
+                            <thead>
+                                <tr style="border-bottom:1px solid var(--surface-600); color:var(--text-muted);">
+                                    <th style="text-align:left; padding:8px 12px; font-weight:600;">Mission</th>
+                                    <th style="text-align:center; padding:8px 12px; font-weight:600;">Process</th>
+                                    <th style="text-align:center; padding:8px 12px; font-weight:600;">Quality</th>
+                                    <th style="text-align:center; padding:8px 12px; font-weight:600;">Tasks</th>
+                                    <th style="text-align:center; padding:8px 12px; font-weight:600;">Status</th>
+                                    <th style="text-align:center; padding:8px 12px; font-weight:600;">Progress</th>
+                                </tr>
+                            </thead>
+                            <tbody id="comparison-tbody">
+                                <tr><td colspan="6" style="text-align:center; padding:24px; color:var(--text-muted);">Loading missions...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- P1-10: Agent Nurturing Dashboard -->
+                <div class="card" style="margin-top:20px; padding:20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                        <h4 style="font-size:14px; font-weight:600; margin:0;"><i class="fa-solid fa-seedling" style="color:var(--accent-green); margin-right:8px;"></i>Agent Nurturing Dashboard</h4>
+                        <button class="btn" onclick="loadNurturingData()" style="font-size:11px;"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                    </div>
+                    <div id="nurturing-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:16px;">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
         </div>
+
+<script>
+// ─── P7-05: Fleet/Quantum Comparison Panel Logic ──────────────────
+async function loadFleetQuantumComparison() {
+    try {
+        // Load process type
+        const ptResp = await apiFetch('/api/v3/process-type');
+        const ptData = await ptResp.json();
+        const isFleet = ptData.is_fleet;
+        const isQuantum = ptData.is_quantum;
+
+        document.getElementById('fleet-active-badge').textContent = isFleet ? 'Active' : 'Standby';
+        document.getElementById('fleet-active-badge').className = isFleet ? 'badge badge-blue' : 'badge';
+        document.getElementById('quantum-active-badge').textContent = isQuantum ? 'Active' : 'Standby';
+        document.getElementById('quantum-active-badge').style.background = isQuantum ? 'rgba(168,85,247,0.3)' : 'rgba(168,85,247,0.1)';
+
+        // Load quantum stats
+        const qResp = await apiFetch('/api/v3/quantum/stats');
+        const qData = await qResp.json();
+        document.getElementById('qc-emax').textContent = qData.e_max_patterns || 0;
+        document.getElementById('qc-cmax').textContent = qData.c_max_patterns || 0;
+        document.getElementById('qc-insights').textContent = qData.failure_insights || 0;
+        document.getElementById('qc-cycles').textContent = qData.total_cycles || 0;
+
+        const entropyPct = Math.min(100, Math.max(5, (qData.total_cycles || 0) * 10));
+        document.getElementById('qc-entropy-pct').textContent = entropyPct + '%';
+        document.getElementById('qc-entropy-bar').style.width = entropyPct + '%';
+
+        // Load mission stats for Fleet
+        const mResp = await apiFetch('/api/missions');
+        const mData = await mResp.json();
+        const missions = mData.missions || [];
+        const completed = missions.filter(m => m.status === 'Success' || m.progress >= 100);
+        const totalQuality = completed.reduce((s, m) => s + (m.quality || 0.7), 0);
+        const avgQuality = completed.length > 0 ? (totalQuality / completed.length) : 0;
+        const totalTasks = missions.reduce((s, m) => s + (m.tasks_count || m.tasks?.length || 0), 0);
+        const avgTasks = missions.length > 0 ? (totalTasks / missions.length).toFixed(1) : '0';
+
+        document.getElementById('fc-missions').textContent = completed.length;
+        document.getElementById('fc-quality').textContent = (avgQuality * 100).toFixed(0) + '%';
+        document.getElementById('fc-experts').textContent = Math.min(6, missions.length + 1);
+        document.getElementById('fc-tasks').textContent = avgTasks;
+
+        const throughputPct = Math.min(100, Math.max(10, completed.length * 15));
+        document.getElementById('fc-throughput-pct').textContent = throughputPct + '%';
+        document.getElementById('fc-throughput-bar').style.width = throughputPct + '%';
+
+        // Populate comparison table
+        const tbody = document.getElementById('comparison-tbody');
+        if (missions.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:24px; color:var(--text-muted);"><i class="fa-solid fa-inbox" style="margin-right:8px;"></i>No missions yet. Start one from AI Chat!</td></tr>';
+        } else {
+            tbody.innerHTML = missions.slice(0, 20).map(m => {
+                const processType = m.process_type || 'Fleet';
+                const isQ = processType.toLowerCase().includes('quantum');
+                const statusColors = { 'Success': 'var(--accent-green)', 'Active': 'var(--primary-400)', 'Planning': 'var(--accent-amber)', 'Failed': 'var(--accent-red)' };
+                const statusColor = statusColors[m.status] || 'var(--text-muted)';
+                const quality = ((m.quality || 0.7) * 100).toFixed(0);
+                return `<tr style="border-bottom:1px solid var(--surface-700); transition:background 0.2s;" onmouseover="this.style.background='rgba(99,102,241,0.05)'" onmouseout="this.style.background='transparent'">
+                    <td style="padding:10px 12px; font-weight:500;">${m.name || m.id?.substring(0, 12) || '—'}</td>
+                    <td style="text-align:center; padding:10px 12px;">
+                        <span style="display:inline-flex; align-items:center; gap:5px; padding:2px 8px; border-radius:10px; font-size:10px; font-weight:600; background:${isQ ? 'rgba(168,85,247,0.15)' : 'rgba(99,102,241,0.15)'}; color:${isQ ? 'var(--accent-purple)' : 'var(--primary-400)'};">
+                            <i class="fa-solid ${isQ ? 'fa-atom' : 'fa-users-gear'}" style="font-size:9px;"></i>${processType}
+                        </span>
+                    </td>
+                    <td style="text-align:center; padding:10px 12px; font-weight:700; color:${quality >= 80 ? 'var(--accent-green)' : quality >= 50 ? 'var(--accent-amber)' : 'var(--accent-red)'};">${quality}%</td>
+                    <td style="text-align:center; padding:10px 12px;">${m.tasks_count || m.tasks?.length || 0}</td>
+                    <td style="text-align:center; padding:10px 12px;"><span style="color:${statusColor}; font-weight:600;">${m.status || '—'}</span></td>
+                    <td style="text-align:center; padding:10px 12px;">
+                        <div style="display:flex; align-items:center; gap:6px; justify-content:center;">
+                            <div style="flex:1; max-width:80px; height:4px; background:var(--surface-700); border-radius:2px;">
+                                <div style="width:${m.progress || 0}%; height:100%; background:${statusColor}; border-radius:2px; transition:width 0.4s;"></div>
+                            </div>
+                            <span style="font-size:10px; color:var(--text-muted);">${m.progress || 0}%</span>
+                        </div>
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+    } catch(e) {
+        console.error('[P7-05] Comparison load error:', e);
+    }
+}
+
+function filterComparisonTable() {
+    const filter = document.getElementById('comparison-filter')?.value || 'all';
+    const rows = document.querySelectorAll('#comparison-tbody tr');
+    rows.forEach(row => {
+        if (filter === 'all') { row.style.display = ''; return; }
+        const processCell = row.querySelector('td:nth-child(2)')?.textContent?.toLowerCase() || '';
+        if (filter === 'fleet') row.style.display = processCell.includes('fleet') ? '' : 'none';
+        else if (filter === 'quantum') row.style.display = processCell.includes('quantum') ? '' : 'none';
+        else if (filter === 'completed') {
+            const statusCell = row.querySelector('td:nth-child(5)')?.textContent?.trim() || '';
+            row.style.display = statusCell === 'Success' ? '' : 'none';
+        }
+    });
+}
+
+// ─── P1-10: Agent Nurturing Dashboard ─────────────────────────────
+async function loadNurturingData() {
+    try {
+        const resp = await apiFetch('/api/v3/persona');
+        const data = await resp.json();
+        const grid = document.getElementById('nurturing-grid');
+
+        // Persona traits card
+        const traits = data.traits || {};
+        const specs = data.specializations || [];
+
+        let html = `
+            <div class="card" style="padding:16px; background:rgba(30,30,46,0.5); border-color:var(--primary-500);">
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+                    <div style="width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg, var(--primary-400), var(--accent-purple)); display:flex; align-items:center; justify-content:center; font-size:16px;">🧠</div>
+                    <div>
+                        <div style="font-size:13px; font-weight:700;">${data.name || 'Agent'}</div>
+                        <div style="font-size:10px; color:var(--text-muted);">${data.preset || 'Custom'}</div>
+                    </div>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:8px; font-size:11px;">
+                    ${['caution', 'creativity', 'autonomy', 'verbosity'].map(t => {
+                        const val = (traits[t] || 0.5) * 100;
+                        return `<div>
+                            <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                                <span style="color:var(--text-muted); text-transform:capitalize;">${t}</span>
+                                <span style="font-weight:600;">${val.toFixed(0)}%</span>
+                            </div>
+                            <div style="height:4px; background:var(--surface-700); border-radius:2px;">
+                                <div style="width:${val}%; height:100%; background:var(--primary-400); border-radius:2px; transition:width 0.5s;"></div>
+                            </div>
+                        </div>`;
+                    }).join('')}
+                </div>
+            </div>`;
+
+        // Specialization cards
+        specs.forEach(s => {
+            const conf = ((s.confidence || 0) * 100).toFixed(0);
+            const color = conf >= 70 ? 'var(--accent-green)' : conf >= 40 ? 'var(--accent-amber)' : 'var(--text-muted)';
+            html += `
+            <div class="card" style="padding:16px; background:rgba(30,30,46,0.5);">
+                <div style="font-size:12px; font-weight:600; margin-bottom:8px; text-transform:capitalize;">
+                    <i class="fa-solid fa-star" style="color:${color}; margin-right:6px; font-size:10px;"></i>${s.domain || 'General'}
+                </div>
+                <div style="display:flex; flex-direction:column; gap:6px; font-size:11px;">
+                    <div style="display:flex; justify-content:space-between;">
+                        <span style="color:var(--text-muted);">Confidence</span>
+                        <span style="font-weight:700; color:${color};">${conf}%</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between;">
+                        <span style="color:var(--text-muted);">Tasks Done</span>
+                        <span style="font-weight:600;">${s.completed_tasks || 0}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between;">
+                        <span style="color:var(--text-muted);">Lessons</span>
+                        <span style="font-weight:600;">${s.lessons_applied || 0}</span>
+                    </div>
+                    <div style="height:4px; background:var(--surface-700); border-radius:2px; margin-top:4px;">
+                        <div style="width:${conf}%; height:100%; background:${color}; border-radius:2px;"></div>
+                    </div>
+                </div>
+            </div>`;
+        });
+
+        // Communication style card
+        if (data.communication_style) {
+            const cs = data.communication_style;
+            html += `
+            <div class="card" style="padding:16px; background:rgba(30,30,46,0.5); border-color:var(--accent-cyan);">
+                <div style="font-size:12px; font-weight:600; margin-bottom:10px;">
+                    <i class="fa-solid fa-comment-dots" style="color:var(--accent-cyan); margin-right:6px;"></i>Communication Style
+                </div>
+                <div style="display:flex; flex-direction:column; gap:6px; font-size:11px;">
+                    <div style="display:flex; justify-content:space-between;">
+                        <span style="color:var(--text-muted);">Tone</span>
+                        <span style="font-weight:600;">${cs.tone || 'Professional'}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between;">
+                        <span style="color:var(--text-muted);">Emoji</span>
+                        <span style="font-weight:600;">${cs.use_emoji ? '✅ Enabled' : '❌ Disabled'}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between;">
+                        <span style="color:var(--text-muted);">Language</span>
+                        <span style="font-weight:600;">${cs.preferred_language || 'auto'}</span>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        grid.innerHTML = html;
+    } catch(e) {
+        console.error('[P1-10] Nurturing load error:', e);
+        document.getElementById('nurturing-grid').innerHTML = '<div style="padding:20px; text-align:center; color:var(--text-muted);">Unable to load agent data</div>';
+    }
+}
+
+// Auto-load when fleet view is shown
+if (typeof window._fleetComparisonLoaded === 'undefined') {
+    window._fleetComparisonLoaded = true;
+    setTimeout(() => {
+        loadFleetQuantumComparison();
+        loadNurturingData();
+    }, 500);
+}
+</script>

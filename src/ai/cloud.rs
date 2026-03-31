@@ -1,7 +1,10 @@
-use std::time::Duration;
-use serde::Deserialize;
+use super::{
+    parse_cloud_response, ureq_post_json_with_anthropic_auth, ureq_post_json_with_auth,
+    ureq_post_json_with_timeout, AiProvider, AiRequest, AiResponse, ChatRole,
+};
 use crate::error::AgentError;
-use super::{AiProvider, AiRequest, AiResponse, ChatRole, ureq_post_json_with_auth, ureq_post_json_with_anthropic_auth, ureq_post_json_with_timeout, parse_cloud_response};
+use serde::Deserialize;
+use std::time::Duration;
 
 // ─── OpenAI Provider ───────────────────────────────────────
 
@@ -48,8 +51,12 @@ impl OpenAiProvider {
 }
 
 impl AiProvider for OpenAiProvider {
-    fn name(&self) -> &str { "openai" }
-    fn is_available(&self) -> bool { !self.api_key.is_empty() }
+    fn name(&self) -> &str {
+        "openai"
+    }
+    fn is_available(&self) -> bool {
+        !self.api_key.is_empty()
+    }
     fn process(&self, request: &AiRequest) -> Result<AiResponse, AgentError> {
         let messages = self.build_messages(request);
         let body = serde_json::json!({
@@ -62,23 +69,36 @@ impl AiProvider for OpenAiProvider {
 
         let url = format!("{}/v1/chat/completions", self.endpoint);
         let resp = ureq_post_json_with_auth(&url, &body, &self.api_key, self.timeout)?;
-        
+
         #[derive(Deserialize)]
-        struct OpenAiResp { choices: Vec<OpenAiChoice> }
+        struct OpenAiResp {
+            choices: Vec<OpenAiChoice>,
+        }
         #[derive(Deserialize)]
-        struct OpenAiChoice { message: OpenAiMsg }
+        struct OpenAiChoice {
+            message: OpenAiMsg,
+        }
         #[derive(Deserialize)]
-        struct OpenAiMsg { content: String }
+        struct OpenAiMsg {
+            content: String,
+        }
 
         let parsed: OpenAiResp = serde_json::from_str(&resp)
             .map_err(|e| AgentError::SerializationError(format!("openai: {e}")))?;
-        
-        let content = parsed.choices.first().map(|c| c.message.content.clone()).unwrap_or_default();
+
+        let content = parsed
+            .choices
+            .first()
+            .map(|c| c.message.content.clone())
+            .unwrap_or_default();
         parse_cloud_response(&content, "openai")
     }
-    fn is_local(&self) -> bool { false }
+    fn is_local(&self) -> bool {
+        false
+    }
     fn set_model(&mut self, model: &str) -> Result<(), AgentError> {
-        self.model = model.to_string(); Ok(())
+        self.model = model.to_string();
+        Ok(())
     }
 }
 
@@ -103,8 +123,12 @@ impl ClaudeProvider {
 }
 
 impl AiProvider for ClaudeProvider {
-    fn name(&self) -> &str { "claude" }
-    fn is_available(&self) -> bool { !self.api_key.is_empty() }
+    fn name(&self) -> &str {
+        "claude"
+    }
+    fn is_available(&self) -> bool {
+        !self.api_key.is_empty()
+    }
     fn process(&self, request: &AiRequest) -> Result<AiResponse, AgentError> {
         let caps = request.available_capabilities.join(", ");
         let mut messages = Vec::new();
@@ -129,19 +153,30 @@ impl AiProvider for ClaudeProvider {
         let resp = ureq_post_json_with_anthropic_auth(&url, &body, &self.api_key, self.timeout)?;
 
         #[derive(Deserialize)]
-        struct ClaudeResp { content: Vec<ClaudeContent> }
+        struct ClaudeResp {
+            content: Vec<ClaudeContent>,
+        }
         #[derive(Deserialize)]
-        struct ClaudeContent { text: String }
+        struct ClaudeContent {
+            text: String,
+        }
 
         let parsed: ClaudeResp = serde_json::from_str(&resp)
             .map_err(|e| AgentError::SerializationError(format!("claude: {e}")))?;
-        
-        let content = parsed.content.first().map(|c| c.text.clone()).unwrap_or_default();
+
+        let content = parsed
+            .content
+            .first()
+            .map(|c| c.text.clone())
+            .unwrap_or_default();
         parse_cloud_response(&content, "claude")
     }
-    fn is_local(&self) -> bool { false }
+    fn is_local(&self) -> bool {
+        false
+    }
     fn set_model(&mut self, model: &str) -> Result<(), AgentError> {
-        self.model = model.to_string(); Ok(())
+        self.model = model.to_string();
+        Ok(())
     }
 }
 
@@ -166,8 +201,12 @@ impl GptOssProvider {
 }
 
 impl AiProvider for GptOssProvider {
-    fn name(&self) -> &str { "gpt-oss" }
-    fn is_available(&self) -> bool { !self.endpoint.is_empty() }
+    fn name(&self) -> &str {
+        "gpt-oss"
+    }
+    fn is_available(&self) -> bool {
+        !self.endpoint.is_empty()
+    }
     fn process(&self, request: &AiRequest) -> Result<AiResponse, AgentError> {
         let caps = request.available_capabilities.join(", ");
         let mut messages = vec![serde_json::json!({
@@ -185,7 +224,7 @@ impl AiProvider for GptOssProvider {
         messages.push(serde_json::json!({ "role": "user", "content": request.user_input }));
 
         let body = serde_json::json!({ "model": self.model, "messages": messages });
-        
+
         let resp = if !self.api_key.is_empty() {
             ureq_post_json_with_auth(&self.endpoint, &body, &self.api_key, self.timeout)?
         } else {
@@ -193,8 +232,11 @@ impl AiProvider for GptOssProvider {
         };
         parse_cloud_response(&resp, "gpt-oss")
     }
-    fn is_local(&self) -> bool { false }
+    fn is_local(&self) -> bool {
+        false
+    }
     fn set_model(&mut self, model: &str) -> Result<(), AgentError> {
-        self.model = model.to_string(); Ok(())
+        self.model = model.to_string();
+        Ok(())
     }
 }

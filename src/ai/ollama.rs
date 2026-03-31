@@ -1,7 +1,9 @@
+use super::{
+    ureq_get_with_timeout, AiProvider, AiRequest, AiResponse, MissionMetadata, ParsedIntent,
+};
+use crate::error::AgentError;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use crate::error::AgentError;
-use super::{AiProvider, AiRequest, AiResponse, ParsedIntent, MissionMetadata, ureq_get_with_timeout};
 
 /// Local AI provider using Ollama
 pub struct OllamaProvider {
@@ -52,15 +54,19 @@ impl OllamaProvider {
 
         let ai_content = match serde_json::from_str::<OllamaWrapper>(raw) {
             Ok(wrapper) => wrapper.response,
-            Err(_) => raw.to_string(), 
+            Err(_) => raw.to_string(),
         };
 
         // Step 2: Extract JSON from the content
         let json_str = if let Some(start) = ai_content.find('{') {
             if let Some(end) = ai_content.rfind('}') {
                 &ai_content[start..=end]
-            } else { &ai_content }
-        } else { &ai_content };
+            } else {
+                &ai_content
+            }
+        } else {
+            &ai_content
+        };
 
         #[derive(Deserialize)]
         struct RawResponse {
@@ -78,13 +84,18 @@ impl OllamaProvider {
                             if let Some(e) = msg.rfind('}') {
                                 if e > s {
                                     let inner_json = &msg[s..=e];
-                                    if let Ok(inner_intent) = serde_json::from_str::<ParsedIntent>(inner_json) {
+                                    if let Ok(inner_intent) =
+                                        serde_json::from_str::<ParsedIntent>(inner_json)
+                                    {
                                         parsed.intent = Some(inner_intent);
-                                    } else if let Ok(inner_mission) = serde_json::from_str::<MissionMetadata>(inner_json) {
-                                        let mut pi = ParsedIntent::default();
-                                        pi.capability = "create_mission".to_string();
-                                        pi.mission = Some(inner_mission);
-                                        parsed.intent = Some(pi);
+                                    } else if let Ok(inner_mission) =
+                                        serde_json::from_str::<MissionMetadata>(inner_json)
+                                    {
+                                        parsed.intent = Some(ParsedIntent {
+                                            capability: "create_mission".to_string(),
+                                            mission: Some(inner_mission),
+                                            ..Default::default()
+                                        });
                                     }
                                 }
                             }
@@ -100,23 +111,23 @@ impl OllamaProvider {
                     is_local: true,
                     sub_responses: Vec::new(),
                 })
-            },
-            Err(_) => {
-                Ok(AiResponse {
-                    message: ai_content.to_string(),
-                    intent: None,
-                    confidence: 0.3,
-                    provider: "ollama".to_string(),
-                    is_local: true,
-                    sub_responses: Vec::new(),
-                })
             }
+            Err(_) => Ok(AiResponse {
+                message: ai_content.to_string(),
+                intent: None,
+                confidence: 0.3,
+                provider: "ollama".to_string(),
+                is_local: true,
+                sub_responses: Vec::new(),
+            }),
         }
     }
 }
 
 impl AiProvider for OllamaProvider {
-    fn name(&self) -> &str { "ollama" }
+    fn name(&self) -> &str {
+        "ollama"
+    }
     fn is_available(&self) -> bool {
         let url = format!("{}/api/tags", self.endpoint);
         ureq_get_with_timeout(&url, Duration::from_millis(500)).is_ok()
@@ -137,16 +148,18 @@ impl AiProvider for OllamaProvider {
         self.parse_response(&resp_str)
     }
 
-    fn is_local(&self) -> bool { true }
+    fn is_local(&self) -> bool {
+        true
+    }
     fn set_model(&mut self, model: &str) -> Result<(), AgentError> {
         self.model = model.to_string();
         Ok(())
     }
-    
+
     fn list_models(&self) -> Vec<String> {
         match self.list_models() {
             Ok(models) => models.into_iter().map(|m| m.name).collect(),
-            Err(_) => Vec::new()
+            Err(_) => Vec::new(),
         }
     }
 }

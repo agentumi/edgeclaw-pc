@@ -12,9 +12,9 @@
 //! ## 공식
 //! |Ψ(t+1)⟩ = N[U(t)|Ψ(t)⟩ + λ·e^(γΔE)(P_fail|Ψ(t)⟩)]
 
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
 use crate::ai::MissionMetadata;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 // ─── Virtual Qubit ─────────────────────────────────────────────────────────────
 
@@ -94,7 +94,11 @@ impl VirtualQubit {
     /// 큐비트 측정 (붕괴) — 0 또는 1 반환
     /// 실제로는 확률적이지만, 여기서는 결정론적으로 최대 진폭 선택
     pub fn measure(&self) -> u8 {
-        if self.success_probability() > 0.5 { 1 } else { 0 }
+        if self.success_probability() > 0.5 {
+            1
+        } else {
+            0
+        }
     }
 }
 
@@ -166,9 +170,12 @@ impl QuantumMissionState {
         }
 
         // 평균 진폭 계산
-        let avg_success: f64 = self.qubits.iter()
+        let avg_success: f64 = self
+            .qubits
+            .iter()
             .map(|q| q.success_probability())
-            .sum::<f64>() / qubit_len.max(1) as f64;
+            .sum::<f64>()
+            / qubit_len.max(1) as f64;
 
         // 승자 증폭, 나머지 감쇠
         for (idx, qubit) in self.qubits.iter_mut().enumerate() {
@@ -189,8 +196,7 @@ impl QuantumMissionState {
         }
 
         // λ·e^(γΔE) 계산
-        let butterfly_factor = self.butterfly_lambda
-            * (self.butterfly_gamma * delta_e).exp();
+        let butterfly_factor = self.butterfly_lambda * (self.butterfly_gamma * delta_e).exp();
 
         // 실패 에이전트의 정보를 다른 얽힌 큐비트에 피드포워드
         let entanglements = self.entanglements.clone();
@@ -210,17 +216,19 @@ impl QuantumMissionState {
 
     /// 모든 큐비트 측정 — 최선의 에이전트/전략 선택
     pub fn measure_all(&self) -> Vec<(String, f64)> {
-        self.qubits.iter()
+        self.qubits
+            .iter()
             .map(|q| (q.label.clone(), q.success_probability()))
             .collect()
     }
 
     /// 가장 높은 성공 확률의 에이전트 선택
     pub fn select_best_agent(&self) -> Option<&VirtualQubit> {
-        self.qubits.iter()
-            .max_by(|a, b| a.success_probability()
+        self.qubits.iter().max_by(|a, b| {
+            a.success_probability()
                 .partial_cmp(&b.success_probability())
-                .unwrap_or(std::cmp::Ordering::Equal))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     }
 
     /// 현재 상태의 전체 시스템 엔트로피 (불확실성 지표)
@@ -229,13 +237,21 @@ impl QuantumMissionState {
             return 0.0;
         }
         let n = self.qubits.len() as f64;
-        -self.qubits.iter().map(|q| {
-            let p = q.success_probability();
-            let q_val = q.failure_probability();
-            let h_p = if p > f64::EPSILON { -p * p.ln() } else { 0.0 };
-            let h_q = if q_val > f64::EPSILON { -q_val * q_val.ln() } else { 0.0 };
-            (h_p + h_q) / n
-        }).sum::<f64>()
+        -self
+            .qubits
+            .iter()
+            .map(|q| {
+                let p = q.success_probability();
+                let q_val = q.failure_probability();
+                let h_p = if p > f64::EPSILON { -p * p.ln() } else { 0.0 };
+                let h_q = if q_val > f64::EPSILON {
+                    -q_val * q_val.ln()
+                } else {
+                    0.0
+                };
+                (h_p + h_q) / n
+            })
+            .sum::<f64>()
     }
 }
 
@@ -283,6 +299,34 @@ pub enum PatternType {
     CMax,
 }
 
+/// Failure category for P3-07 LLM-enhanced analysis
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum FailureCategory {
+    /// Infrastructure errors (timeout, connection, resource exhaustion)
+    Infrastructure,
+    /// Logic errors (assertion, validation, data integrity)
+    Logic,
+    /// External dependency failures (API, service, network)
+    ExternalDependency,
+    /// Human/configuration errors
+    Configuration,
+    /// Performance degradation (slow, memory, CPU)
+    Performance,
+    /// Security-related failures
+    Security,
+    /// Unknown / uncategorized
+    Unknown,
+}
+
+/// P3-07: Pivot strategy suggested by the analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PivotStrategy {
+    pub strategy_type: String,
+    pub description: String,
+    pub estimated_success_rate: f64,
+    pub required_changes: Vec<String>,
+}
+
 /// 실패에서 추출한 혁신 인사이트
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FailureInsight {
@@ -292,7 +336,16 @@ pub struct FailureInsight {
     pub potential_business_value: String,
     pub diffusion_count: u32,
     pub created_at: String,
-    pub viral_score: f64, // 다른 에이전트들에게 얼마나 유용한지
+    pub viral_score: f64,
+    /// P3-07: Failure category (auto-classified)
+    #[serde(default)]
+    pub category: Option<FailureCategory>,
+    /// P3-07: Suggested pivot strategies
+    #[serde(default)]
+    pub pivot_strategies: Vec<PivotStrategy>,
+    /// P3-07: Whether this insight was LLM-enhanced
+    #[serde(default)]
+    pub llm_enhanced: bool,
 }
 
 impl QuantumMemoryHub {
@@ -313,21 +366,185 @@ impl QuantumMemoryHub {
         self.active_missions.get_mut(mission_id).unwrap()
     }
 
-    /// 실패를 혁신 인사이트로 자산화 (Failure-to-Pivot)
+    /// P3-07: Classify failure into a category based on keywords
+    fn classify_failure(failure_desc: &str) -> FailureCategory {
+        let desc = failure_desc.to_lowercase();
+        if desc.contains("timeout") || desc.contains("connection") || desc.contains("memory")
+            || desc.contains("disk") || desc.contains("resource") || desc.contains("oom")
+        {
+            FailureCategory::Infrastructure
+        } else if desc.contains("api") || desc.contains("service") || desc.contains("external")
+            || desc.contains("network") || desc.contains("http") || desc.contains("dns")
+        {
+            FailureCategory::ExternalDependency
+        } else if desc.contains("assert") || desc.contains("validation") || desc.contains("parse")
+            || desc.contains("invalid") || desc.contains("mismatch") || desc.contains("null")
+        {
+            FailureCategory::Logic
+        } else if desc.contains("config") || desc.contains("permission") || desc.contains("path")
+            || desc.contains("env") || desc.contains("missing")
+        {
+            FailureCategory::Configuration
+        } else if desc.contains("slow") || desc.contains("latency") || desc.contains("cpu")
+            || desc.contains("perf") || desc.contains("bottleneck")
+        {
+            FailureCategory::Performance
+        } else if desc.contains("auth") || desc.contains("token") || desc.contains("cert")
+            || desc.contains("encrypt") || desc.contains("forbidden")
+        {
+            FailureCategory::Security
+        } else {
+            FailureCategory::Unknown
+        }
+    }
+
+    /// P3-07: Generate pivot strategies based on failure category
+    fn generate_pivot_strategies(category: &FailureCategory, failure_desc: &str) -> Vec<PivotStrategy> {
+        match category {
+            FailureCategory::Infrastructure => vec![
+                PivotStrategy {
+                    strategy_type: "retry_with_backoff".to_string(),
+                    description: "Implement exponential backoff retry with jitter".to_string(),
+                    estimated_success_rate: 0.75,
+                    required_changes: vec!["Add retry logic".to_string(), "Configure backoff params".to_string()],
+                },
+                PivotStrategy {
+                    strategy_type: "fallback_resource".to_string(),
+                    description: "Switch to fallback infrastructure or reduce resource usage".to_string(),
+                    estimated_success_rate: 0.65,
+                    required_changes: vec!["Configure fallback endpoints".to_string()],
+                },
+            ],
+            FailureCategory::ExternalDependency => vec![
+                PivotStrategy {
+                    strategy_type: "circuit_breaker".to_string(),
+                    description: "Apply circuit breaker pattern to isolate failing dependency".to_string(),
+                    estimated_success_rate: 0.70,
+                    required_changes: vec!["Add circuit breaker".to_string(), "Define fallback response".to_string()],
+                },
+                PivotStrategy {
+                    strategy_type: "cache_last_good".to_string(),
+                    description: "Use cached last-known-good response while dependency recovers".to_string(),
+                    estimated_success_rate: 0.60,
+                    required_changes: vec!["Implement response cache".to_string()],
+                },
+            ],
+            FailureCategory::Logic => vec![
+                PivotStrategy {
+                    strategy_type: "input_sanitization".to_string(),
+                    description: "Add stricter input validation and edge case handling".to_string(),
+                    estimated_success_rate: 0.85,
+                    required_changes: vec!["Add validation layer".to_string(), "Write edge case tests".to_string()],
+                },
+            ],
+            FailureCategory::Configuration => vec![
+                PivotStrategy {
+                    strategy_type: "auto_detect_config".to_string(),
+                    description: "Auto-detect and apply sensible defaults for missing config".to_string(),
+                    estimated_success_rate: 0.80,
+                    required_changes: vec!["Add default config fallback".to_string()],
+                },
+            ],
+            FailureCategory::Performance => vec![
+                PivotStrategy {
+                    strategy_type: "optimize_critical_path".to_string(),
+                    description: format!("Profile and optimize the bottleneck: {}", &failure_desc[..failure_desc.len().min(50)]),
+                    estimated_success_rate: 0.70,
+                    required_changes: vec!["Profile code".to_string(), "Optimize hot path".to_string()],
+                },
+            ],
+            FailureCategory::Security => vec![
+                PivotStrategy {
+                    strategy_type: "credential_refresh".to_string(),
+                    description: "Refresh credentials/tokens and retry with valid auth".to_string(),
+                    estimated_success_rate: 0.80,
+                    required_changes: vec!["Implement token refresh".to_string()],
+                },
+            ],
+            FailureCategory::Unknown => vec![
+                PivotStrategy {
+                    strategy_type: "diagnostic_deep_dive".to_string(),
+                    description: "Collect detailed diagnostics and escalate for manual analysis".to_string(),
+                    estimated_success_rate: 0.50,
+                    required_changes: vec!["Add diagnostic logging".to_string(), "Alert on-call team".to_string()],
+                },
+            ],
+        }
+    }
+
+    /// P3-07: Compute dynamic viral score based on failure category and context
+    fn compute_viral_score(category: &FailureCategory, failure_desc: &str) -> f64 {
+        let base = match category {
+            FailureCategory::Security => 0.9,      // Security issues spread fast
+            FailureCategory::Infrastructure => 0.7,
+            FailureCategory::ExternalDependency => 0.65,
+            FailureCategory::Performance => 0.6,
+            FailureCategory::Logic => 0.5,
+            FailureCategory::Configuration => 0.4,
+            FailureCategory::Unknown => 0.3,
+        };
+        // Boost score for longer, more descriptive failures (more context = more useful)
+        let detail_boost = (failure_desc.len() as f64 / 200.0).min(0.1);
+        (base + detail_boost).min(1.0)
+    }
+
+    /// 실패를 혁신 인사이트로 자산화 (Failure-to-Pivot) — 기본 버전
     pub fn pivot_from_failure(&mut self, failure_desc: &str, context: &str) -> FailureInsight {
+        self.pivot_with_llm_analysis(failure_desc, context, None)
+    }
+
+    /// P3-07: Enhanced Failure-to-Pivot with LLM-style structured analysis
+    ///
+    /// Classifies the failure, generates pivot strategies, computes viral score,
+    /// and optionally incorporates LLM-generated insight text.
+    pub fn pivot_with_llm_analysis(
+        &mut self,
+        failure_desc: &str,
+        context: &str,
+        llm_insight: Option<&str>,
+    ) -> FailureInsight {
+        let category = Self::classify_failure(failure_desc);
+        let strategies = Self::generate_pivot_strategies(&category, failure_desc);
+        let viral_score = Self::compute_viral_score(&category, failure_desc);
+
+        let extracted = if let Some(llm_text) = llm_insight {
+            llm_text.to_string()
+        } else {
+            // Structured analysis without external LLM
+            let strategy_summary: Vec<String> = strategies
+                .iter()
+                .map(|s| format!("• {} (예상 성공률: {:.0}%)", s.description, s.estimated_success_rate * 100.0))
+                .collect();
+            format!(
+                "[{:?}] '{}' 실패 분석:\n컨텍스트: {}\n\n권장 피봇 전략:\n{}",
+                category,
+                failure_desc,
+                context,
+                strategy_summary.join("\n")
+            )
+        };
+
+        let business_value = match category {
+            FailureCategory::Infrastructure => "인프라 회복력 강화 → 가동 시간 개선 → 비용 절감".to_string(),
+            FailureCategory::ExternalDependency => "의존성 격리 → 장애 전파 차단 → 서비스 안정성 향상".to_string(),
+            FailureCategory::Logic => "데이터 정합성 보장 → 버그 사전 방지 → 품질 향상".to_string(),
+            FailureCategory::Performance => "성능 최적화 → UX 개선 → 사용자 이탈 방지".to_string(),
+            FailureCategory::Security => "보안 강화 → 컴플라이언스 준수 → 리스크 감소".to_string(),
+            FailureCategory::Configuration => "설정 자동화 → 배포 실패 방지 → 운영 효율화".to_string(),
+            FailureCategory::Unknown => "진단 프로세스 개선 → 미래 장애 대응 시간 단축".to_string(),
+        };
+
         let insight = FailureInsight {
             id: format!("insight-{}", self.failure_insights.len() + 1),
             original_failure: failure_desc.to_string(),
-            extracted_insight: format!(
-                "실패 분석: '{}' 상황에서 발생한 실패는 다음 기회를 시사합니다 — {}",
-                context, failure_desc
-            ),
-            potential_business_value: format!(
-                "이 실패 패턴은 유사 상황에서 선제적 방지 또는 대안 접근법으로 활용 가능"
-            ),
+            extracted_insight: extracted,
+            potential_business_value: business_value,
             diffusion_count: 0,
             created_at: chrono::Utc::now().to_rfc3339(),
-            viral_score: 0.5,
+            viral_score,
+            category: Some(category),
+            pivot_strategies: strategies,
+            llm_enhanced: llm_insight.is_some(),
         };
 
         self.failure_insights.push(insight.clone());
@@ -343,7 +560,10 @@ impl QuantumMemoryHub {
         pattern_type: PatternType,
     ) -> String {
         let pattern = QuantumPattern {
-            id: format!("ptn-{}", self.e_max_patterns.len() + self.c_max_patterns.len() + 1),
+            id: format!(
+                "ptn-{}",
+                self.e_max_patterns.len() + self.c_max_patterns.len() + 1
+            ),
             name: name.to_string(),
             domain: domain.to_string(),
             description: String::new(),
@@ -364,22 +584,29 @@ impl QuantumMemoryHub {
     }
 
     /// Grover Search — O(√N) 복잡도로 최적 패턴 검색
-    pub fn search_best_pattern(&self, domain: &str, prefer_creative: bool) -> Option<&QuantumPattern> {
+    pub fn search_best_pattern(
+        &self,
+        domain: &str,
+        prefer_creative: bool,
+    ) -> Option<&QuantumPattern> {
         let pool: Vec<&QuantumPattern> = if prefer_creative {
-            self.c_max_patterns.iter()
+            self.c_max_patterns
+                .iter()
                 .filter(|p| p.domain == domain || domain == "general")
                 .collect()
         } else {
-            self.e_max_patterns.iter()
+            self.e_max_patterns
+                .iter()
                 .filter(|p| p.domain == domain || domain == "general")
                 .collect()
         };
 
         // 가장 높은 성공률 패턴 선택 (실제 Grover는 √N 스텝이지만 여기선 선형)
-        pool.into_iter()
-            .max_by(|a, b| a.avg_success_rate
+        pool.into_iter().max_by(|a, b| {
+            a.avg_success_rate
                 .partial_cmp(&b.avg_success_rate)
-                .unwrap_or(std::cmp::Ordering::Equal))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     }
 
     /// 전체 허브 통계
@@ -435,7 +662,9 @@ impl QuantumOrchestrator {
 
         // 각 에이전트를 큐비트로 추가
         for (idx, agent_id) in agent_ids.iter().enumerate() {
-            let approach = mission.tasks.get(idx)
+            let approach = mission
+                .tasks
+                .get(idx)
                 .map(|t| t.desc.as_str())
                 .unwrap_or("general_approach");
             state.add_agent_qubit(agent_id, approach);
@@ -462,9 +691,13 @@ impl QuantumOrchestrator {
         // 해당 미션의 양자 상태에 나비효과 적용
         if let Some(state) = self.hub.active_missions.get_mut(mission_id) {
             // 실패한 큐비트 찾기
-            let failed_idx = state.qubits.iter()
+            let failed_idx = state
+                .qubits
+                .iter()
                 .enumerate()
-                .find(|(_, q)| q.approach.contains(failed_task_desc) || q.failure_probability() > 0.7)
+                .find(|(_, q)| {
+                    q.approach.contains(failed_task_desc) || q.failure_probability() > 0.7
+                })
                 .map(|(idx, _)| idx);
 
             if let Some(idx) = failed_idx {
@@ -477,7 +710,9 @@ impl QuantumOrchestrator {
 
     /// 양자 확률을 기반으로 다음 최선 에이전트/전략 선택
     pub fn select_next_strategy(&self, mission_id: &str) -> Option<String> {
-        self.hub.active_missions.get(mission_id)
+        self.hub
+            .active_missions
+            .get(mission_id)
             .and_then(|state| state.select_best_agent())
             .map(|q| q.label.clone())
     }
@@ -486,6 +721,115 @@ impl QuantumOrchestrator {
 impl Default for QuantumOrchestrator {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ─── P4-03: Sparse Matrix State Space ─────────────────────────────────────────
+
+/// Sparse operator matrix for memory-efficient quantum gate representation.
+///
+/// Instead of storing a full N×N dense matrix (O(N²) memory), only non-zero
+/// entries are stored via a HashMap keyed by (row, col). This is critical for
+/// large qubit registers where most entries are zero.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SparseStateMatrix {
+    /// Non-zero entries: (row, col) → value
+    entries: HashMap<(usize, usize), f64>,
+    /// Matrix dimension (N×N)
+    pub dimension: usize,
+}
+
+impl SparseStateMatrix {
+    /// Create an empty sparse matrix of given dimension
+    pub fn new(dimension: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            dimension,
+        }
+    }
+
+    /// Create a sparse identity matrix
+    pub fn identity(dimension: usize) -> Self {
+        let mut m = Self::new(dimension);
+        for i in 0..dimension {
+            m.set(i, i, 1.0);
+        }
+        m
+    }
+
+    /// Create a Hadamard gate matrix for a single qubit (2×2)
+    pub fn hadamard() -> Self {
+        let mut m = Self::new(2);
+        let h = 1.0 / 2.0_f64.sqrt();
+        m.set(0, 0, h);
+        m.set(0, 1, h);
+        m.set(1, 0, h);
+        m.set(1, 1, -h);
+        m
+    }
+
+    /// Create a Pauli-X (NOT) gate matrix (2×2)
+    pub fn pauli_x() -> Self {
+        let mut m = Self::new(2);
+        m.set(0, 1, 1.0);
+        m.set(1, 0, 1.0);
+        m
+    }
+
+    /// Set a value at (row, col). Removes entry if value is near zero.
+    pub fn set(&mut self, row: usize, col: usize, value: f64) {
+        if value.abs() < f64::EPSILON {
+            self.entries.remove(&(row, col));
+        } else {
+            self.entries.insert((row, col), value);
+        }
+    }
+
+    /// Get a value at (row, col). Returns 0.0 for unset entries.
+    pub fn get(&self, row: usize, col: usize) -> f64 {
+        self.entries.get(&(row, col)).copied().unwrap_or(0.0)
+    }
+
+    /// Number of non-zero entries (sparsity metric)
+    pub fn nnz(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Sparsity ratio: 1.0 = completely sparse (all zeros), 0.0 = fully dense
+    pub fn sparsity(&self) -> f64 {
+        if self.dimension == 0 {
+            return 1.0;
+        }
+        let total = (self.dimension * self.dimension) as f64;
+        1.0 - (self.nnz() as f64 / total)
+    }
+
+    /// Multiply this sparse matrix by a state vector (in-place efficient)
+    pub fn apply_to_state(&self, state: &[f64]) -> Vec<f64> {
+        let mut result = vec![0.0; self.dimension];
+        for (&(row, col), &value) in &self.entries {
+            if col < state.len() && row < result.len() {
+                result[row] += value * state[col];
+            }
+        }
+        result
+    }
+
+    /// Sparse matrix multiplication: self × other
+    pub fn multiply(&self, other: &SparseStateMatrix) -> SparseStateMatrix {
+        assert_eq!(self.dimension, other.dimension, "Dimension mismatch");
+        let mut result = SparseStateMatrix::new(self.dimension);
+
+        for (&(i, k), &val_a) in &self.entries {
+            for (&(k2, j), &val_b) in &other.entries {
+                if k == k2 {
+                    let current = result.get(i, j);
+                    result.set(i, j, current + val_a * val_b);
+                }
+            }
+        }
+
+        result
     }
 }
 
@@ -500,12 +844,21 @@ mod tests {
         let q = VirtualQubit::new("agent-1", "approach-a");
         // 중첩 상태에서 |α|² + |β|² = 1
         let prob_sum = q.success_probability() + q.failure_probability();
-        assert!((prob_sum - 1.0).abs() < 1e-10, "Normalization failed: {}", prob_sum);
+        assert!(
+            (prob_sum - 1.0).abs() < 1e-10,
+            "Normalization failed: {}",
+            prob_sum
+        );
     }
 
     #[test]
     fn test_hadamard_creates_superposition() {
-        let mut q = VirtualQubit { alpha: 1.0, beta: 0.0, label: "test".to_string(), approach: "a".to_string() };
+        let mut q = VirtualQubit {
+            alpha: 1.0,
+            beta: 0.0,
+            label: "test".to_string(),
+            approach: "a".to_string(),
+        };
         q.apply_hadamard();
         // H|0⟩ = (|0⟩+|1⟩)/√2 → 50/50 확률
         let p0 = q.failure_probability();
@@ -516,7 +869,12 @@ mod tests {
 
     #[test]
     fn test_pauli_x_flips_state() {
-        let mut q = VirtualQubit { alpha: 1.0, beta: 0.0, label: "test".to_string(), approach: "b".to_string() };
+        let mut q = VirtualQubit {
+            alpha: 1.0,
+            beta: 0.0,
+            label: "test".to_string(),
+            approach: "b".to_string(),
+        };
         q.apply_pauli_x();
         assert!((q.success_probability() - 1.0).abs() < 1e-10);
         assert!((q.failure_probability() - 0.0).abs() < 1e-10);
@@ -534,7 +892,12 @@ mod tests {
         let loser_prob = state.qubits[1].success_probability();
 
         // 승자의 확률이 패자보다 높아야 함
-        assert!(winner_prob >= loser_prob, "winner: {}, loser: {}", winner_prob, loser_prob);
+        assert!(
+            winner_prob >= loser_prob,
+            "winner: {}, loser: {}",
+            winner_prob,
+            loser_prob
+        );
     }
 
     #[test]
@@ -552,10 +915,7 @@ mod tests {
     #[test]
     fn test_quantum_hub_failure_pivot() {
         let mut hub = QuantumMemoryHub::new();
-        let insight = hub.pivot_from_failure(
-            "API 연결 실패로 데이터 수집 중단",
-            "mission-001"
-        );
+        let insight = hub.pivot_from_failure("API 연결 실패로 데이터 수집 중단", "mission-001");
         assert!(!insight.id.is_empty());
         assert!(!insight.extracted_insight.is_empty());
         assert_eq!(hub.failure_insights.len(), 1);
@@ -568,7 +928,7 @@ mod tests {
             "주간 보고서 자동화 정석",
             "business",
             0.92,
-            PatternType::EMax
+            PatternType::EMax,
         );
         assert!(!id.is_empty());
         assert_eq!(hub.e_max_patterns.len(), 1);
@@ -594,7 +954,11 @@ mod tests {
 
         let entropy = state.system_entropy();
         // 동등 중첩 상태에서 엔트로피는 최대 (0보다 커야 함)
-        assert!(entropy >= 0.0, "Entropy should be non-negative: {}", entropy);
+        assert!(
+            entropy >= 0.0,
+            "Entropy should be non-negative: {}",
+            entropy
+        );
     }
 
     #[test]
@@ -603,9 +967,12 @@ mod tests {
         let mission = crate::ai::MissionMetadata {
             id: "test-mission".to_string(),
             name: "Test".to_string(),
-            tasks: vec![
-                crate::ai::TaskUnit { desc: "Task 1".to_string(), capability: "SYSTEM_INFO".to_string(), args: vec![], order: 1 },
-            ],
+            tasks: vec![crate::ai::TaskUnit {
+                desc: "Task 1".to_string(),
+                capability: "SYSTEM_INFO".to_string(),
+                args: vec![],
+                order: 1,
+            }],
             ..Default::default()
         };
         let agents = vec!["agent-a".to_string(), "agent-b".to_string()];
@@ -634,11 +1001,78 @@ mod tests {
     fn test_select_best_agent() {
         let mut state = QuantumMissionState::new("best-test");
         // 에이전트 A: 성공 확률 낮음
-        state.qubits.push(VirtualQubit { alpha: 0.9, beta: 0.1, label: "low-agent".to_string(), approach: "a".to_string() });
-        // 에이전트 B: 성공 확률 높음  
-        state.qubits.push(VirtualQubit { alpha: 0.1, beta: 0.9, label: "high-agent".to_string(), approach: "b".to_string() });
+        state.qubits.push(VirtualQubit {
+            alpha: 0.9,
+            beta: 0.1,
+            label: "low-agent".to_string(),
+            approach: "a".to_string(),
+        });
+        // 에이전트 B: 성공 확률 높음
+        state.qubits.push(VirtualQubit {
+            alpha: 0.1,
+            beta: 0.9,
+            label: "high-agent".to_string(),
+            approach: "b".to_string(),
+        });
 
         let best = state.select_best_agent().unwrap();
         assert_eq!(best.label, "high-agent");
+    }
+
+    // ─── P4-03: Sparse Matrix Tests ────────────────────────────
+
+    #[test]
+    fn test_sparse_identity() {
+        let identity = SparseStateMatrix::identity(4);
+        assert_eq!(identity.nnz(), 4);
+        assert_eq!(identity.get(0, 0), 1.0);
+        assert_eq!(identity.get(1, 1), 1.0);
+        assert_eq!(identity.get(0, 1), 0.0);
+    }
+
+    #[test]
+    fn test_sparse_hadamard_preserves_norm() {
+        let h = SparseStateMatrix::hadamard();
+        // Apply H to |0⟩ = [1, 0]
+        let state_zero = vec![1.0, 0.0];
+        let result = h.apply_to_state(&state_zero);
+
+        // Should get [1/√2, 1/√2]
+        let h_val = 1.0 / 2.0_f64.sqrt();
+        assert!((result[0] - h_val).abs() < 1e-10);
+        assert!((result[1] - h_val).abs() < 1e-10);
+
+        // Norm should be preserved
+        let norm: f64 = result.iter().map(|x| x * x).sum::<f64>().sqrt();
+        assert!((norm - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_sparse_pauli_x_flips() {
+        let x = SparseStateMatrix::pauli_x();
+        // Apply X to |0⟩ = [1, 0]  → |1⟩ = [0, 1]
+        let result = x.apply_to_state(&[1.0, 0.0]);
+        assert!((result[0] - 0.0).abs() < 1e-10);
+        assert!((result[1] - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_sparse_sparsity_metric() {
+        let mut m = SparseStateMatrix::new(10);
+        assert!((m.sparsity() - 1.0).abs() < 1e-10); // All zeros
+        m.set(0, 0, 1.0);
+        assert!(m.sparsity() > 0.98); // Only 1/100 filled
+    }
+
+    #[test]
+    fn test_sparse_matrix_multiply() {
+        // I × H = H
+        let identity = SparseStateMatrix::identity(2);
+        let h = SparseStateMatrix::hadamard();
+        let result = identity.multiply(&h);
+
+        let h_val = 1.0 / 2.0_f64.sqrt();
+        assert!((result.get(0, 0) - h_val).abs() < 1e-10);
+        assert!((result.get(0, 1) - h_val).abs() < 1e-10);
     }
 }

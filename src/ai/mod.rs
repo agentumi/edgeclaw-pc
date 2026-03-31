@@ -2,25 +2,24 @@ use crate::error::AgentError;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+pub mod cloud;
+pub mod ensemble;
+pub mod huggingface;
+pub mod manager;
+pub mod none_provider;
 pub mod ollama;
 pub mod prompt;
-pub mod manager;
-pub mod cloud;
-pub mod huggingface;
-pub mod none_provider;
-pub mod ensemble;
 
+pub use ensemble::{
+    ConsensusAlgorithm, DomainDetector, EnsembleConfig, EnsembleExecutor, EnsembleResult,
+    ExpertRole, FleetMissionPlanner, MissionComparison, MissionComparisonEngine,
+    MissionQualityEvaluator, ProcessType,
+};
+pub use huggingface::HuggingFaceProvider;
 pub use manager::{AiManager, MissionRegistry};
 pub use none_provider::NoneProvider;
 pub use ollama::OllamaProvider;
-pub use huggingface::HuggingFaceProvider;
 pub use prompt::build_prompt;
-pub use ensemble::{
-    ExpertRole, EnsembleResult, ProcessType,
-    DomainDetector, FleetMissionPlanner,
-    MissionQualityEvaluator, ConsensusAlgorithm,
-    EnsembleConfig,
-};
 
 // ─── AI Request / Response ─────────────────────────────────
 
@@ -181,37 +180,68 @@ pub struct QuickAction {
     pub group: String,
 }
 
+#[allow(clippy::vec_init_then_push)]
 pub fn default_quick_actions() -> Vec<QuickAction> {
     let mut actions = Vec::new();
 
     // Monitoring
     actions.push(QuickAction {
-        label: "Server Status".into(), icon: "monitor".into(), command: "status".into(),
-        capability: "status_query".into(), needs_confirmation: false, profile: WorkProfile::System, group: "Monitoring".into(),
+        label: "Server Status".into(),
+        icon: "monitor".into(),
+        command: "status".into(),
+        capability: "status_query".into(),
+        needs_confirmation: false,
+        profile: WorkProfile::System,
+        group: "Monitoring".into(),
     });
     actions.push(QuickAction {
-        label: "CPU Usage".into(), icon: "speed".into(), command: "cpu".into(),
-        capability: "system_info".into(), needs_confirmation: false, profile: WorkProfile::System, group: "Monitoring".into(),
+        label: "CPU Usage".into(),
+        icon: "speed".into(),
+        command: "cpu".into(),
+        capability: "system_info".into(),
+        needs_confirmation: false,
+        profile: WorkProfile::System,
+        group: "Monitoring".into(),
     });
     actions.push(QuickAction {
-        label: "Memory Usage".into(), icon: "memory".into(), command: "memory".into(),
-        capability: "system_info".into(), needs_confirmation: false, profile: WorkProfile::System, group: "Monitoring".into(),
+        label: "Memory Usage".into(),
+        icon: "memory".into(),
+        command: "memory".into(),
+        capability: "system_info".into(),
+        needs_confirmation: false,
+        profile: WorkProfile::System,
+        group: "Monitoring".into(),
     });
 
     // Git
     actions.push(QuickAction {
-        label: "Git Status".into(), icon: "code".into(), command: "git status".into(),
-        capability: "shell_exec".into(), needs_confirmation: false, profile: WorkProfile::SoftwareDev, group: "Git".into(),
+        label: "Git Status".into(),
+        icon: "code".into(),
+        command: "git status".into(),
+        capability: "shell_exec".into(),
+        needs_confirmation: false,
+        profile: WorkProfile::SoftwareDev,
+        group: "Git".into(),
     });
     actions.push(QuickAction {
-        label: "Git Pull".into(), icon: "cloud_download".into(), command: "git pull".into(),
-        capability: "shell_exec".into(), needs_confirmation: true, profile: WorkProfile::SoftwareDev, group: "Git".into(),
+        label: "Git Pull".into(),
+        icon: "cloud_download".into(),
+        command: "git pull".into(),
+        capability: "shell_exec".into(),
+        needs_confirmation: true,
+        profile: WorkProfile::SoftwareDev,
+        group: "Git".into(),
     });
 
     // Docker
     actions.push(QuickAction {
-        label: "Docker Status".into(), icon: "inventory_2".into(), command: "docker ps".into(),
-        capability: "docker_manage".into(), needs_confirmation: false, profile: WorkProfile::DevOps, group: "Docker".into(),
+        label: "Docker Status".into(),
+        icon: "inventory_2".into(),
+        command: "docker ps".into(),
+        capability: "docker_manage".into(),
+        needs_confirmation: false,
+        profile: WorkProfile::DevOps,
+        group: "Docker".into(),
     });
 
     actions
@@ -220,7 +250,10 @@ pub fn default_quick_actions() -> Vec<QuickAction> {
 pub fn quick_actions_by_profile(profile: Option<WorkProfile>) -> Vec<QuickAction> {
     let all = default_quick_actions();
     match profile {
-        Some(p) => all.into_iter().filter(|a| a.profile == p || a.profile == WorkProfile::System).collect(),
+        Some(p) => all
+            .into_iter()
+            .filter(|a| a.profile == p || a.profile == WorkProfile::System)
+            .collect(),
         None => all,
     }
 }
@@ -264,7 +297,7 @@ pub fn ureq_post_json_with_timeout(
 ) -> Result<String, AgentError> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(5)) // Fast failure if the server is offline (like Ollama not running)
-        .timeout_read(timeout)  // Unlimited or long wait for slow AI responses
+        .timeout_read(timeout) // Unlimited or long wait for slow AI responses
         .timeout_write(timeout)
         .build();
 
@@ -332,8 +365,12 @@ pub fn parse_cloud_response(content: &str, provider: &str) -> Result<AiResponse,
     let json_str = if let Some(start) = content.find('{') {
         if let Some(end) = content.rfind('}') {
             &content[start..=end]
-        } else { content }
-    } else { content };
+        } else {
+            content
+        }
+    } else {
+        content
+    };
 
     #[derive(Deserialize)]
     struct RawResponse {
@@ -358,6 +395,6 @@ pub fn parse_cloud_response(content: &str, provider: &str) -> Result<AiResponse,
             provider: provider.to_string(),
             is_local: false,
             sub_responses: Vec::new(),
-        })
+        }),
     }
 }

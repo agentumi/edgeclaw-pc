@@ -63,11 +63,17 @@ pub async fn handle_extensions_readiness(
 ) -> Result<(), AgentError> {
     let ai = engine.ai_status();
     let peer_count = {
-        let pm = engine.peer_manager().lock().unwrap_or_else(|e| e.into_inner());
+        let pm = engine
+            .peer_manager()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         pm.connected_count()
     };
     let task_count = {
-        let tb = engine.task_board().lock().unwrap_or_else(|e| e.into_inner());
+        let tb = engine
+            .task_board()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         tb.count()
     };
 

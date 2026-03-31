@@ -11,7 +11,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use crate::error::AgentError;
 
 /// Device identity information
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct DeviceIdentity {
     pub device_id: String,
     pub device_name: String,

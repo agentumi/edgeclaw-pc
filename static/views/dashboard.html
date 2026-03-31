@@ -11,9 +11,20 @@
                         Good <span style="font-weight:700;">evening</span>, all systems are running smoothly
                     </h2>
                 </div>
-                <button class="btn" onclick="setActiveView('view-aichat')" style="padding:10px 20px; border-radius:24px;">
-                    <i class="fa-solid fa-sparkles" style="color:var(--primary-400);"></i> Ask Intoran AI
-                </button>
+                <div style="display:flex; gap:12px;">
+                    <button class="btn btn-primary" onclick="openMissionWizard()" style="padding:10px 16px; border-radius:12px; font-weight:600; font-size:12px;">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Create Mission
+                    </button>
+                    <button class="btn" onclick="document.getElementById('liveStreamModal').style.display='flex';" style="padding:10px 16px; border-radius:12px; font-weight:600; font-size:12px; background:var(--surface-800); border:1px solid var(--surface-600);">
+                        <i class="fa-solid fa-terminal" style="color:var(--accent-green);"></i> Terminal
+                    </button>
+                    <button class="btn" onclick="openTemplateBrowserModal()" style="padding:10px 16px; border-radius:12px; font-weight:600; font-size:12px; background:var(--surface-800); border:1px solid var(--surface-600);">
+                        <i class="fa-solid fa-book-bookmark" style="color:var(--accent-gold);"></i> Templates
+                    </button>
+                    <button class="btn" onclick="setActiveView('view-aichat')" style="padding:10px 16px; border-radius:12px; font-weight:600; font-size:12px; background:var(--surface-800); border:1px solid var(--surface-600);">
+                        <i class="fa-solid fa-sparkles" style="color:var(--primary-400);"></i> Intoran AI
+                    </button>
+                </div>
             </div>
 
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px;">
@@ -268,7 +279,282 @@
                     </div>
                 </div>
             </div>
-        </div>
+
+            <!-- P7-09: Persona Agent Card -->
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:20px;">
+                <div id="personaCard" class="card" style="padding:20px; border:1px solid rgba(139,92,246,0.2); position:relative; overflow:hidden;">
+                    <div style="position:absolute; top:0; right:0; width:120px; height:120px; background:radial-gradient(circle, rgba(139,92,246,0.08), transparent); pointer-events:none;"></div>
+                    <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
+                        <span><i class="fa-solid fa-user-astronaut" style="color:var(--primary-400);"></i> Agent Persona</span>
+                        <span id="personaPresetBadge" class="badge" style="font-size:9px; padding:2px 8px; background:rgba(139,92,246,0.15); color:var(--primary-300);">Executor</span>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:14px; margin-top:12px;">
+                        <div id="personaAvatar" style="width:44px; height:44px; border-radius:50%; background:var(--surface-800); display:flex; align-items:center; justify-content:center; font-size:22px; border:2px solid var(--primary-500); flex-shrink:0;">⚡</div>
+                        <div style="flex:1; min-width:0;">
+                            <div id="personaName" style="font-size:15px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">EdgeClaw Agent</div>
+                            <div id="personaStyle" style="font-size:10px; color:var(--text-muted); margin-top:2px;">Direct, action-oriented, concise.</div>
+                        </div>
+                    </div>
+                    <!-- Trait Bars -->
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:14px;">
+                        <div>
+                            <div style="display:flex; justify-content:space-between; font-size:9px; color:var(--text-muted); margin-bottom:3px;">
+                                <span>Caution</span><span id="traitCautionPct">50%</span>
+                            </div>
+                            <div style="height:4px; background:var(--surface-700); border-radius:2px; overflow:hidden;">
+                                <div id="traitCautionBar" style="width:50%; height:100%; background:var(--accent-gold); border-radius:2px; transition:width 0.5s ease;"></div>
+                            </div>
+                        </div>
+                        <div>
+                            <div style="display:flex; justify-content:space-between; font-size:9px; color:var(--text-muted); margin-bottom:3px;">
+                                <span>Creativity</span><span id="traitCreativityPct">50%</span>
+                            </div>
+                            <div style="height:4px; background:var(--surface-700); border-radius:2px; overflow:hidden;">
+                                <div id="traitCreativityBar" style="width:50%; height:100%; background:var(--primary-400); border-radius:2px; transition:width 0.5s ease;"></div>
+                            </div>
+                        </div>
+                        <div>
+                            <div style="display:flex; justify-content:space-between; font-size:9px; color:var(--text-muted); margin-bottom:3px;">
+                                <span>Autonomy</span><span id="traitAutonomyPct">50%</span>
+                            </div>
+                            <div style="height:4px; background:var(--surface-700); border-radius:2px; overflow:hidden;">
+                                <div id="traitAutonomyBar" style="width:50%; height:100%; background:var(--accent-green); border-radius:2px; transition:width 0.5s ease;"></div>
+                            </div>
+                        </div>
+                        <div>
+                            <div style="display:flex; justify-content:space-between; font-size:9px; color:var(--text-muted); margin-bottom:3px;">
+                                <span>Verbosity</span><span id="traitVerbosityPct">50%</span>
+                            </div>
+                            <div style="height:4px; background:var(--surface-700); border-radius:2px; overflow:hidden;">
+                                <div id="traitVerbosityBar" style="width:50%; height:100%; background:var(--accent-cyan, #22d3ee); border-radius:2px; transition:width 0.5s ease;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Specializations -->
+                    <div style="margin-top:14px; border-top:1px solid var(--surface-700); padding-top:10px;">
+                        <div style="font-size:10px; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">Specializations</div>
+                        <div id="personaSpecList" style="display:flex; flex-wrap:wrap; gap:6px;">
+                            <span style="font-size:10px; color:var(--text-muted); padding:4px 8px;">No specializations yet</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- P7-07: Quantum State Visualizer -->
+                <div id="quantumStateCard" class="card" style="padding:20px; border:1px solid rgba(34,211,238,0.15); position:relative; overflow:hidden;">
+                    <div style="position:absolute; top:0; right:0; width:120px; height:120px; background:radial-gradient(circle, rgba(34,211,238,0.06), transparent); pointer-events:none;"></div>
+                    <div class="card-title">
+                        <i class="fa-solid fa-wave-square" style="color:var(--accent-cyan, #22d3ee);"></i> Quantum State Visualizer
+                    </div>
+                    <div id="quantumStateContent" style="margin-top:10px;">
+                        <!-- Active Mission Qubit States -->
+                        <div id="qubitStatesContainer" style="display:flex; flex-direction:column; gap:8px; max-height:160px; overflow-y:auto;">
+                            <div style="color:var(--text-muted); font-size:11px; padding:10px; text-align:center;">
+                                <i class="fa-solid fa-atom" style="margin-right:6px;"></i>No active quantum mission states
+                            </div>
+                        </div>
+                        <!-- Entanglement Graph -->
+                        <div style="margin-top:12px; border-top:1px solid var(--surface-700); padding-top:10px;">
+                            <div style="font-size:10px; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">System Metrics</div>
+                            <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                                <div style="text-align:center; flex:1; min-width:60px; padding:8px; background:var(--surface-800); border-radius:8px;">
+                                    <div style="font-size:9px; color:var(--text-muted); margin-bottom:2px;">Entropy</div>
+                                    <div id="qvEntropy" style="font-size:16px; font-weight:700; font-family:var(--font-mono); color:var(--accent-cyan, #22d3ee);">0.00</div>
+                                </div>
+                                <div style="text-align:center; flex:1; min-width:60px; padding:8px; background:var(--surface-800); border-radius:8px;">
+                                    <div style="font-size:9px; color:var(--text-muted); margin-bottom:2px;">Qubits</div>
+                                    <div id="qvQubitCount" style="font-size:16px; font-weight:700; font-family:var(--font-mono);">0</div>
+                                </div>
+                                <div style="text-align:center; flex:1; min-width:60px; padding:8px; background:var(--surface-800); border-radius:8px;">
+                                    <div style="font-size:9px; color:var(--text-muted); margin-bottom:2px;">Entangled</div>
+                                    <div id="qvEntangled" style="font-size:16px; font-weight:700; font-family:var(--font-mono); color:var(--primary-400);">0</div>
+                                </div>
+                                <div style="text-align:center; flex:1; min-width:60px; padding:8px; background:var(--surface-800); border-radius:8px;">
+                                    <div style="font-size:9px; color:var(--text-muted); margin-bottom:2px;">Γ Phase</div>
+                                    <div id="qvButterfly" style="font-size:16px; font-weight:700; font-family:var(--font-mono); color:var(--accent-gold);">0</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- P7-10: Automation Scheduler + P5: Governance Dashboard -->
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:20px;">
+                <!-- P7-10: Automation Scheduler UI -->
+                <div id="schedulerCard" class="card" style="padding:20px; border:1px solid rgba(16,185,129,0.15); position:relative; overflow:hidden;">
+                    <div style="position:absolute; top:0; right:0; width:100px; height:100px; background:radial-gradient(circle, rgba(16,185,129,0.06), transparent); pointer-events:none;"></div>
+                    <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
+                        <span><i class="fa-solid fa-calendar-check" style="color:var(--accent-green);"></i> Automation Scheduler</span>
+                        <button onclick="openSchedulerModal()" class="btn" style="padding:3px 10px; font-size:10px; border-radius:10px; background:var(--surface-700); border:none; color:var(--text-muted); cursor:pointer;">
+                            <i class="fa-solid fa-plus" style="margin-right:3px;"></i>Add Job
+                        </button>
+                    </div>
+                    <div id="schedulerJobList" style="display:flex; flex-direction:column; gap:6px; margin-top:10px; max-height:200px; overflow-y:auto;">
+                        <div style="color:var(--text-muted); font-size:11px; padding:10px; text-align:center;">
+                            <i class="fa-solid fa-clock" style="margin-right:6px;"></i>No scheduled jobs — create one to automate workflows
+                        </div>
+                    </div>
+                    <div style="margin-top:10px; padding:6px 10px; background:var(--surface-800); border-radius:8px; font-size:10px; display:flex; justify-content:space-between; color:var(--text-muted);">
+                        <span>Tick interval: 60s</span>
+                        <span id="schedulerJobCount" style="color:var(--accent-green); font-family:var(--font-mono);">0 jobs</span>
+                    </div>
+                </div>
+
+                <!-- P5: Governance Dashboard -->
+                <div id="governanceCard" class="card" style="padding:20px; border:1px solid rgba(234,179,8,0.15); position:relative; overflow:hidden;">
+                    <div style="position:absolute; top:0; right:0; width:100px; height:100px; background:radial-gradient(circle, rgba(234,179,8,0.06), transparent); pointer-events:none;"></div>
+                    <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
+                        <span><i class="fa-solid fa-landmark" style="color:var(--accent-gold);"></i> Fleet Governance</span>
+                        <button onclick="openGovernanceModal()" class="btn" style="padding:3px 10px; font-size:10px; border-radius:10px; background:var(--surface-700); border:none; color:var(--text-muted); cursor:pointer;">
+                            <i class="fa-solid fa-scroll" style="margin-right:3px;"></i>New Proposal
+                        </button>
+                    </div>
+                    <!-- Governance Stats -->
+                    <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+                        <div style="text-align:center; flex:1; min-width:45px; padding:6px 4px; background:var(--surface-800); border-radius:8px;">
+                            <div style="font-size:9px; color:var(--text-muted);">Open</div>
+                            <div id="govOpen" style="font-size:16px; font-weight:700; font-family:var(--font-mono); color:var(--accent-gold);">0</div>
+                        </div>
+                        <div style="text-align:center; flex:1; min-width:45px; padding:6px 4px; background:var(--surface-800); border-radius:8px;">
+                            <div style="font-size:9px; color:var(--text-muted);">Approved</div>
+                            <div id="govApproved" style="font-size:16px; font-weight:700; font-family:var(--font-mono); color:var(--accent-green);">0</div>
+                        </div>
+                        <div style="text-align:center; flex:1; min-width:45px; padding:6px 4px; background:var(--surface-800); border-radius:8px;">
+                            <div style="font-size:9px; color:var(--text-muted);">Rejected</div>
+                            <div id="govRejected" style="font-size:16px; font-weight:700; font-family:var(--font-mono); color:var(--accent-red, #ef4444);">0</div>
+                        </div>
+                        <div style="text-align:center; flex:1; min-width:45px; padding:6px 4px; background:var(--surface-800); border-radius:8px;">
+                            <div style="font-size:9px; color:var(--text-muted);">Chain</div>
+                            <div id="govChain" style="font-size:16px; font-weight:700; font-family:var(--font-mono); color:var(--primary-400);">0</div>
+                        </div>
+                    </div>
+                    <!-- Proposals List -->
+                    <div id="governanceProposalList" style="display:flex; flex-direction:column; gap:6px; margin-top:10px; max-height:140px; overflow-y:auto;">
+                        <div style="color:var(--text-muted); font-size:11px; padding:10px; text-align:center;">
+                            <i class="fa-solid fa-shield-halved" style="margin-right:6px;"></i>No governance proposals — fleet operates autonomously
+                        </div>
+                    </div>
+                    <div style="margin-top:8px; padding:6px 10px; background:var(--surface-800); border-radius:8px; font-size:10px; display:flex; justify-content:space-between; color:var(--text-muted);">
+                        <span>Participation:</span>
+                        <span id="govParticipation" style="color:var(--accent-gold); font-family:var(--font-mono);">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- P3-08: Viral Diffusion Live Feed + P1-12: Communication Stats -->
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:20px;">
+                <!-- Viral Diffusion -->
+                <div id="diffusionCard" class="card" style="padding:20px; border:1px solid rgba(236,72,153,0.15);">
+                    <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
+                        <span><i class="fa-solid fa-share-nodes" style="color:var(--accent-pink, #ec4899);"></i> Viral Diffusion</span>
+                        <span id="diffusionActiveCount" style="font-family:var(--font-mono); font-size:12px; background:rgba(236,72,153,0.1); padding:2px 8px; border-radius:8px; color:var(--accent-pink, #ec4899);">0</span>
+                    </div>
+                    <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+                        <div style="text-align:center; flex:1; min-width:50px; padding:6px 4px; background:var(--surface-800); border-radius:8px;">
+                            <div style="font-size:9px; color:var(--text-muted);">Total Created</div>
+                            <div id="diffCreated" style="font-size:14px; font-weight:700; font-family:var(--font-mono);">0</div>
+                        </div>
+                        <div style="text-align:center; flex:1; min-width:50px; padding:6px 4px; background:var(--surface-800); border-radius:8px;">
+                            <div style="font-size:9px; color:var(--text-muted);">Diffusions</div>
+                            <div id="diffTotal" style="font-size:14px; font-weight:700; font-family:var(--font-mono); color:var(--accent-pink, #ec4899);">0</div>
+                        </div>
+                        <div style="text-align:center; flex:1; min-width:50px; padding:6px 4px; background:var(--surface-800); border-radius:8px;">
+                            <div style="font-size:9px; color:var(--text-muted);">Avg Viral</div>
+                            <div id="diffAvgViral" style="font-size:14px; font-weight:700; font-family:var(--font-mono);">--</div>
+                        </div>
+                    </div>
+                    <div id="diffusionTopList" style="display:flex; flex-direction:column; gap:5px; margin-top:10px; max-height:120px; overflow-y:auto;">
+                        <div style="color:var(--text-muted); font-size:11px; padding:8px; text-align:center;">No diffusion packets yet</div>
+                    </div>
+                </div>
+
+                <!-- P1-12: Agent Communication Hub -->
+                <div id="commHubCard" class="card" style="padding:20px; border:1px solid rgba(59,130,246,0.15);">
+                    <div class="card-title">
+                        <i class="fa-solid fa-comments" style="color:var(--accent-blue, #3b82f6);"></i> Agent Communication
+                    </div>
+                    <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+                        <div style="text-align:center; flex:1; min-width:60px; padding:8px 4px; background:var(--surface-800); border-radius:8px;">
+                            <div style="font-size:9px; color:var(--text-muted);">Agents</div>
+                            <div id="commAgents" style="font-size:16px; font-weight:700; font-family:var(--font-mono); color:var(--accent-blue, #3b82f6);">0</div>
+                        </div>
+                        <div style="text-align:center; flex:1; min-width:60px; padding:8px 4px; background:var(--surface-800); border-radius:8px;">
+                            <div style="font-size:9px; color:var(--text-muted);">Messages</div>
+                            <div id="commMessages" style="font-size:16px; font-weight:700; font-family:var(--font-mono);">0</div>
+                        </div>
+                        <div style="text-align:center; flex:1; min-width:60px; padding:8px 4px; background:var(--surface-800); border-radius:8px;">
+                            <div style="font-size:9px; color:var(--text-muted);">Unread</div>
+                            <div id="commUnread" style="font-size:16px; font-weight:700; font-family:var(--font-mono); color:var(--accent-gold);">0</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:12px; padding:8px 12px; background:var(--surface-800); border-radius:8px; font-size:11px; color:var(--text-muted); display:flex; align-items:center; gap:6px;">
+                        <i class="fa-solid fa-circle-info" style="color:var(--accent-blue, #3b82f6);"></i>
+                        <span>Inter-agent messaging via ECNP v1.1 protocol</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Scheduler Modal -->
+            <div id="schedulerModal" style="display:none; position:fixed; z-index:9999; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); backdrop-filter:blur(5px); align-items:center; justify-content:center;">
+                <div style="background:var(--surface-900); border:1px solid var(--surface-700); padding:24px; border-radius:12px; width:100%; max-width:420px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                        <h3 style="font-size:16px; margin:0;"><i class="fa-solid fa-calendar-plus" style="color:var(--accent-green); margin-right:8px;"></i>New Scheduled Job</h3>
+                        <i class="fa-solid fa-times" style="cursor:pointer; color:var(--text-muted);" onclick="closeSchedulerModal()"></i>
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:14px;">
+                        <div>
+                            <label style="display:block; font-size:10px; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px; font-weight:700;">Job Name</label>
+                            <input id="schedName" type="text" class="ea-input" placeholder="Weekly Sales Report" style="width:100%; background:var(--surface-800); border:1px solid var(--surface-600); color:var(--text-primary); padding:10px 12px; border-radius:6px; box-sizing:border-box;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:10px; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px; font-weight:700;">Cron Expression</label>
+                            <input id="schedCron" type="text" class="ea-input" placeholder="0 9 * * 1" style="width:100%; background:var(--surface-800); border:1px solid var(--surface-600); color:var(--text-primary); padding:10px 12px; border-radius:6px; font-family:var(--font-mono); box-sizing:border-box;">
+                            <div style="font-size:9px; color:var(--text-muted); margin-top:4px;">Format: minute hour day_of_month month day_of_week (e.g. "0 9 * * 1" = Mon 9AM)</div>
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:10px; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px; font-weight:700;">Template ID</label>
+                            <input id="schedTemplate" type="text" class="ea-input" placeholder="tpl_weekly_sales" style="width:100%; background:var(--surface-800); border:1px solid var(--surface-600); color:var(--text-primary); padding:10px 12px; border-radius:6px; box-sizing:border-box;">
+                        </div>
+                    </div>
+                    <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:20px;">
+                        <button class="btn" onclick="closeSchedulerModal()" style="padding:10px 16px; background:var(--surface-700); border:none; color:white; border-radius:6px; cursor:pointer;">Cancel</button>
+                        <button onclick="submitSchedulerJob()" style="padding:10px 16px; background:linear-gradient(to right, #059669, #10b981); border:none; color:white; border-radius:6px; font-weight:600; cursor:pointer; box-shadow:0 4px 12px rgba(16,185,129,0.3);"><i class="fa-solid fa-plus" style="margin-right:6px;"></i>Create Job</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Governance Proposal Modal -->
+            <div id="governanceModal" style="display:none; position:fixed; z-index:9999; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); backdrop-filter:blur(5px); align-items:center; justify-content:center;">
+                <div style="background:var(--surface-900); border:1px solid var(--surface-700); padding:24px; border-radius:12px; width:100%; max-width:420px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                        <h3 style="font-size:16px; margin:0;"><i class="fa-solid fa-scroll" style="color:var(--accent-gold); margin-right:8px;"></i>New Governance Proposal</h3>
+                        <i class="fa-solid fa-times" style="cursor:pointer; color:var(--text-muted);" onclick="closeGovernanceModal()"></i>
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:14px;">
+                        <div>
+                            <label style="display:block; font-size:10px; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px; font-weight:700;">Title</label>
+                            <input id="govTitle" type="text" placeholder="Policy change proposal" style="width:100%; background:var(--surface-800); border:1px solid var(--surface-600); color:var(--text-primary); padding:10px 12px; border-radius:6px; box-sizing:border-box;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:10px; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px; font-weight:700;">Description</label>
+                            <textarea id="govDescription" placeholder="Describe the proposed change..." style="width:100%; background:var(--surface-800); border:1px solid var(--surface-600); color:var(--text-primary); padding:10px 12px; border-radius:6px; min-height:80px; resize:vertical; box-sizing:border-box;"></textarea>
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:10px; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px; font-weight:700;">Severity</label>
+                            <select id="govSeverity" style="width:100%; background:var(--surface-800); border:1px solid var(--surface-600); color:var(--text-primary); padding:10px 12px; border-radius:6px; box-sizing:border-box;">
+                                <option value="low">Low (50% quorum)</option>
+                                <option value="medium">Medium (66% quorum)</option>
+                                <option value="high">High (80% quorum)</option>
+                                <option value="critical">Critical (90% quorum)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="display:flex; justify-content:flex-end; gap:12px; margin-top:20px;">
+                        <button onclick="closeGovernanceModal()" style="padding:10px 16px; background:var(--surface-700); border:none; color:white; border-radius:6px; cursor:pointer;">Cancel</button>
+                        <button onclick="submitGovernanceProposal()" style="padding:10px 16px; background:linear-gradient(to right, #d97706, #f59e0b); border:none; color:white; border-radius:6px; font-weight:600; cursor:pointer; box-shadow:0 4px 12px rgba(234,179,8,0.3);"><i class="fa-solid fa-gavel" style="margin-right:6px;"></i>Submit</button>
+                    </div>
+                </div>
+            </div>
 
         <!-- Edit Agent Persona Modal Layer -->
         <style>

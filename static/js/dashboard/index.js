@@ -260,6 +260,87 @@ AppState.subscribe('status', (status) => {
 
 // Expose handlers for inline HTML event attributes
 Object.assign(window, {
+    // P7-02, P7-03, P7-06 integration functions
+    openMissionWizard: () => {
+        const modal = document.getElementById('missionWizardModal');
+        if (modal) {
+            modal.style.display = 'flex';
+            document.getElementById('wizardStep1').style.display = 'block';
+            document.getElementById('wizardStep2').style.display = 'none';
+            document.getElementById('wizardMissionName').value = '';
+            document.getElementById('wizardMissionGoal').value = '';
+        }
+    },
+    submitMissionWizard: async () => {
+        const name = document.getElementById('wizardMissionName').value;
+        const goal = document.getElementById('wizardMissionGoal').value;
+        const agent = document.getElementById('wizardAgentSelect').value;
+        if (!name || !goal) return showToast('Please fill all required fields', 'error');
+        
+        showToast('Initiating Mission Creation...', 'info');
+        document.getElementById('missionWizardModal').style.display = 'none';
+        
+        try {
+            // Using existing AI orchestration endpoint for P7-02 wizard
+            const text = `Create a new mission called "${name}": ${goal}. Deploy to ${agent}.`;
+            // Fake a chat message to orchestrate it
+            const res = await apiFetch(`${API}/api/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: text, lang: 'english' })
+            });
+            if (res.ok) {
+                showToast('Mission orchestrated! Check Command Center.', 'success');
+                setActiveView('view-chat');
+            } else throw new Error();
+        } catch(e) {
+            showToast('Failed to create mission automatically. Fallback to CLI.', 'error');
+        }
+    },
+    openTemplateBrowserModal: () => {
+        const modal = document.getElementById('templateBrowserModal');
+        if (modal) {
+            modal.style.display = 'flex';
+            // Render existing templates into the modal grid
+            window.searchTemplateBrowser('');
+        }
+    },
+    searchTemplateBrowser: (query) => {
+        const grid = document.getElementById('tbGrid');
+        if (!grid) return;
+        const catFilter = document.getElementById('tbCategory') ? document.getElementById('tbCategory').value : 'all';
+        
+        let filtered = window.cachedTemplates || []; // Assume we fetched them
+        if (filtered.length === 0 && window.AppState) {
+            filtered = window.AppState.get('templates') || [];
+        }
+        
+        if (catFilter !== 'all') {
+            filtered = filtered.filter(t => t.category === catFilter);
+        }
+        
+        if (query) {
+            const q = query.toLowerCase();
+            filtered = filtered.filter(t => (t.name&&t.name.toLowerCase().includes(q)) || (t.description&&t.description.toLowerCase().includes(q)));
+        }
+        
+        if (filtered.length === 0) {
+            grid.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:20px; color:var(--text-muted);">No templates found</div>';
+            return;
+        }
+        
+        grid.innerHTML = filtered.map(t => `
+            <div style="background:var(--surface-800); border:1px solid var(--surface-700); border-radius:12px; padding:16px; display:flex; flex-direction:column; gap:8px;">
+                <div style="font-weight:700; font-size:14px;">${t.name}</div>
+                <div style="font-size:11px; color:var(--text-muted); flex:1;">${t.description||'No description'}</div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:9px; background:var(--primary-900); color:var(--primary-300); padding:2px 6px; border-radius:4px;">${t.category||'General'}</span>
+                    <button class="btn btn-primary" style="font-size:10px; padding:4px 8px;" onclick="closeModal('templateBrowserModal'); window.openTemplateDetail('${t.id}')">View</button>
+                </div>
+            </div>
+        `).join('');
+    },
+
     // Core/View
     setActiveView,
     showToast,

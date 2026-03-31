@@ -9,8 +9,10 @@
 //! - 결과를 합의 알고리즘으로 통합 (가중 투표 + 최선 응답 선택)
 //! - 할루시네이션 감지 및 제거
 
-use serde::{Deserialize, Serialize};
+#![allow(clippy::field_reassign_with_default)]
+
 use crate::ai::{AiResponse, MissionMetadata};
+use serde::{Deserialize, Serialize};
 
 // ─── Domain Expert Roles ───────────────────────────────────────────────────────
 
@@ -149,20 +151,15 @@ pub struct EnsembleResult {
 }
 
 /// 프로세스 타입 선택자
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum ProcessType {
     /// Fleet Type — 병렬 로컬 모델 앙상블
+    #[default]
     Fleet,
     /// Quantum Type — 양자 확률 기반 추론 (V3)
     Quantum,
     /// Auto — 작업 복잡도에 따라 자동 선택
     Auto,
-}
-
-impl Default for ProcessType {
-    fn default() -> Self {
-        ProcessType::Fleet
-    }
 }
 
 // ─── Domain Detector ───────────────────────────────────────────────────────────
@@ -176,40 +173,65 @@ impl DomainDetector {
         let input_lower = input.to_lowercase();
 
         // 개발/기술 도메인
-        if input_lower.contains("코드") || input_lower.contains("code") ||
-           input_lower.contains("개발") || input_lower.contains("dev") ||
-           input_lower.contains("테스트") || input_lower.contains("test") ||
-           input_lower.contains("ci") || input_lower.contains("cd") ||
-           input_lower.contains("배포") || input_lower.contains("deploy") ||
-           input_lower.contains("디버그") || input_lower.contains("bug") ||
-           input_lower.contains("빌드") || input_lower.contains("build") {
+        if input_lower.contains("코드")
+            || input_lower.contains("code")
+            || input_lower.contains("개발")
+            || input_lower.contains("dev")
+            || input_lower.contains("테스트")
+            || input_lower.contains("test")
+            || input_lower.contains("ci")
+            || input_lower.contains("cd")
+            || input_lower.contains("배포")
+            || input_lower.contains("deploy")
+            || input_lower.contains("디버그")
+            || input_lower.contains("bug")
+            || input_lower.contains("빌드")
+            || input_lower.contains("build")
+        {
             return "development";
         }
 
-        // 마케팅 도메인  
-        if input_lower.contains("마케팅") || input_lower.contains("marketing") ||
-           input_lower.contains("콘텐츠") || input_lower.contains("content") ||
-           input_lower.contains("sns") || input_lower.contains("소셜") ||
-           input_lower.contains("캠페인") || input_lower.contains("campaign") ||
-           input_lower.contains("광고") || input_lower.contains("ad") {
+        // 마케팅 도메인
+        if input_lower.contains("마케팅")
+            || input_lower.contains("marketing")
+            || input_lower.contains("콘텐츠")
+            || input_lower.contains("content")
+            || input_lower.contains("sns")
+            || input_lower.contains("소셜")
+            || input_lower.contains("캠페인")
+            || input_lower.contains("campaign")
+            || input_lower.contains("광고")
+            || input_lower.contains("ad")
+        {
             return "marketing";
         }
 
         // 비즈니스/분석 도메인
-        if input_lower.contains("분석") || input_lower.contains("analysis") ||
-           input_lower.contains("보고서") || input_lower.contains("report") ||
-           input_lower.contains("투자") || input_lower.contains("invest") ||
-           input_lower.contains("시장") || input_lower.contains("market") ||
-           input_lower.contains("매출") || input_lower.contains("revenue") ||
-           input_lower.contains("kpi") || input_lower.contains("지표") {
+        if input_lower.contains("분석")
+            || input_lower.contains("analysis")
+            || input_lower.contains("보고서")
+            || input_lower.contains("report")
+            || input_lower.contains("투자")
+            || input_lower.contains("invest")
+            || input_lower.contains("시장")
+            || input_lower.contains("market")
+            || input_lower.contains("매출")
+            || input_lower.contains("revenue")
+            || input_lower.contains("kpi")
+            || input_lower.contains("지표")
+        {
             return "business";
         }
 
         // QA/보안 도메인
-        if input_lower.contains("보안") || input_lower.contains("security") ||
-           input_lower.contains("취약점") || input_lower.contains("vulnerability") ||
-           input_lower.contains("감사") || input_lower.contains("audit") ||
-           input_lower.contains("버그") {
+        if input_lower.contains("보안")
+            || input_lower.contains("security")
+            || input_lower.contains("취약점")
+            || input_lower.contains("vulnerability")
+            || input_lower.contains("감사")
+            || input_lower.contains("audit")
+            || input_lower.contains("버그")
+        {
             return "qa";
         }
 
@@ -269,7 +291,7 @@ impl MissionQualityEvaluator {
         // ATU(원자 작업 단위) 수량
         checks += 1;
         let task_count = mission.tasks.len();
-        if task_count >= 3 && task_count <= 15 {
+        if (3..=15).contains(&task_count) {
             score += 1.0;
         } else if task_count > 0 {
             score += 0.5;
@@ -277,9 +299,7 @@ impl MissionQualityEvaluator {
 
         // 각 ATU에 의미 있는 설명이 있는지
         checks += 1;
-        let meaningful_tasks = mission.tasks.iter()
-            .filter(|t| t.desc.len() > 10)
-            .count();
+        let meaningful_tasks = mission.tasks.iter().filter(|t| t.desc.len() > 10).count();
         if meaningful_tasks == task_count && task_count > 0 {
             score += 1.0;
         } else if meaningful_tasks > 0 {
@@ -288,7 +308,9 @@ impl MissionQualityEvaluator {
 
         // Capability 태그가 있는지
         checks += 1;
-        let tagged_tasks = mission.tasks.iter()
+        let tagged_tasks = mission
+            .tasks
+            .iter()
             .filter(|t| !t.capability.is_empty() && t.capability != "unknown")
             .count();
         if tagged_tasks == task_count && task_count > 0 {
@@ -325,14 +347,16 @@ impl MissionQualityEvaluator {
 
         // 확신 없는 표현 패턴
         let vague_patterns = ["maybe", "possibly", "might", "아마", "혹시", "불확실"];
-        let vague_count = vague_patterns.iter()
+        let vague_count = vague_patterns
+            .iter()
             .filter(|p| text_lower.contains(*p))
             .count();
         score += (vague_count as f64 * 0.05).min(0.2);
 
         // 극단적 주장 패턴
         let extreme_patterns = ["100%", "완벽", "무조건", "항상", "never", "always"];
-        let extreme_count = extreme_patterns.iter()
+        let extreme_count = extreme_patterns
+            .iter()
             .filter(|p| text_lower.contains(*p))
             .count();
         score += (extreme_count as f64 * 0.05).min(0.15);
@@ -403,15 +427,24 @@ impl ConsensusAlgorithm {
             return None;
         }
 
-        let weights: Vec<f64> = responses.iter().map(|r| {
-            let confidence_weight = r.response.confidence;
-            let hallucination_penalty = r.hallucination_score;
-            let verifier_bonus = if r.role.contains("verifier") { 0.1 } else { 0.0 };
+        let weights: Vec<f64> = responses
+            .iter()
+            .map(|r| {
+                let confidence_weight = r.response.confidence;
+                let hallucination_penalty = r.hallucination_score;
+                let verifier_bonus = if r.role.contains("verifier") {
+                    0.1
+                } else {
+                    0.0
+                };
 
-            (confidence_weight * (1.0 - hallucination_penalty) + verifier_bonus).max(0.0)
-        }).collect();
+                (confidence_weight * (1.0 - hallucination_penalty) + verifier_bonus).max(0.0)
+            })
+            .collect();
 
-        weights.iter().enumerate()
+        weights
+            .iter()
+            .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(idx, _)| idx)
     }
@@ -419,19 +452,20 @@ impl ConsensusAlgorithm {
     /// 응답들 사이의 합의 수준 계산 (0.0 ~ 1.0)
     pub fn calculate_consensus_level(responses: &[ExpertResponse]) -> f64 {
         if responses.len() < 2 {
-            return responses.first().map(|r| r.response.confidence).unwrap_or(0.0);
+            return responses
+                .first()
+                .map(|r| r.response.confidence)
+                .unwrap_or(0.0);
         }
 
-        let avg_confidence: f64 = responses.iter()
-            .map(|r| r.response.confidence)
-            .sum::<f64>() / responses.len() as f64;
+        let avg_confidence: f64 =
+            responses.iter().map(|r| r.response.confidence).sum::<f64>() / responses.len() as f64;
 
-        let avg_hallucination: f64 = responses.iter()
-            .map(|r| r.hallucination_score)
-            .sum::<f64>() / responses.len() as f64;
+        let avg_hallucination: f64 =
+            responses.iter().map(|r| r.hallucination_score).sum::<f64>() / responses.len() as f64;
 
         // 평균 신뢰도에서 할루시네이션 패널티 차감
-        (avg_confidence - avg_hallucination * 0.5).max(0.0).min(1.0)
+        (avg_confidence - avg_hallucination * 0.5).clamp(0.0, 1.0)
     }
 
     /// 여러 전문가 응답을 통합한 최종 메시지 생성
@@ -441,16 +475,253 @@ impl ConsensusAlgorithm {
         }
 
         // Synthesizer 역할의 응답이 있으면 우선 사용
-        if let Some(syn) = responses.iter().find(|r| r.role.contains("synthesizer") || r.role.contains("verifier")) {
+        if let Some(syn) = responses
+            .iter()
+            .find(|r| r.role.contains("synthesizer") || r.role.contains("verifier"))
+        {
             return syn.response.message.clone();
         }
 
         // 없으면 가장 높은 confidence의 응답 사용
-        responses.iter()
-            .max_by(|a, b| a.response.confidence.partial_cmp(&b.response.confidence)
-                .unwrap_or(std::cmp::Ordering::Equal))
+        responses
+            .iter()
+            .max_by(|a, b| {
+                a.response
+                    .confidence
+                    .partial_cmp(&b.response.confidence)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .map(|r| r.response.message.clone())
             .unwrap_or_default()
+    }
+}
+
+// ─── P0-02: Parallel Ensemble Executor ────────────────────────────────────────
+
+/// 병렬 LLM 앙상블 실행 엔진 — Fleet Process의 핵심
+///
+/// 여러 로컬 AI 모델을 동시에 호출하고, 각 모델이 다른 전문가 역할을 수행하여
+/// 결과를 합의 알고리즘으로 통합합니다.
+pub struct EnsembleExecutor;
+
+impl EnsembleExecutor {
+    /// 병렬 앙상블 실행 — tokio::spawn으로 여러 모델을 동시 호출
+    ///
+    /// # Arguments
+    /// * `config` — 사용할 모델과 역할 매핑
+    /// * `user_input` — 사용자 원본 입력
+    /// * `domain` — 감지된 도메인 (development, marketing, etc.)
+    /// * `provider_fn` — AI 모델 호출 함수 (테스트 시 mock 가능)
+    ///
+    /// # Returns
+    /// `EnsembleResult` — 합의된 최종 응답 + 개별 전문가 응답들
+    pub async fn run_parallel<F, Fut>(
+        config: &EnsembleConfig,
+        user_input: &str,
+        domain: &str,
+        provider_fn: F,
+    ) -> EnsembleResult
+    where
+        F: Fn(String, String, String) -> Fut + Send + Sync + Clone + 'static,
+        Fut: std::future::Future<Output = Result<AiResponse, String>> + Send + 'static,
+    {
+        let timeout = std::time::Duration::from_millis(config.timeout_ms);
+        let mut handles = Vec::new();
+
+        // Spawn parallel tasks for each expert model
+        for (model_name, role) in &config.models {
+            let model = model_name.clone();
+            let role_clone = role.clone();
+            let input = user_input.to_string();
+            let domain_ctx = domain.to_string();
+            let system_prompt = role.expert_system_prompt(&domain_ctx);
+            let pf = provider_fn.clone();
+
+            let handle = tokio::spawn(async move {
+                let start = std::time::Instant::now();
+
+                let result = tokio::time::timeout(
+                    std::time::Duration::from_millis(300_000), // 5 min per model
+                    pf(model.clone(), system_prompt, input.clone()),
+                )
+                .await;
+
+                let latency_ms = start.elapsed().as_millis() as u64;
+
+                match result {
+                    Ok(Ok(response)) => {
+                        let hallucination_score =
+                            MissionQualityEvaluator::detect_hallucination(&response.message);
+                        ExpertResponse {
+                            role: role_clone.label().to_string(),
+                            model,
+                            response,
+                            latency_ms,
+                            hallucination_score,
+                        }
+                    }
+                    Ok(Err(err)) => ExpertResponse {
+                        role: role_clone.label().to_string(),
+                        model,
+                        response: AiResponse {
+                            message: format!("[Error] {}", err),
+                            confidence: 0.0,
+                            ..Default::default()
+                        },
+                        latency_ms,
+                        hallucination_score: 1.0,
+                    },
+                    Err(_timeout) => ExpertResponse {
+                        role: role_clone.label().to_string(),
+                        model,
+                        response: AiResponse {
+                            message: "[Timeout] Model did not respond in time".to_string(),
+                            confidence: 0.0,
+                            ..Default::default()
+                        },
+                        latency_ms,
+                        hallucination_score: 1.0,
+                    },
+                }
+            });
+
+            handles.push(handle);
+        }
+
+        // Collect all results with global timeout
+        let mut expert_responses = Vec::new();
+        let global_deadline = tokio::time::timeout(timeout, async {
+            for handle in handles {
+                if let Ok(resp) = handle.await {
+                    expert_responses.push(resp);
+                }
+            }
+        })
+        .await;
+
+        if global_deadline.is_err() {
+            // Global timeout hit — use whatever we collected so far
+            tracing::warn!("Ensemble global timeout reached. Proceeding with partial results.");
+        }
+
+        // Apply consensus algorithm
+        let consensus_confidence = ConsensusAlgorithm::calculate_consensus_level(&expert_responses);
+        let final_message = ConsensusAlgorithm::synthesize_messages(&expert_responses, user_input);
+
+        // Select best response for intent extraction
+        let best_intent = ConsensusAlgorithm::select_best(&expert_responses)
+            .and_then(|idx| expert_responses.get(idx))
+            .and_then(|r| r.response.intent.clone());
+
+        let dissent_count = expert_responses
+            .iter()
+            .filter(|r| r.hallucination_score > 0.5 || r.response.confidence < 0.3)
+            .count() as u32;
+
+        EnsembleResult {
+            final_response: AiResponse {
+                message: final_message,
+                intent: best_intent,
+                confidence: consensus_confidence,
+                provider: "fleet_ensemble".to_string(),
+                is_local: true,
+                sub_responses: expert_responses
+                    .iter()
+                    .map(|r| r.response.clone())
+                    .collect(),
+            },
+            expert_responses,
+            consensus_confidence,
+            dissent_count,
+            process_type: ProcessType::Fleet,
+        }
+    }
+}
+
+// ─── P0-13: Mission Comparison Engine ─────────────────────────────────────────
+
+/// 두 미션 결과물을 비교하여 품질·비용·속도 분석
+pub struct MissionComparisonEngine;
+
+/// 미션 비교 결과
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MissionComparison {
+    pub mission_a_id: String,
+    pub mission_b_id: String,
+    pub quality_score_a: f64,
+    pub quality_score_b: f64,
+    pub speed_ratio: f64,        // A의 속도 / B의 속도 (>1 = A가 빠름)
+    pub task_overlap_ratio: f64, // 공통 Capability 비율
+    pub winner: String,          // "A", "B", or "TIE"
+    pub recommendation: String,
+}
+
+impl MissionComparisonEngine {
+    /// 두 미션 메타데이터를 비교 분석
+    pub fn compare(mission_a: &MissionMetadata, mission_b: &MissionMetadata) -> MissionComparison {
+        let quality_a = MissionQualityEvaluator::evaluate(mission_a);
+        let quality_b = MissionQualityEvaluator::evaluate(mission_b);
+
+        // Speed: fewer tasks = faster (simplified heuristic)
+        let tasks_a = mission_a.tasks.len().max(1) as f64;
+        let tasks_b = mission_b.tasks.len().max(1) as f64;
+        let speed_ratio = tasks_b / tasks_a;
+
+        // Task capability overlap
+        let caps_a: std::collections::HashSet<_> = mission_a
+            .tasks
+            .iter()
+            .map(|t| t.capability.to_uppercase())
+            .collect();
+        let caps_b: std::collections::HashSet<_> = mission_b
+            .tasks
+            .iter()
+            .map(|t| t.capability.to_uppercase())
+            .collect();
+        let intersection = caps_a.intersection(&caps_b).count() as f64;
+        let union = caps_a.union(&caps_b).count().max(1) as f64;
+        let task_overlap_ratio = intersection / union;
+
+        // Determine winner
+        let score_a =
+            quality_a * 0.6 + speed_ratio.min(2.0) * 0.2 + task_overlap_ratio * 0.2;
+        let score_b = quality_b * 0.6
+            + (1.0 / speed_ratio.max(0.01)).min(2.0) * 0.2
+            + task_overlap_ratio * 0.2;
+
+        let (winner, recommendation) = if (score_a - score_b).abs() < 0.05 {
+            (
+                "TIE".to_string(),
+                "Both missions are comparable. Choose based on domain preference.".to_string(),
+            )
+        } else if score_a > score_b {
+            ("A".to_string(), format!(
+                "Mission '{}' is recommended: higher quality ({:.0}% vs {:.0}%) with {} fewer tasks.",
+                mission_a.name, quality_a * 100.0, quality_b * 100.0,
+                if tasks_b > tasks_a { (tasks_b - tasks_a) as u32 } else { 0 }
+            ))
+        } else {
+            (
+                "B".to_string(),
+                format!(
+                    "Mission '{}' is recommended: higher quality ({:.0}% vs {:.0}%).",
+                    mission_b.name,
+                    quality_b * 100.0,
+                    quality_a * 100.0
+                ),
+            )
+        };
+
+        MissionComparison {
+            mission_a_id: mission_a.id.clone(),
+            mission_b_id: mission_b.id.clone(),
+            quality_score_a: quality_a,
+            quality_score_b: quality_b,
+            speed_ratio,
+            task_overlap_ratio,
+            winner,
+            recommendation,
+        }
     }
 }
 
@@ -462,7 +733,11 @@ pub struct FleetMissionPlanner;
 impl FleetMissionPlanner {
     /// 사용자 입력에서 전문가 수준 미션 ATU를 자동 생성
     /// few-shot 예제 기반으로 고품질 미션 분해
-    pub fn build_mission_planning_prompt(user_input: &str, domain: &str, peer_count: usize) -> String {
+    pub fn build_mission_planning_prompt(
+        user_input: &str,
+        domain: &str,
+        peer_count: usize,
+    ) -> String {
         let domain_examples = Self::get_domain_examples(domain);
         let peer_info = if peer_count > 1 {
             format!("{} 에이전트가 병렬로 작업을 수행합니다.", peer_count)
@@ -522,44 +797,49 @@ impl FleetMissionPlanner {
     }}
   }}
 }}"#,
-            peer_info,
-            domain_examples,
-            user_input,
-            domain
+            peer_info, domain_examples, user_input, domain
         )
     }
 
     fn get_domain_examples(domain: &str) -> &'static str {
         match domain {
-            "development" => r#"
+            "development" => {
+                r#"
 예시 — CI/CD 파이프라인 자동화 요청:
 tasks:
   - desc: "현재 Git 저장소 상태 확인 (변경된 파일, 브랜치 정보)",  capability: SHELL_EXEC
   - desc: "단위 테스트 실행 및 결과 레포트 생성", capability: SHELL_EXEC
   - desc: "정적 분석(Clippy/ESLint) 실행 및 경고 항목 집계", capability: SHELL_EXEC
   - desc: "보안 취약점 스캔 (cargo audit / npm audit)", capability: SHELL_EXEC
-  - desc: "빌드 결과물 생성 및 아티팩트 저장", capability: SHELL_EXEC"#,
-            "marketing" => r#"
+  - desc: "빌드 결과물 생성 및 아티팩트 저장", capability: SHELL_EXEC"#
+            }
+            "marketing" => {
+                r#"
 예시 — 소셜 미디어 캠페인 요청:
 tasks:
   - desc: "경쟁사 최근 30일 소셜 미디어 게시물 분석 및 트렌드 파악", capability: NETWORK_SCAN
   - desc: "타겟 키워드 30개 해시태그 성과 데이터 수집", capability: NETWORK_SCAN
   - desc: "브랜드 톤앤매너에 맞는 LinkedIn 포스트 초안 3개 생성", capability: SYSTEM_INFO
-  - desc: "최적 게시 시간대 분석 및 스케줄 수립", capability: SYSTEM_INFO"#,
-            "business" => r#"
+  - desc: "최적 게시 시간대 분석 및 스케줄 수립", capability: SYSTEM_INFO"#
+            }
+            "business" => {
+                r#"
 예시 — 주간 판매 보고서 요청:
 tasks:
   - desc: "이번 주 판매 데이터 CSV 추출 (날짜, 제품, 금액, 고객)", capability: SHELL_EXEC
   - desc: "전주 대비 매출 증감율 및 TOP5 제품 계산", capability: SYSTEM_INFO
   - desc: "고객 세그먼트별 구매 패턴 분석", capability: SYSTEM_INFO
   - desc: "Markdown 양식으로 주간 보고서 초안 생성", capability: SHELL_EXEC
-  - desc: "보고서를 PDF로 변환하여 지정 폴더에 저장", capability: SHELL_EXEC"#,
-            _ => r#"
+  - desc: "보고서를 PDF로 변환하여 지정 폴더에 저장", capability: SHELL_EXEC"#
+            }
+            _ => {
+                r#"
 예시 — 일반 자동화 요청:
 tasks:
   - desc: "시스템 현재 상태 수집 (CPU, 메모리, 디스크, 네트워크)", capability: SYSTEM_INFO
   - desc: "이전 실행 결과와 비교 분석", capability: SYSTEM_INFO
-  - desc: "결과 보고서 생성 및 저장", capability: SHELL_EXEC"#,
+  - desc: "결과 보고서 생성 및 저장", capability: SHELL_EXEC"#
+            }
         }
     }
 }
@@ -572,21 +852,42 @@ mod tests {
 
     #[test]
     fn test_domain_detection_development() {
-        assert_eq!(DomainDetector::detect_domain("CI/CD 파이프라인 자동화"), "development");
-        assert_eq!(DomainDetector::detect_domain("코드 리뷰해줘"), "development");
-        assert_eq!(DomainDetector::detect_domain("배포 자동화 setup"), "development");
+        assert_eq!(
+            DomainDetector::detect_domain("CI/CD 파이프라인 자동화"),
+            "development"
+        );
+        assert_eq!(
+            DomainDetector::detect_domain("코드 리뷰해줘"),
+            "development"
+        );
+        assert_eq!(
+            DomainDetector::detect_domain("배포 자동화 setup"),
+            "development"
+        );
     }
 
     #[test]
     fn test_domain_detection_marketing() {
-        assert_eq!(DomainDetector::detect_domain("소셜 미디어 캠페인"), "marketing");
-        assert_eq!(DomainDetector::detect_domain("콘텐츠 전략 수립"), "marketing");
+        assert_eq!(
+            DomainDetector::detect_domain("소셜 미디어 캠페인"),
+            "marketing"
+        );
+        assert_eq!(
+            DomainDetector::detect_domain("콘텐츠 전략 수립"),
+            "marketing"
+        );
     }
 
     #[test]
     fn test_domain_detection_business() {
-        assert_eq!(DomainDetector::detect_domain("주간 판매 보고서"), "business");
-        assert_eq!(DomainDetector::detect_domain("시장 분석 리포트"), "business");
+        assert_eq!(
+            DomainDetector::detect_domain("주간 판매 보고서"),
+            "business"
+        );
+        assert_eq!(
+            DomainDetector::detect_domain("시장 분석 리포트"),
+            "business"
+        );
     }
 
     #[test]
@@ -610,9 +911,24 @@ mod tests {
         mission.name = "주간 판매 보고서 자동화".to_string();
         mission.description = "판매 데이터를 수집하여 자동으로 보고서를 생성합니다".to_string();
         mission.tasks = vec![
-            TaskUnit { desc: "판매 데이터 CSV 추출하기".to_string(), capability: "SHELL_EXEC".to_string(), args: vec![], order: 1 },
-            TaskUnit { desc: "매출 증감률 계산 및 분석".to_string(), capability: "SYSTEM_INFO".to_string(), args: vec![], order: 2 },
-            TaskUnit { desc: "마크다운 보고서 초안 작성".to_string(), capability: "SHELL_EXEC".to_string(), args: vec![], order: 3 },
+            TaskUnit {
+                desc: "판매 데이터 CSV 추출하기".to_string(),
+                capability: "SHELL_EXEC".to_string(),
+                args: vec![],
+                order: 1,
+            },
+            TaskUnit {
+                desc: "매출 증감률 계산 및 분석".to_string(),
+                capability: "SYSTEM_INFO".to_string(),
+                args: vec![],
+                order: 2,
+            },
+            TaskUnit {
+                desc: "마크다운 보고서 초안 작성".to_string(),
+                capability: "SHELL_EXEC".to_string(),
+                args: vec![],
+                order: 3,
+            },
         ];
         let score = MissionQualityEvaluator::evaluate(&mission);
         assert!(score > 0.7, "Expected quality score > 0.7, got {}", score);
@@ -622,7 +938,10 @@ mod tests {
     fn test_hallucination_detection_repetitive() {
         let repetitive = "아마 아마 아마 아마 불확실 불확실 불확실";
         let score = MissionQualityEvaluator::detect_hallucination(repetitive);
-        assert!(score > 0.1, "Should detect hallucination in repetitive text");
+        assert!(
+            score > 0.1,
+            "Should detect hallucination in repetitive text"
+        );
     }
 
     #[test]
@@ -631,14 +950,22 @@ mod tests {
             ExpertResponse {
                 role: "business_analyst".to_string(),
                 model: "llama3.2:3b".to_string(),
-                response: AiResponse { message: "Low confidence".to_string(), confidence: 0.3, ..Default::default() },
+                response: AiResponse {
+                    message: "Low confidence".to_string(),
+                    confidence: 0.3,
+                    ..Default::default()
+                },
                 latency_ms: 100,
                 hallucination_score: 0.1,
             },
             ExpertResponse {
                 role: "software_engineer".to_string(),
                 model: "qwen2.5:7b".to_string(),
-                response: AiResponse { message: "High confidence".to_string(), confidence: 0.9, ..Default::default() },
+                response: AiResponse {
+                    message: "High confidence".to_string(),
+                    confidence: 0.9,
+                    ..Default::default()
+                },
                 latency_ms: 200,
                 hallucination_score: 0.0,
             },
@@ -652,7 +979,7 @@ mod tests {
         let prompt = FleetMissionPlanner::build_mission_planning_prompt(
             "주간 판매 보고서 만들어줘",
             "business",
-            3
+            3,
         );
         assert!(prompt.contains("주간 판매 보고서 만들어줘"));
         assert!(prompt.contains("3 에이전트"));
@@ -662,5 +989,161 @@ mod tests {
     #[test]
     fn test_process_type_default() {
         assert_eq!(ProcessType::default(), ProcessType::Fleet);
+    }
+
+    // ─── P0-02: EnsembleExecutor Tests ────────────────────────
+
+    #[tokio::test]
+    async fn test_ensemble_executor_parallel_mock() {
+        let config = EnsembleConfig {
+            models: vec![
+                ("model-a".to_string(), ExpertRole::BusinessAnalyst),
+                ("model-b".to_string(), ExpertRole::SoftwareEngineer),
+            ],
+            consensus_threshold: 0.7,
+            max_retries: 1,
+            timeout_ms: 5000,
+        };
+
+        // Mock provider — immediately returns based on model name
+        let mock_provider = |model: String, _sys: String, input: String| async move {
+            Ok(AiResponse {
+                message: format!("[{}] Analyzed: {}", model, input),
+                confidence: if model.contains("-a") { 0.85 } else { 0.92 },
+                provider: model,
+                is_local: true,
+                ..Default::default()
+            })
+        };
+
+        let result =
+            EnsembleExecutor::run_parallel(&config, "분석해줘", "business", mock_provider).await;
+
+        assert_eq!(result.expert_responses.len(), 2);
+        assert!(result.consensus_confidence > 0.5);
+        assert_eq!(result.process_type, ProcessType::Fleet);
+        assert!(result.final_response.message.contains("Analyzed"));
+    }
+
+    #[tokio::test]
+    async fn test_ensemble_executor_handles_errors() {
+        let config = EnsembleConfig {
+            models: vec![
+                ("good-model".to_string(), ExpertRole::Synthesizer),
+                ("bad-model".to_string(), ExpertRole::QaGuardian),
+            ],
+            consensus_threshold: 0.5,
+            max_retries: 0,
+            timeout_ms: 3000,
+        };
+
+        let mock_provider = |model: String, _sys: String, _input: String| async move {
+            if model == "bad-model" {
+                Err("Connection refused".to_string())
+            } else {
+                Ok(AiResponse {
+                    message: "Good response".to_string(),
+                    confidence: 0.9,
+                    provider: model,
+                    is_local: true,
+                    ..Default::default()
+                })
+            }
+        };
+
+        let result =
+            EnsembleExecutor::run_parallel(&config, "test", "general", mock_provider).await;
+
+        // Should still produce a result even with one failure
+        assert_eq!(result.expert_responses.len(), 2);
+        assert!(result.dissent_count >= 1); // bad-model should be counted as dissent
+    }
+
+    // ─── P0-13: Mission Comparison Tests ──────────────────────
+
+    #[test]
+    fn test_mission_comparison_different_quality() {
+        use crate::ai::TaskUnit;
+
+        let mut mission_a = MissionMetadata::default();
+        mission_a.id = "msn-a".to_string();
+        mission_a.name = "High Quality Mission".to_string();
+        mission_a.description =
+            "A well-defined mission with clear objectives and deliverables".to_string();
+        mission_a.tasks = vec![
+            TaskUnit {
+                desc: "Collect sales data from CRM".to_string(),
+                capability: "SHELL_EXEC".to_string(),
+                args: vec![],
+                order: 1,
+            },
+            TaskUnit {
+                desc: "Generate revenue analysis report".to_string(),
+                capability: "SYSTEM_INFO".to_string(),
+                args: vec![],
+                order: 2,
+            },
+            TaskUnit {
+                desc: "Export results as PDF document".to_string(),
+                capability: "SHELL_EXEC".to_string(),
+                args: vec![],
+                order: 3,
+            },
+        ];
+
+        let mut mission_b = MissionMetadata::default();
+        mission_b.id = "msn-b".to_string();
+        mission_b.name = "Low Quality".to_string();
+        mission_b.tasks = vec![TaskUnit {
+            desc: "do it".to_string(),
+            capability: "".to_string(),
+            args: vec![],
+            order: 1,
+        }];
+
+        let comparison = MissionComparisonEngine::compare(&mission_a, &mission_b);
+        assert!(comparison.quality_score_a > comparison.quality_score_b);
+        assert_eq!(comparison.winner, "A");
+        assert!(!comparison.recommendation.is_empty());
+    }
+
+    #[test]
+    fn test_mission_comparison_similar() {
+        use crate::ai::TaskUnit;
+
+        let tasks = vec![
+            TaskUnit {
+                desc: "Analyze market trends from data".to_string(),
+                capability: "SYSTEM_INFO".to_string(),
+                args: vec![],
+                order: 1,
+            },
+            TaskUnit {
+                desc: "Generate competitive analysis".to_string(),
+                capability: "SHELL_EXEC".to_string(),
+                args: vec![],
+                order: 2,
+            },
+            TaskUnit {
+                desc: "Create executive summary PDF".to_string(),
+                capability: "SHELL_EXEC".to_string(),
+                args: vec![],
+                order: 3,
+            },
+        ];
+
+        let mut a = MissionMetadata::default();
+        a.name = "Market Analysis A".to_string();
+        a.description = "Comprehensive market analysis with competitor benchmarking".to_string();
+        a.tasks = tasks.clone();
+
+        let mut b = MissionMetadata::default();
+        b.name = "Market Analysis B".to_string();
+        b.description = "Thorough market analysis with competitive intelligence".to_string();
+        b.tasks = tasks;
+
+        let comparison = MissionComparisonEngine::compare(&a, &b);
+        // Identical missions should result in TIE
+        assert_eq!(comparison.winner, "TIE");
     }
 }

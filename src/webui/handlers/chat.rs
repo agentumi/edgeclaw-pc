@@ -48,7 +48,11 @@ pub async fn handle_chat(
         }
         Err(e) => {
             println!("[ERROR] Chat interaction failed: {}", e);
-            let status = if matches!(e, AgentError::ConnectionError(_)) { 503 } else { 500 };
+            let status = if matches!(e, AgentError::ConnectionError(_)) {
+                503
+            } else {
+                500
+            };
             let err = serde_json::json!({"error": e.to_string()});
             let json = serde_json::to_vec(&err).unwrap_or_default();
             send_response(stream, status, "application/json", &json, cors_origin).await

@@ -1,787 +1,515 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EdgeClaw Agent ??Chat</title>
+<title>EdgeClaw AI Chat</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-:root {
-  --bg: #0f1117;
-  --surface: #1a1d27;
-  --surface2: #242836;
-  --primary: #6c63ff;
-  --primary-light: #8b83ff;
-  --text: #e4e4e7;
-  --text-muted: #9ca3af;
-  --user-bubble: #6c63ff;
-  --agent-bubble: #1e2235;
-  --success: #10b981;
-  --warning: #f59e0b;
-  --error: #ef4444;
-  --radius: 12px;
-}
+  :root {
+    --bg-main: #FFFFFF;
+    --bg-sidebar: #F9F9F9;
+    --border: #E5E5E5;
+    --text-primary: #1A1A1A;
+    --text-secondary: #737373;
+    --hover-bg: #F3F3F3;
+    --accent: #000000;
+  }
+  
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+    color: var(--text-primary);
+    background: var(--bg-main);
+  }
 
-* { margin: 0; padding: 0; box-sizing: border-box; }
+  /* Sidebar */
+  .sidebar {
+    width: 260px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    flex-shrink: 0;
+  }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
+  .new-chat-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 14px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.2s;
+  }
 
-/* ???? Header ???? */
-.header {
-  background: var(--surface);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  padding: 12px 20px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-shrink: 0;
-}
-.header-logo {
-  width: 36px; height: 36px;
-  background: var(--primary);
-  border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 700; font-size: 18px; color: #fff;
-}
-.header-info h1 { font-size: 16px; font-weight: 600; }
-.header-info .sub { font-size: 12px; color: var(--text-muted); }
-.header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
-.header-status {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 12px; color: var(--success);
-}
-.header-status .dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--success);
-  animation: pulse 2s infinite;
-}
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-.agent-badge {
-  font-size: 11px;
-  background: rgba(108,99,255,0.2);
-  color: var(--primary-light);
-  border: 1px solid rgba(108,99,255,0.3);
-  border-radius: 12px;
-  padding: 2px 10px;
-}
+  .new-chat-btn:hover {
+    background: var(--hover-bg);
+  }
 
-/* ???? Profile Tabs ???? */
-.profile-tabs {
-  background: var(--surface);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  padding: 6px 16px;
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0;
-}
-.profile-tab {
-  background: transparent;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 8px;
-  padding: 5px 14px;
-  color: var(--text-muted);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.profile-tab:hover { background: var(--surface2); color: var(--text); }
-.profile-tab.active {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: #fff;
-}
+  .history-list {
+    flex: 1;
+    overflow-y: auto;
+    margin-top: 24px;
+  }
 
-/* ???? Quick Actions ???? */
-.quick-actions {
-  background: var(--surface);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  padding: 8px 16px 10px;
-  flex-shrink: 0;
-  max-height: 180px;
-  overflow-y: auto;
-}
-.quick-actions::-webkit-scrollbar { width: 4px; }
-.quick-actions::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
-.qa-group-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  color: var(--text-muted);
-  margin: 6px 0 4px 2px;
-}
-.qa-group-label:first-child { margin-top: 0; }
-.qa-row {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-bottom: 4px;
-}
-.quick-btn {
-  background: var(--surface2);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 16px;
-  padding: 4px 12px;
-  color: var(--text);
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.2s;
-}
-.quick-btn:hover {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: #fff;
-}
-.quick-btn.confirm {
-  border-color: rgba(245,158,11,0.3);
-  color: var(--warning);
-}
-.quick-btn.confirm:hover {
-  background: var(--warning);
-  border-color: var(--warning);
-  color: #000;
-}
+  .history-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    padding-left: 8px;
+  }
 
-/* ???? Chat Messages ???? */
-.chat-area {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.chat-area::-webkit-scrollbar { width: 6px; }
-.chat-area::-webkit-scrollbar-track { background: transparent; }
-.chat-area::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+  .history-item {
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--text-primary);
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .history-item:hover { background: var(--hover-bg); }
 
-.msg { display: flex; gap: 10px; max-width: 85%; animation: fadeIn 0.3s ease; }
-.msg.user { margin-left: auto; flex-direction: row-reverse; }
-.msg.system { margin: 0 auto; max-width: 90%; }
+  .settings-btn {
+    margin-top: auto;
+    padding: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--text-primary);
+  }
+  .settings-btn:hover { background: var(--hover-bg); }
 
-@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  /* Main Content */
+  .main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    background: var(--bg-main);
+  }
 
-.msg-avatar {
-  width: 32px; height: 32px; border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 14px; flex-shrink: 0;
-}
-.msg.agent .msg-avatar { background: var(--primary); color: #fff; }
-.msg.user .msg-avatar { background: #374151; color: var(--text); }
-.msg.system .msg-avatar { display: none; }
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.3s;
+  }
 
-.msg-content {
-  padding: 10px 14px;
-  border-radius: var(--radius);
-  font-size: 14px; line-height: 1.55;
-}
-.msg.agent .msg-content { background: var(--agent-bubble); border-bottom-left-radius: 4px; }
-.msg.user .msg-content { background: var(--user-bubble); color: #fff; border-bottom-right-radius: 4px; }
-.msg.system .msg-content {
-  background: rgba(108, 99, 255, 0.1);
-  border: 1px solid rgba(108, 99, 255, 0.2);
-  font-size: 12px; color: var(--text-muted);
-  text-align: center; border-radius: 8px;
-  padding: 8px 16px;
-}
+  .empty-logo-wrapper {
+    width: 64px; height: 64px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    background: #FAFAFA;
+    border: 1px solid var(--border);
+    margin-bottom: 24px;
+    font-size: 28px;
+    font-weight: 600;
+  }
 
-.msg-meta {
-  font-size: 11px; color: var(--text-muted);
-  margin-top: 4px;
-}
-.msg.user .msg-meta { text-align: right; }
+  .empty-state h1 {
+    font-size: 28px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
 
-.msg-content pre {
-  background: rgba(0,0,0,0.3);
-  border-radius: 6px;
-  padding: 8px 10px;
-  margin-top: 6px;
-  font-size: 12px;
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
+  .chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 20%;
+    display: none;
+    flex-direction: column;
+    gap: 24px;
+  }
 
-.msg-intent {
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.25);
-  border-radius: 6px;
-  padding: 6px 10px;
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--success);
-  display: flex; align-items: center; gap: 6px;
-}
+  .msg {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 15px;
+    line-height: 1.6;
+    animation: fadeIn 0.3s ease;
+  }
 
-/* ???? Execution Result ???? */
-.exec-result {
-  margin-top: 8px;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid rgba(255,255,255,0.08);
-}
-.exec-header {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-.exec-header.success { background: rgba(16,185,129,0.15); color: var(--success); }
-.exec-header.failed { background: rgba(239,68,68,0.15); color: var(--error); }
-.exec-header .duration {
-  margin-left: auto;
-  font-weight: 400;
-  opacity: 0.8;
-}
-.exec-output {
-  background: rgba(0,0,0,0.4);
-  padding: 10px 12px;
-  font-size: 12px;
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 300px;
-  overflow-y: auto;
-  line-height: 1.5;
-  color: #d4d4d4;
-}
-.exec-output::-webkit-scrollbar { width: 4px; }
-.exec-output::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
-.exec-stderr {
-  border-top: 1px solid rgba(239,68,68,0.2);
-  background: rgba(239,68,68,0.05);
-  padding: 8px 12px;
-  font-size: 12px;
-  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: #f87171;
-  max-height: 150px;
-  overflow-y: auto;
-}
+  .msg.user {
+    align-items: flex-end;
+  }
+  .msg.user .msg-bubble {
+    background: #F4F4F4;
+    padding: 12px 16px;
+    border-radius: 16px;
+    max-width: 80%;
+  }
 
-/* ???? Typing Indicator ???? */
-.typing {
-  display: none;
-  align-items: center;
-  gap: 10px;
-  padding: 0 20px 8px;
-}
-.typing.active { display: flex; }
-.typing-dots { display: flex; gap: 4px; }
-.typing-dots span {
-  width: 6px; height: 6px;
-  background: var(--text-muted);
-  border-radius: 50%;
-  animation: bounce 1.4s infinite ease-in-out;
-}
-.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
-@keyframes bounce {
-  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
-  40% { transform: scale(1); opacity: 1; }
-}
-.typing-text { font-size: 12px; color: var(--text-muted); }
+  .msg.agent .msg-bubble {
+    color: var(--text-primary);
+    max-width: 100%;
+  }
 
-/* ???? Input Area ???? */
-.input-area {
-  background: var(--surface);
-  border-top: 1px solid rgba(255,255,255,0.06);
-  padding: 12px 16px;
-  display: flex;
-  gap: 10px;
-  align-items: flex-end;
-  flex-shrink: 0;
-}
-.input-wrap {
-  flex: 1;
-  background: var(--surface2);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: var(--radius);
-  display: flex;
-  align-items: flex-end;
-}
-.input-wrap:focus-within {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(108,99,255,0.15);
-}
-#chatInput {
-  flex: 1;
-  background: none;
-  border: none;
-  padding: 10px 14px;
-  color: var(--text);
-  font-size: 14px;
-  font-family: inherit;
-  resize: none;
-  outline: none;
-  max-height: 120px;
-  line-height: 1.4;
-}
-#chatInput::placeholder { color: var(--text-muted); }
+  .msg-bubble pre {
+    background: #F9F9F9;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    overflow-x: auto;
+    font-family: monospace;
+    font-size: 13px;
+    margin: 8px 0;
+  }
+  
+  .exec-result {
+    margin-top: 10px;
+    padding: 12px;
+    border-radius: 8px;
+    background: #FAFAFA;
+    border: 1px solid var(--border);
+    font-family: monospace;
+    font-size: 12px;
+    color: #333;
+    white-space: pre-wrap;
+  }
 
-.send-btn {
-  width: 44px; height: 44px;
-  background: var(--primary);
-  border: none;
-  border-radius: var(--radius);
-  color: #fff;
-  cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  transition: all 0.2s;
-  flex-shrink: 0;
-}
-.send-btn:hover { background: var(--primary-light); transform: scale(1.05); }
-.send-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-.send-btn svg { width: 20px; height: 20px; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
-/* ???? Responsive ???? */
-@media (max-width: 600px) {
-  .msg { max-width: 92%; }
-  .header { padding: 10px 14px; }
-  .chat-area { padding: 12px 14px; }
-}
+  /* Input Container */
+  .input-container {
+    padding: 0 20% 24px;
+  }
+
+  .input-box {
+    position: relative;
+    background: #F4F4F4;
+    border-radius: 24px;
+    display: flex;
+    flex-direction: column;
+    padding: 12px 16px;
+    border: 1px solid transparent;
+    transition: border 0.2s;
+  }
+  .input-box:focus-within {
+    border-color: #D4D4D4;
+  }
+
+  .process-selector {
+    position: absolute;
+    top: -40px;
+    left: 10px;
+    background: transparent;
+    border: none;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    outline: none;
+  }
+  .process-selector:hover { color: var(--text-primary); }
+
+  #chatInput {
+    background: transparent;
+    border: none;
+    resize: none;
+    outline: none;
+    font-size: 15px;
+    font-family: 'Inter', sans-serif;
+    line-height: 1.5;
+    padding-right: 40px;
+    max-height: 200px;
+    color: var(--text-primary);
+  }
+  #chatInput::placeholder { color: #A3A3A3; }
+
+  .send-btn {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: var(--text-secondary);
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    transition: background 0.2s;
+  }
+  .send-btn.active {
+    background: var(--accent);
+  }
+
+  .input-disclaimer {
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 12px;
+  }
+
+  .typing-indicator {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .typing-indicator.active { display: flex; }
+  .dot {
+    width: 6px; height: 6px;
+    background: var(--text-secondary);
+    border-radius: 50%;
+    animation: blink 1.4s infinite;
+  }
+  .dot:nth-child(2) { animation-delay: 0.2s; }
+  .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink { 0%, 100% { opacity: 0.4; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1); } }
+  
+  /* Responsive */
+  @media (max-width: 768px) {
+    .sidebar { display: none; }
+    .chat-area { padding: 20px 5%; }
+    .input-container { padding: 0 5% 20px; }
+  }
 </style>
 </head>
 <body>
 
-<!-- Header -->
-<div class="header">
-  <div class="header-logo">E</div>
-  <div class="header-info">
-    <h1>EdgeClaw Agent</h1>
-    <div class="sub" id="headerSub">Connecting...</div>
-  </div>
-  <div class="header-right">
-    <span class="agent-badge" id="agentBadge"></span>
-    <div class="header-status" id="statusBadge">
-      <span class="dot"></span>
-      <span id="statusText">Online</span>
-    </div>
-    <div id="wsIndicator" title="WebSocket: Connecting" style="width:8px;height:8px;border-radius:50%;background:var(--warning);"></div>
-  </div>
-</div>
-
-<!-- Profile Tabs -->
-<div class="profile-tabs" id="profileTabs">
-  <button class="profile-tab active" data-profile="all">All</button>
-  <button class="profile-tab" data-profile="System">System</button>
-  <button class="profile-tab" data-profile="SoftwareDev">Software Dev</button>
-  <button class="profile-tab" data-profile="Marketing">Marketing</button>
-</div>
-
-<!-- Quick Actions -->
-<div class="quick-actions" id="quickActions"></div>
-
-<!-- Chat Area -->
-<div class="chat-area" id="chatArea">
-  <div class="msg system">
-    <div class="msg-content">EdgeClaw Agent Chat ??Zero-Trust Edge AI<br>Type <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-size:12px;">help</code> for available commands</div>
-  </div>
-</div>
-
-<!-- Typing Indicator -->
-<div class="typing" id="typingIndicator">
-  <div class="typing-dots"><span></span><span></span><span></span></div>
-  <span class="typing-text">Agent is executing...</span>
-</div>
-
-<!-- Input -->
-<div class="input-area">
-  <div class="input-wrap">
-    <textarea id="chatInput" rows="1" placeholder="Type a command... (status, cpu, git status, build, help)" autocomplete="off"></textarea>
-  </div>
-  <button class="send-btn" id="sendBtn" title="Send">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <line x1="22" y1="2" x2="11" y2="13"></line>
-      <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-    </svg>
+<div class="sidebar">
+  <button class="new-chat-btn" onclick="location.reload()">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+    New Chat
   </button>
+  
+  <div class="history-list" id="historyList">
+    <div class="history-label">Today</div>
+    <!-- History items injected here -->
+  </div>
+
+  <div class="settings-btn" onclick="window.location.href='/settings'">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+    Settings
+  </div>
+</div>
+
+<div class="main-content">
+  <div class="empty-state" id="emptyState">
+    <div class="empty-logo-wrapper">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+    </div>
+    <h1>How can I help you?</h1>
+  </div>
+
+  <div class="chat-area" id="chatArea">
+    <!-- Messages injected here -->
+  </div>
+
+  <div class="input-container">
+    <select id="processSelector" class="process-selector">
+      <option value="Fleet">Fleet V2 ∨</option>
+      <option value="Quantum">Quantum V3 ∨</option>
+      <option value="Auto">Auto ∨</option>
+    </select>
+    
+    <div class="input-box">
+      <textarea id="chatInput" rows="1" placeholder="Message EdgeClaw..." autofocus></textarea>
+      <button id="sendBtn" class="send-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+      </button>
+    </div>
+    
+    <div class="typing-indicator" id="typingIndicator">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <span style="font-size:12px; color:var(--text-secondary); margin-left:4px;">Thinking...</span>
+    </div>
+
+    <div class="input-disclaimer">
+      EdgeClaw AI is autonomous and may execute system actions. Consider verifying outputs.
+    </div>
+  </div>
 </div>
 
 <script>
-const API = window.location.origin;
-const chatArea = document.getElementById('chatArea');
-const chatInput = document.getElementById('chatInput');
-const sendBtn = document.getElementById('sendBtn');
-const typingIndicator = document.getElementById('typingIndicator');
-const quickActions = document.getElementById('quickActions');
-const headerSub = document.getElementById('headerSub');
-const statusBadge = document.getElementById('statusBadge');
-const statusText = document.getElementById('statusText');
-const agentBadge = document.getElementById('agentBadge');
+  const API = window.location.origin;
+  const chatInput = document.getElementById('chatInput');
+  const sendBtn = document.getElementById('sendBtn');
+  const chatArea = document.getElementById('chatArea');
+  const emptyState = document.getElementById('emptyState');
+  const typingIndicator = document.getElementById('typingIndicator');
+  const processSelector = document.getElementById('processSelector');
+  const historyList = document.getElementById('historyList');
 
-let sending = false;
-let allActions = [];
-let activeProfile = 'all';
+  let sending = false;
 
-// ???? Profile Tab Switching ????
-document.getElementById('profileTabs').addEventListener('click', (e) => {
-  const tab = e.target.closest('.profile-tab');
-  if (!tab) return;
-  document.querySelectorAll('.profile-tab').forEach(t => t.classList.remove('active'));
-  tab.classList.add('active');
-  activeProfile = tab.dataset.profile;
-  renderQuickActions();
-});
+  // Auto-resize input
+  chatInput.addEventListener('input', () => {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 200) + 'px';
+    if(chatInput.value.trim().length > 0) {
+      sendBtn.classList.add('active');
+    } else {
+      sendBtn.classList.remove('active');
+    }
+  });
 
-// ???? Auto-resize textarea ????
-chatInput.addEventListener('input', () => {
-  chatInput.style.height = 'auto';
-  chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
-});
+  chatInput.addEventListener('keydown', (e) => {
+    if(e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
 
-// ???? Send on Enter (Shift+Enter for newline) ????
-chatInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
-});
+  sendBtn.addEventListener('click', sendMessage);
 
-sendBtn.addEventListener('click', sendMessage);
-
-// ???? Add message to UI ????
-function addMessage(role, text, meta) {
-  const div = document.createElement('div');
-  div.className = `msg ${role}`;
-
-  let avatarChar = role === 'agent' ? 'E' : role === 'user' ? 'U' : '';
-  let avatar = role !== 'system' ? `<div class="msg-avatar">${avatarChar}</div>` : '';
-
-  let content = escapeHtml(text);
-  content = content.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
-  content = content.replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;font-size:12px;">$1</code>');
-  content = content.replace(/\n/g, '<br>');
-
-  // Intelligent JSON-to-Mission Parser
-  let missionData = meta && meta.intent && meta.intent.mission ? meta.intent.mission : null;
-  if (!missionData && text.includes('{')) {
+  processSelector.addEventListener('change', async (e) => {
     try {
-      const extracted = JSON.parse(text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1));
-      if (extracted.mission) missionData = extracted.mission;
-      else if (extracted.id && extracted.tasks) missionData = extracted;
+      await fetch(`${API}/api/v3/process-type`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: e.target.value })
+      });
+    } catch(err) {
+      console.warn("Failed to set process type", err);
+    }
+  });
+
+  // Load initial process type
+  async function loadInitialProcessType() {
+    try {
+      const resp = await fetch(`${API}/api/v3/process-type`);
+      if(resp.ok) {
+        const data = await resp.json();
+        // data.process_type might be "Fleet", "Quantum", "Auto"
+        let pt = data.process_type || "Fleet";
+        pt = pt.charAt(0).toUpperCase() + pt.slice(1);
+        processSelector.value = pt;
+      }
     } catch(e) {}
   }
 
-  if (missionData) {
-    const mission = missionData;
-    const tasksHtml = (mission.tasks || []).map(t => `
-        <div style="background:rgba(255,255,255,0.05); padding:6px 10px; border-radius:6px; border-left:2px solid var(--primary); margin-top:5px; font-size:11px; display:flex; justify-content:space-between;">
-            <span>${t.desc}</span>
-            <code style="opacity:0.6; font-size:9px;">${t.capability}</code>
-        </div>
-    `).join('');
-
-    execHtml += `
-      <div style="margin-top:15px; background:var(--surface2); border:1px solid var(--primary); border-radius:12px; padding:15px; box-shadow:0 8px 24px rgba(0,0,0,0.2);">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-            <div style="color:var(--primary-light); font-size:10px; font-weight:700; letter-spacing:1px; text-transform:uppercase;"><i class="fa-solid fa-sparkles"></i> PROPOSED MISSION</div>
-            <div style="background:var(--primary); color:white; font-size:9px; padding:2px 8px; border-radius:10px;">CI ENGINE</div>
-        </div>
-        <div style="font-weight:700; font-size:16px; margin-bottom:6px;">${mission.title || 'Untitled'}</div>
-        <div style="font-size:12px; color:var(--text-muted); line-height:1.4; margin-bottom:12px;">${mission.description || ''}</div>
-        <div style="margin-bottom:15px;">${tasksHtml}</div>
-        <button class="send-btn" style="width:100%; height:auto; padding:12px; font-weight:700; font-size:13px;" onclick="confirmMission('${mission.id}')">
-            ACTIVATE CI WORKFLOW
-        </button>
-      </div>
-    `;
+  // Load simple history
+  async function loadHistory() {
+    try {
+      const res = await fetch(`${API}/api/chat/history`);
+      if(res.ok) {
+        const data = await res.json();
+        const pastReq = data.messages?.filter(m => m.role === 'user').reverse().slice(0, 5) || [];
+        if(pastReq.length > 0) {
+           emptyState.style.display = 'none';
+           chatArea.style.display = 'flex';
+           data.messages.forEach(m => {
+              addMessageToUI(m.role, m.content, m.meta);
+           });
+        }
+      }
+    } catch(e) {}
   }
 
-  let metaHtml = '';
-  if (meta && meta.provider) {
-    metaHtml = `<div class="msg-meta">${escapeHtml(meta.provider)} 夷?${(meta.confidence * 100).toFixed(0)}%</div>`;
-  } else if (role === 'user') {
-    metaHtml = `<div class="msg-meta">${new Date().toLocaleTimeString()}</div>`;
-  }
+  function addMessageToUI(role, text, meta) {
+    const div = document.createElement('div');
+    div.className = `msg ${role}`;
+    
+    let content = escapeHtml(text);
+    content = content.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
+    content = content.replace(/`([^`]+)`/g, '<code style="background:#F4F4F4;padding:2px 4px;border-radius:4px;">$1</code>');
+    content = content.replace(/\n/g, '<br>');
 
-  div.innerHTML = `${avatar}<div style="flex:1;min-width:0"><div class="msg-content">${content}${intentHtml}${execHtml}</div>${metaHtml}</div>`;
-  chatArea.appendChild(div);
-  chatArea.scrollTop = chatArea.scrollHeight;
-}
-
-function escapeHtml(str) {
-  const d = document.createElement('div');
-  d.textContent = str;
-  return d.innerHTML;
-}
-
-// ???? Send message ????
-async function sendMessage() {
-  const text = chatInput.value.trim();
-  if (!text || sending) return;
-
-  sending = true;
-  sendBtn.disabled = true;
-  addMessage('user', text);
-  chatInput.value = '';
-  chatInput.style.height = 'auto';
-
-  typingIndicator.classList.add('active');
-  chatArea.scrollTop = chatArea.scrollHeight;
-
-  try {
-    const res = await fetch(`${API}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text }),
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(err || `HTTP ${res.status}`);
+    let execHtml = '';
+    if(meta && meta.exec_result) {
+       const color = meta.exec_result.success ? '#10b981' : '#ef4444';
+       const icon = meta.exec_result.success ? '?' : '?';
+       execHtml = `
+         <div class="exec-result" style="border-left: 3px solid ${color}">
+            <div style="font-weight:600; margin-bottom:4px; color:${color}">${icon} Executed (Exit: ${meta.exec_result.exit_code})</div>
+            ${escapeHtml(meta.exec_result.stdout || meta.exec_result.stderr || '')}
+         </div>
+       `;
     }
 
-    const data = await res.json();
-    addMessage('agent', data.message, {
-      provider: data.provider,
-      confidence: data.confidence,
-      intent: data.intent,
-      exec_result: data.exec_result,
-    });
-  } catch (err) {
-    addMessage('system', `Error: ${err.message}`);
-  } finally {
-    typingIndicator.classList.remove('active');
-    sending = false;
-    sendBtn.disabled = false;
-    chatInput.focus();
+    div.innerHTML = `<div class="msg-bubble">${content}${execHtml}</div>`;
+    chatArea.appendChild(div);
+    chatArea.scrollTop = chatArea.scrollHeight;
   }
-}
 
-// ???? Render quick actions (grouped by profile/group) ????
-function renderQuickActions() {
-  const filtered = activeProfile === 'all'
-    ? allActions
-    : allActions.filter(a => a.profile === activeProfile || a.profile === 'System');
-
-  // Group by group label
-  const groups = {};
-  filtered.forEach(a => {
-    const key = a.group || 'Other';
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(a);
-  });
-
-  quickActions.innerHTML = '';
-  for (const [groupName, actions] of Object.entries(groups)) {
-    const label = document.createElement('div');
-    label.className = 'qa-group-label';
-    label.textContent = groupName;
-    quickActions.appendChild(label);
-
-    const row = document.createElement('div');
-    row.className = 'qa-row';
-    actions.forEach(a => {
-      const btn = document.createElement('button');
-      btn.className = `quick-btn${a.needs_confirmation ? ' confirm' : ''}`;
-      btn.textContent = a.label;
-      btn.title = a.command;
-      btn.onclick = () => {
-        if (a.needs_confirmation) {
-          if (!confirm(`Execute: ${a.command}?`)) return;
-        }
-        chatInput.value = a.command;
-        sendMessage();
-      };
-      row.appendChild(btn);
-    });
-    quickActions.appendChild(row);
+  function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
   }
-}
 
-// ???? Load quick actions ????
-async function loadQuickActions() {
-  try {
-    const res = await fetch(`${API}/api/quick-actions`);
-    if (!res.ok) return;
-    allActions = await res.json();
-    renderQuickActions();
-  } catch (_) {}
-}
+  async function sendMessage() {
+    const text = chatInput.value.trim();
+    if (!text || sending) return;
 
-// ???? Load status ????
-async function loadStatus() {
-  try {
-    const res = await fetch(`${API}/api/status`);
-    if (!res.ok) throw new Error();
-    const data = await res.json();
-    headerSub.textContent = `${data.provider || 'none'} 夷?Port ${data.port || '?'} 夷?${data.capabilities || 0} caps`;
-    statusText.textContent = 'Online';
-    statusBadge.querySelector('.dot').style.background = 'var(--success)';
-    statusBadge.style.color = 'var(--success)';
-  } catch (_) {
-    headerSub.textContent = 'Disconnected';
-    statusText.textContent = 'Offline';
-    statusBadge.querySelector('.dot').style.background = 'var(--error)';
-    statusBadge.style.color = 'var(--error)';
+    sending = true;
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+    sendBtn.classList.remove('active');
+
+    if(emptyState.style.display !== 'none') {
+       emptyState.style.display = 'none';
+       chatArea.style.display = 'flex';
+    }
+
+    addMessageToUI('user', text, null);
+    typingIndicator.classList.add('active');
+    chatArea.scrollTop = chatArea.scrollHeight;
+
+    try {
+      const res = await fetch(`${API}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text }),
+      });
+
+      if (!res.ok) {
+        throw new Error(await res.text() || `HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      addMessageToUI('agent', data.message, { exec_result: data.exec_result });
+      
+      // Add to sidebar history
+      if(historyList.children.length > 5) {
+         historyList.removeChild(historyList.lastChild);
+      }
+      const item = document.createElement('div');
+      item.className = 'history-item';
+      item.textContent = text.substring(0, 30);
+      historyList.insertBefore(item, historyList.children[1]);
+
+    } catch (err) {
+      addMessageToUI('agent', `**System Error:** ${err.message}`, null);
+    } finally {
+      typingIndicator.classList.remove('active');
+      sending = false;
+      chatInput.focus();
+    }
   }
-}
 
-// ???? Load agent info ????
-async function loadAgents() {
-  try {
-    const res = await fetch(`${API}/api/agents`);
-    if (!res.ok) return;
-    const data = await res.json();
-    const tier = data.license_tier || 'free';
-    const max = data.max_agents || 1;
-    agentBadge.textContent = `${tier} 夷?${max} agent${max > 1 ? 's' : ''}`;
-  } catch (_) {
-    agentBadge.textContent = '';
-  }
-}
-
-// ???? Init ????
-loadStatus();
-loadQuickActions();
-loadAgents();
-chatInput.focus();
-
-// Refresh status every 30s
-setInterval(loadStatus, 30000);
-
-// ???? WebSocket Real-Time Events ????
-let ws = null;
-let wsReconnectTimer = null;
-// Smart WebSocket port resolution
-const WS_PORT = window.EDGECLAW_WS_PORT || 9460; 
-const WS_URL = `ws://${window.location.hostname}:${WS_PORT}`;
-
-function connectWebSocket() {
-  if (ws && ws.readyState === WebSocket.OPEN) return;
-  try {
-    ws = new WebSocket(WS_URL);
-
-    ws.onopen = () => {
-      console.log('[WS] Connected to', WS_URL);
-      const wsIndicator = document.getElementById('wsIndicator');
-      if (wsIndicator) {
-        wsIndicator.style.background = 'var(--success)';
-        wsIndicator.title = 'WebSocket: Connected';
-      }
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        handleWsEvent(data);
-      } catch (e) {
-        console.warn('[WS] Parse error:', e);
-      }
-    };
-
-    ws.onclose = () => {
-      console.log('[WS] Disconnected');
-      const wsIndicator = document.getElementById('wsIndicator');
-      if (wsIndicator) {
-        wsIndicator.style.background = 'var(--warning)';
-        wsIndicator.title = 'WebSocket: Disconnected';
-      }
-      // Auto-reconnect after 5s
-      if (!wsReconnectTimer) {
-        wsReconnectTimer = setTimeout(() => {
-          wsReconnectTimer = null;
-          connectWebSocket();
-        }, 5000);
-      }
-    };
-
-    ws.onerror = () => {
-      console.warn('[WS] Connection error');
-    };
-  } catch (e) {
-    console.warn('[WS] Failed to connect:', e);
-  }
-}
-
-function handleWsEvent(data) {
-  const type = data.type;
-  const payload = data.data;
-
-  switch (type) {
-    case 'MetricUpdate':
-      // Update header with live metrics
-      if (payload) {
-        const cpu = (payload.cpu_percent || 0).toFixed(1);
-        const mem = (payload.memory_percent || 0).toFixed(1);
-        headerSub.textContent = headerSub.textContent.replace(
-          /CPU:[\d.]+%.*$/,
-          `CPU:${cpu}% MEM:${mem}%`
-        );
-      }
-      break;
-
-    case 'CommandStarted':
-      if (payload) {
-        addSystemEvent(`??Executing: ${payload.command || '...'}`);
-      }
-      break;
-
-    case 'CommandCompleted':
-      if (payload) {
-        const icon = payload.success ? '?? : '??;
-        const ms = payload.duration_ms || 0;
-        addSystemEvent(`${icon} Command completed (${ms}ms, exit: ${payload.exit_code ?? '?'})`);
-      }
-      break;
-
-    case 'PeerConnected':
-      if (payload) {
-        addSystemEvent(`?逾?Peer connected: ${payload.device_name || payload.peer_id}`);
-      }
-      break;
-
-    case 'PeerDisconnected':
-      if (payload) {
-        addSystemEvent(`?逾?Peer disconnected: ${payload.peer_id} (${payload.reason || ''})`);
-      }
-      break;
-
-    case 'Alert':
-      if (payload) {
-        const sev = payload.severity === 'Critical' ? '?逾? : payload.severity === 'Warning' ? '??? : '?諭꾪닔';
-        addSystemEvent(`${sev} ${payload.message}`);
-      }
-      break;
-
-    case 'StatusChange':
-      if (payload) {
-        addSystemEvent(`?諭?Status: ${payload.previous} ??${payload.current}`);
-        loadStatus(); // Refresh status
-      }
-      break;
-
-    default:
-      break;
-  }
-}
-
-function addSystemEvent(text) {
-  const div = document.createElement('div');
-  div.className = 'msg system';
-  div.style.cssText = 'text-align:center;font-size:12px;color:var(--text-muted);padding:4px 0;opacity:0.8;';
-  div.textContent = text;
-  chatArea.appendChild(div);
-  chatArea.scrollTop = chatArea.scrollHeight;
-}
-
-// Start WebSocket connection
-connectWebSocket();
+  // Init
+  loadInitialProcessType();
+  loadHistory();
 </script>
 </body>
 </html>

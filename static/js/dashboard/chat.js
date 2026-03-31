@@ -306,6 +306,27 @@ export function initChat({ getCurrentMode, appendSessionLog, renderEconomy, fetc
                         addMsg('system', `[${status}] Command finished in ${payload.duration_ms}ms (code: ${payload.exit_code ?? '?'})`);
                         if (appendSessionLog) appendSessionLog(`Command ${status.toLowerCase()}: ${payload.command}`, payload.success ? 'info' : 'error');
                         break;
+                    case 'CommandOutput':
+                        const streamEl = document.getElementById('liveStreamOutput');
+                        if (streamEl) {
+                            if (streamEl.innerHTML.includes('Awaiting stdout/stderr streams...')) {
+                                streamEl.innerHTML = '';
+                            }
+                            if (payload.stdout) {
+                                const chunk = document.createElement('div');
+                                chunk.style.color = 'var(--accent-green)';
+                                chunk.textContent = payload.stdout;
+                                streamEl.appendChild(chunk);
+                            }
+                            if (payload.stderr) {
+                                const chunk = document.createElement('div');
+                                chunk.style.color = 'var(--accent-red)';
+                                chunk.textContent = payload.stderr;
+                                streamEl.appendChild(chunk);
+                            }
+                            streamEl.scrollTop = streamEl.scrollHeight;
+                        }
+                        break;
                     case 'PeerConnected':
                         addMsg('system', `Peer connected: ${payload.device_name || payload.peer_id}`);
                         if (appendSessionLog) appendSessionLog(`Peer connected: ${payload.device_name || payload.peer_id}`, 'info');

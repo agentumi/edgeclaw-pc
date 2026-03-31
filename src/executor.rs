@@ -42,6 +42,7 @@ pub struct Executor {
     allowed_paths: Vec<String>,
     /// Pipe commands that are allowed through injection detection (e.g. `grep`, `head`, `sort`)
     allowed_pipe_commands: Vec<String>,
+    event_bus: Option<std::sync::Arc<crate::events::EventBus>>,
     active_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
@@ -58,6 +59,7 @@ impl Executor {
             max_timeout_secs,
             allowed_paths,
             allowed_pipe_commands: Vec::new(),
+            event_bus: None,
             active_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
@@ -80,8 +82,14 @@ impl Executor {
             max_timeout_secs,
             allowed_paths,
             allowed_pipe_commands,
+            event_bus: None,
             active_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
+    }
+
+    /// Set an event bus for real-time stdout/stderr streaming.
+    pub fn set_event_bus(&mut self, event_bus: std::sync::Arc<crate::events::EventBus>) {
+        self.event_bus = Some(event_bus);
     }
 
     /// Execute a command with timeout and resource limits
@@ -151,41 +159,128 @@ impl Executor {
             cmd.current_dir(dir);
         }
 
+        // Configure Stdio to pipe output
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+
+        let execution_id = request.execution_id.clone();
+
+        if let Some(ref bus) = self.event_bus {
+            bus.publish(crate::events::AgentEvent::CommandStarted {
+                execution_id: execution_id.clone(),
+                command: format!("{} {:?}", request.command, request.args).trim().to_string(),
+                peer_id: "local".into(),
+                timestamp: chrono::Utc::now(),
+            });
+        }
+
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => return Err(AgentError::ExecutionError(e.to_string())),
+        };
+
+        use tokio::io::AsyncBufReadExt;
+
+        let mut stdout_handle = None;
+        if let Some(stdout) = child.stdout.take() {
+            let mut reader = tokio::io::BufReader::new(stdout).lines();
+            let bus = self.event_bus.clone();
+            let exec_id = execution_id.clone();
+            stdout_handle = Some(tokio::spawn(async move {
+                let mut out = String::new();
+                while let Ok(Some(line)) = reader.next_line().await {
+                    if let Some(ref b) = bus {
+                        b.publish(crate::events::AgentEvent::CommandOutput {
+                            execution_id: exec_id.clone(),
+                            stream: crate::events::OutputStream::Stdout,
+                            data: format!("{}\\n", line),
+                        });
+                    }
+                    out.push_str(&line);
+                    out.push('\n');
+                }
+                out
+            }));
+        }
+
+        let mut stderr_handle = None;
+        if let Some(stderr) = child.stderr.take() {
+            let mut reader = tokio::io::BufReader::new(stderr).lines();
+            let bus = self.event_bus.clone();
+            let exec_id = execution_id.clone();
+            stderr_handle = Some(tokio::spawn(async move {
+                let mut out = String::new();
+                while let Ok(Some(line)) = reader.next_line().await {
+                    if let Some(ref b) = bus {
+                        b.publish(crate::events::AgentEvent::CommandOutput {
+                            execution_id: exec_id.clone(),
+                            stream: crate::events::OutputStream::Stderr,
+                            data: format!("{}\\n", line),
+                        });
+                    }
+                    out.push_str(&line);
+                    out.push('\n');
+                }
+                out
+            }));
+        }
+
         // Execute with timeout
-        let output = tokio::time::timeout(std::time::Duration::from_secs(timeout), cmd.output())
-            .await
-            .map_err(|_| AgentError::Timeout(timeout))?
-            .map_err(|e| AgentError::ExecutionError(e.to_string()))?;
+        let status = match tokio::time::timeout(std::time::Duration::from_secs(timeout), child.wait()).await {
+            Ok(Ok(s)) => s,
+            Ok(Err(e)) => return Err(AgentError::ExecutionError(e.to_string())),
+            Err(_) => {
+                let _ = child.kill().await;
+                return Err(AgentError::Timeout(timeout));
+            }
+        };
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
+        if let Some(ref bus) = self.event_bus {
+            bus.publish(crate::events::AgentEvent::CommandCompleted {
+                execution_id: execution_id.clone(),
+                success: status.success(),
+                exit_code: status.code(),
+                duration_ms,
+            });
+        }
+
+        // Wait for output streaming to finish capturing
+        let mut raw_stdout = String::new();
+        if let Some(h) = stdout_handle {
+            raw_stdout = h.await.unwrap_or_default();
+        }
+        let mut raw_stderr = String::new();
+        if let Some(h) = stderr_handle {
+            raw_stderr = h.await.unwrap_or_default();
+        }
+
         // Truncate oversized output
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let stdout = if stdout.len() > MAX_OUTPUT_SIZE {
+        let stdout = if raw_stdout.len() > MAX_OUTPUT_SIZE {
             format!(
                 "{}... [truncated at {} bytes]",
-                &stdout[..MAX_OUTPUT_SIZE],
+                &raw_stdout[..MAX_OUTPUT_SIZE],
                 MAX_OUTPUT_SIZE
             )
         } else {
-            stdout
+            raw_stdout
         };
-        let stderr = if stderr.len() > MAX_OUTPUT_SIZE {
+        let stderr = if raw_stderr.len() > MAX_OUTPUT_SIZE {
             format!(
                 "{}... [truncated at {} bytes]",
-                &stderr[..MAX_OUTPUT_SIZE],
+                &raw_stderr[..MAX_OUTPUT_SIZE],
                 MAX_OUTPUT_SIZE
             )
         } else {
-            stderr
+            raw_stderr
         };
 
         Ok(ExecResponse {
             execution_id: request.execution_id,
             action: request.action,
-            success: output.status.success(),
-            exit_code: output.status.code(),
+            success: status.success(),
+            exit_code: status.code(),
             stdout,
             stderr,
             duration_ms,

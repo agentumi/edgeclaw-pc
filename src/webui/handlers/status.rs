@@ -32,13 +32,23 @@ pub async fn handle_status(
     cors_origin: &str,
 ) -> Result<(), AgentError> {
     let (provider, ai_available, ai_local) = {
-        let ai = engine.ai_manager().lock().unwrap_or_else(|e| e.into_inner());
-        (ai.provider_name().to_string(), ai.is_available(), ai.is_local())
+        let ai = engine
+            .ai_manager()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        (
+            ai.provider_name().to_string(),
+            ai.is_available(),
+            ai.is_local(),
+        )
     };
     let sys = engine.get_system_info();
     let caps = engine.get_capabilities();
     let active_mission = {
-        let ai = engine.ai_manager().lock().unwrap_or_else(|e| e.into_inner());
+        let ai = engine
+            .ai_manager()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         ai.active_mission().map(|m| {
             serde_json::json!({
                 "id": m.id,

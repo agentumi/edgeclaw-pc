@@ -530,6 +530,9 @@ pub async fn handle_memory_lesson_add(
         source_errors: Vec::new(),
         applied_count: 0,
         effectiveness,
+        domain: String::new(),
+        success_count: 0,
+        failure_count: 0,
     };
 
     {

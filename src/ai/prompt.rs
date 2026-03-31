@@ -18,8 +18,12 @@ pub fn build_prompt(request: &AiRequest) -> String {
         .collect::<Vec<_>>()
         .join("\n");
 
-    let lang = request.preferred_language.as_deref().unwrap_or("english").to_lowercase();
-    
+    let lang = request
+        .preferred_language
+        .as_deref()
+        .unwrap_or("english")
+        .to_lowercase();
+
     // Define language-specific rules and few-shot examples
     let (lang_rules, mission_example) = if lang == "korean" || lang == "ko" {
         (
@@ -40,7 +44,7 @@ pub fn build_prompt(request: &AiRequest) -> String {
       ]
     }
   }
-}"#
+}"#,
         )
     } else {
         (
@@ -61,11 +65,12 @@ pub fn build_prompt(request: &AiRequest) -> String {
       ]
     }
   }
-}"#
+}"#,
         )
     };
 
-    let persona = format!(r#"You are the EdgeClaw CI Orchestrator (EC-CIO), a high-precision business automation expert.
+    let persona = format!(
+        r#"You are the EdgeClaw CI Orchestrator (EC-CIO), a high-precision business automation expert.
 Your goal is to analyze user requests and propose a structured 'Mission' plan.
 
 THOUGHT PROCESS:
@@ -77,7 +82,8 @@ LANGUAGE RULES:
 {lang_rules}
 
 Respond ONLY in this JSON format:
-{mission_example}"#);
+{mission_example}"#
+    );
 
     format!(
         r#"{persona}

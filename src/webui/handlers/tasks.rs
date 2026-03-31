@@ -351,8 +351,14 @@ pub async fn handle_mission_confirm(
             Ok(m.clone())
         } else {
             let known: Vec<String> = missions.keys().cloned().collect();
-            println!("[V2.4] Mission ID '{}' not in registry. Known: {:?}", req.mission_id, known);
-            Err(format!("mission not found: {}. Known: {:?}", req.mission_id, known))
+            println!(
+                "[V2.4] Mission ID '{}' not in registry. Known: {:?}",
+                req.mission_id, known
+            );
+            Err(format!(
+                "mission not found: {}. Known: {:?}",
+                req.mission_id, known
+            ))
         }
     };
 

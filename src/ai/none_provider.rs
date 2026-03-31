@@ -1,12 +1,20 @@
-use crate::error::AgentError;
 use super::{AiProvider, AiRequest, AiResponse, ParsedIntent};
+use crate::error::AgentError;
 
 /// No AI — just parses simple commands directly via a built-in rule engine.
 /// Essential for low-latency system control and reliable deterministic tasks.
 pub struct NoneProvider;
 
+impl Default for NoneProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NoneProvider {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
     /// Cross-platform command parsing (Windows + Linux)
     fn parse_simple_command(input: &str) -> Option<ParsedIntent> {
@@ -24,32 +32,37 @@ impl NoneProvider {
     }
 
     #[cfg(target_os = "windows")]
-    fn parse_windows_command(cmd: &str, arg1: &str, _arg2: &str, _raw: &str) -> Option<ParsedIntent> {
+    fn parse_windows_command(
+        cmd: &str,
+        arg1: &str,
+        _arg2: &str,
+        _raw: &str,
+    ) -> Option<ParsedIntent> {
         match cmd {
-            "status" | "상태" => Some(ParsedIntent { 
-                capability: "status_query".into(), 
+            "status" | "상태" => Some(ParsedIntent {
+                capability: "status_query".into(),
                 command: "systeminfo | findstr /B /C:\"OS Name\" /C:\"OS Version\"".into(),
-                ..Default::default() 
+                ..Default::default()
             }),
-            "cpu" | "cpu사용량" => Some(ParsedIntent { 
-                capability: "system_info".into(), 
-                command: "wmic cpu get loadpercentage,name /format:list".into(), 
-                ..Default::default() 
+            "cpu" | "cpu사용량" => Some(ParsedIntent {
+                capability: "system_info".into(),
+                command: "wmic cpu get loadpercentage,name /format:list".into(),
+                ..Default::default()
             }),
-            "memory" | "메모리" | "ram" => Some(ParsedIntent { 
-                capability: "system_info".into(), 
-                command: "powershell -Command \"Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory\"".into(), 
-                ..Default::default() 
+            "memory" | "메모리" | "ram" => Some(ParsedIntent {
+                capability: "system_info".into(),
+                command: "powershell -Command \"Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize,FreePhysicalMemory\"".into(),
+                ..Default::default()
             }),
-            "disk" | "디스크" => Some(ParsedIntent { 
-                capability: "system_info".into(), 
-                command: "powershell -Command \"Get-PSDrive -PSProvider FileSystem\"".into(), 
-                ..Default::default() 
+            "disk" | "디스크" => Some(ParsedIntent {
+                capability: "system_info".into(),
+                command: "powershell -Command \"Get-PSDrive -PSProvider FileSystem\"".into(),
+                ..Default::default()
             }),
-            "ps" | "process" | "프로세스" => Some(ParsedIntent { 
-                capability: "process_manage".into(), 
-                command: "powershell -Command \"Get-Process | Select-Object Name,Id,CPU | Format-Table\"".into(), 
-                ..Default::default() 
+            "ps" | "process" | "프로세스" => Some(ParsedIntent {
+                capability: "process_manage".into(),
+                command: "powershell -Command \"Get-Process | Select-Object Name,Id,CPU | Format-Table\"".into(),
+                ..Default::default()
             }),
             "ls" | "dir" | "파일" => Some(ParsedIntent {
                 capability: "file_read".into(),
@@ -69,19 +82,39 @@ impl NoneProvider {
     #[cfg(not(target_os = "windows"))]
     fn parse_linux_command(cmd: &str, arg1: &str, _arg2: &str, _raw: &str) -> Option<ParsedIntent> {
         match cmd {
-            "status" | "상태" => Some(ParsedIntent { capability: "status_query".into(), command: "uname -a && uptime".into(), ..Default::default() }),
-            "cpu" => Some(ParsedIntent { capability: "system_info".into(), command: "top -bn1 | grep Cpu".into(), ..Default::default() }),
-            "ls" | "list" | "파일" => Some(ParsedIntent { capability: "file_read".into(), command: format!("ls -lh {}", if arg1.is_empty() { "." } else { arg1 }), ..Default::default() }),
+            "status" | "상태" => Some(ParsedIntent {
+                capability: "status_query".into(),
+                command: "uname -a && uptime".into(),
+                ..Default::default()
+            }),
+            "cpu" => Some(ParsedIntent {
+                capability: "system_info".into(),
+                command: "top -bn1 | grep Cpu".into(),
+                ..Default::default()
+            }),
+            "ls" | "list" | "파일" => Some(ParsedIntent {
+                capability: "file_read".into(),
+                command: format!("ls -lh {}", if arg1.is_empty() { "." } else { arg1 }),
+                ..Default::default()
+            }),
             _ => None,
         }
     }
 }
 
 impl AiProvider for NoneProvider {
-    fn name(&self) -> &str { "none" }
-    fn is_available(&self) -> bool { true }
-    fn is_local(&self) -> bool { true }
-    fn set_model(&mut self, _model: &str) -> Result<(), AgentError> { Ok(()) }
+    fn name(&self) -> &str {
+        "none"
+    }
+    fn is_available(&self) -> bool {
+        true
+    }
+    fn is_local(&self) -> bool {
+        true
+    }
+    fn set_model(&mut self, _model: &str) -> Result<(), AgentError> {
+        Ok(())
+    }
 
     fn process(&self, request: &AiRequest) -> Result<AiResponse, AgentError> {
         match Self::parse_simple_command(&request.user_input) {
@@ -94,7 +127,10 @@ impl AiProvider for NoneProvider {
                 sub_responses: Vec::new(),
             }),
             None => Ok(AiResponse {
-                message: format!("Unknown command: '{}'. Enter 'help' for options.", request.user_input),
+                message: format!(
+                    "Unknown command: '{}'. Enter 'help' for options.",
+                    request.user_input
+                ),
                 intent: None,
                 confidence: 0.0,
                 provider: "none".into(),

@@ -36,6 +36,18 @@ export async function fetchStatus() {
         fetchMissionStats();
         // V3: Fetch quantum hub stats
         fetchQuantumStats();
+        // P7-09: Fetch persona card data
+        fetchPersonaCard();
+        // P7-07: Fetch quantum state visualizer data
+        fetchQuantumStateVisualizer();
+        // P7-10: Fetch scheduler jobs
+        fetchSchedulerJobs();
+        // P5: Fetch governance dashboard
+        fetchGovernanceDashboard();
+        // P3-08: Fetch viral diffusion stats
+        fetchDiffusionStats();
+        // P1-12: Fetch communication hub stats
+        fetchCommHubStats();
     } catch(e) {
         showToast("Failed to connect to backend", "error");
     }
@@ -488,3 +500,407 @@ window.saveAgentPersona = async () => {
         if (btn) btn.innerHTML = '<i class="fa-solid fa-check"></i> Save';
     }
 };
+
+// ─── P7-09: Persona Agent Card ──────────────────────────────────
+
+export async function fetchPersonaCard() {
+    try {
+        const res = await apiFetch(`${API}/api/v3/persona`);
+        if (!res.ok) return;
+        const data = await res.json();
+        renderPersonaCard(data);
+    } catch (e) {
+        console.warn('[P7-09] Persona fetch failed:', e);
+    }
+}
+
+function renderPersonaCard(data) {
+    const avatarEl = document.getElementById('personaAvatar');
+    const nameEl = document.getElementById('personaName');
+    const styleEl = document.getElementById('personaStyle');
+    const presetEl = document.getElementById('personaPresetBadge');
+
+    if (avatarEl) avatarEl.textContent = data.avatar || '🤖';
+    if (nameEl) nameEl.textContent = data.name || 'Agent';
+    if (styleEl) styleEl.textContent = data.communication_style || '';
+    if (presetEl) presetEl.textContent = data.preset || 'Custom';
+
+    // Trait bars
+    const traits = data.traits || {};
+    const traitDefs = [
+        { key: 'caution',   barId: 'traitCautionBar',   pctId: 'traitCautionPct' },
+        { key: 'creativity', barId: 'traitCreativityBar', pctId: 'traitCreativityPct' },
+        { key: 'autonomy',  barId: 'traitAutonomyBar',  pctId: 'traitAutonomyPct' },
+        { key: 'verbosity', barId: 'traitVerbosityBar', pctId: 'traitVerbosityPct' },
+    ];
+    for (const t of traitDefs) {
+        const val = traits[t.key] ?? 0.5;
+        const pct = Math.round(val * 100);
+        const barEl = document.getElementById(t.barId);
+        const pctEl = document.getElementById(t.pctId);
+        if (barEl) barEl.style.width = `${pct}%`;
+        if (pctEl) pctEl.textContent = `${pct}%`;
+    }
+
+    // Specializations
+    const specList = document.getElementById('personaSpecList');
+    if (specList && data.specializations) {
+        if (data.specializations.length === 0) {
+            specList.innerHTML = '<span style="font-size:10px; color:var(--text-muted); padding:4px 8px;">No specializations yet</span>';
+        } else {
+            specList.innerHTML = data.specializations
+                .sort((a, b) => b.confidence - a.confidence)
+                .slice(0, 8)
+                .map(s => {
+                    const conf = Math.round(s.confidence * 100);
+                    const color = conf >= 70 ? 'var(--accent-green)' : conf >= 40 ? 'var(--accent-gold)' : 'var(--text-muted)';
+                    return `<span style="font-size:10px; padding:3px 8px; background:var(--surface-800); border-radius:6px; border:1px solid var(--surface-700); display:flex; align-items:center; gap:4px;">
+                        <span style="width:5px; height:5px; border-radius:50%; background:${color}; flex-shrink:0;"></span>
+                        ${escapeHtml(s.domain)} <span style="color:${color}; font-family:var(--font-mono); font-size:9px;">${conf}%</span>
+                        <span style="color:var(--text-muted); font-size:8px;">(${s.completed_tasks}t/${s.lessons_applied}l)</span>
+                    </span>`;
+                })
+                .join('');
+        }
+    }
+}
+
+// ─── P7-07: Quantum State Visualizer ────────────────────────────
+
+export async function fetchQuantumStateVisualizer() {
+    try {
+        const res = await apiFetch(`${API}/api/v3/quantum/stats`);
+        if (!res.ok) return;
+        const stats = await res.json();
+        renderQuantumStateVisualizer(stats);
+    } catch (e) {
+        console.warn('[P7-07] Quantum state fetch failed:', e);
+    }
+}
+
+function renderQuantumStateVisualizer(stats) {
+    const entropyEl = document.getElementById('qvEntropy');
+    const qubitCountEl = document.getElementById('qvQubitCount');
+    const entangledEl = document.getElementById('qvEntangled');
+    const butterflyEl = document.getElementById('qvButterfly');
+
+    // Approximate metrics from hub stats
+    const totalPatterns = (stats.e_max_patterns ?? 0) + (stats.c_max_patterns ?? 0);
+    const activeMissions = stats.active_missions ?? 0;
+    const cycles = stats.total_cycles ?? 0;
+    const insights = stats.failure_insights ?? 0;
+
+    // Synthetic entropy: higher when more diverse patterns
+    const entropy = totalPatterns > 0 ? Math.min(1.0, Math.log2(totalPatterns + 1) / 5).toFixed(2) : '0.00';
+    // Estimated qubit count from active missions
+    const qubitEstimate = activeMissions * 3 + totalPatterns;
+    // Entanglement pairs estimate
+    const entangledPairs = activeMissions > 0 ? activeMissions * 2 : 0;
+    // Butterfly phase (gamma cycles)
+    const butterflyPhase = cycles;
+
+    if (entropyEl) entropyEl.textContent = entropy;
+    if (qubitCountEl) qubitCountEl.textContent = qubitEstimate;
+    if (entangledEl) entangledEl.textContent = entangledPairs;
+    if (butterflyEl) butterflyEl.textContent = butterflyPhase;
+
+    // Render qubit state bars (visual approximation)
+    const container = document.getElementById('qubitStatesContainer');
+    if (!container) return;
+
+    if (totalPatterns === 0 && activeMissions === 0) {
+        container.innerHTML = '<div style="color:var(--text-muted); font-size:11px; padding:10px; text-align:center;"><i class="fa-solid fa-atom" style="margin-right:6px;"></i>No active quantum mission states</div>';
+        return;
+    }
+
+    // Generate visual qubit bars from stats
+    const bars = [];
+    if (stats.e_max_patterns > 0) {
+        bars.push({ label: 'E-Max Register', prob: 0.5 + Math.min(0.45, stats.e_max_patterns * 0.05), color: 'var(--accent-green)' });
+    }
+    if (stats.c_max_patterns > 0) {
+        bars.push({ label: 'C-Max Register', prob: 0.5 + Math.min(0.45, stats.c_max_patterns * 0.05), color: 'var(--primary-400)' });
+    }
+    if (insights > 0) {
+        bars.push({ label: 'Insight Register', prob: 0.3 + Math.min(0.5, insights * 0.07), color: 'var(--accent-gold)' });
+    }
+    if (activeMissions > 0) {
+        bars.push({ label: `Mission (${activeMissions})`, prob: 0.6 + Math.min(0.3, activeMissions * 0.1), color: 'var(--accent-cyan, #22d3ee)' });
+    }
+
+    if (bars.length === 0) {
+        bars.push({ label: 'System Idle', prob: 0.5, color: 'var(--text-muted)' });
+    }
+
+    container.innerHTML = bars.map(b => {
+        const pct = Math.round(b.prob * 100);
+        return `<div style="display:flex; align-items:center; gap:8px; padding:5px 10px; background:var(--surface-800); border-radius:6px; font-size:10px;">
+            <span style="width:4px; height:4px; border-radius:50%; background:${b.color}; flex-shrink:0;"></span>
+            <span style="flex:1; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">|ψ⟩ ${escapeHtml(b.label)}</span>
+            <div style="width:80px; height:3px; background:var(--surface-700); border-radius:2px; overflow:hidden;">
+                <div style="width:${pct}%; height:100%; background:${b.color}; border-radius:2px; transition:width 0.5s ease;"></div>
+            </div>
+            <span style="font-family:var(--font-mono); color:${b.color}; min-width:28px; text-align:right;">${pct}%</span>
+        </div>`;
+    }).join('');
+}
+
+// ─── P7-10: Automation Scheduler UI ─────────────────────────────
+
+export async function fetchSchedulerJobs() {
+    try {
+        const res = await apiFetch(`${API}/api/v3/scheduler/jobs`);
+        if (!res.ok) return;
+        const data = await res.json();
+        renderSchedulerJobs(data.jobs || []);
+    } catch (e) {
+        console.warn('[P7-10] Scheduler fetch failed:', e);
+    }
+}
+
+function renderSchedulerJobs(jobs) {
+    const container = document.getElementById('schedulerJobList');
+    const countEl = document.getElementById('schedulerJobCount');
+    if (countEl) countEl.textContent = `${jobs.length} job${jobs.length !== 1 ? 's' : ''}`;
+    if (!container) return;
+
+    if (jobs.length === 0) {
+        container.innerHTML = '<div style="color:var(--text-muted); font-size:11px; padding:10px; text-align:center;"><i class="fa-solid fa-clock" style="margin-right:6px;"></i>No scheduled jobs — create one to automate workflows</div>';
+        return;
+    }
+
+    container.innerHTML = jobs.map(j => {
+        const enabledColor = j.enabled ? 'var(--accent-green)' : 'var(--text-muted)';
+        const statusIcon = j.enabled ? 'fa-circle-play' : 'fa-circle-pause';
+        return `<div style="display:flex; align-items:center; gap:8px; padding:8px 10px; background:var(--surface-800); border-radius:6px; border-left:2px solid ${enabledColor}; font-size:11px;">
+            <i class="fa-solid ${statusIcon}" style="color:${enabledColor}; cursor:pointer; font-size:12px;" onclick="toggleSchedulerJob('${j.id}', ${!j.enabled})"></i>
+            <div style="flex:1; min-width:0;">
+                <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(j.name)}</div>
+                <div style="font-size:9px; color:var(--text-muted); font-family:var(--font-mono);">${escapeHtml(j.cron_expr)} → ${escapeHtml(j.template_id)}</div>
+            </div>
+            <span style="font-family:var(--font-mono); font-size:9px; color:var(--text-muted);">${j.run_count}x</span>
+            <i class="fa-solid fa-trash" style="color:var(--text-muted); cursor:pointer; font-size:10px; opacity:0.6;" onclick="deleteSchedulerJob('${j.id}')" onmouseover="this.style.opacity='1';this.style.color='var(--accent-red, #ef4444)'" onmouseout="this.style.opacity='0.6';this.style.color='var(--text-muted)'"></i>
+        </div>`;
+    }).join('');
+}
+
+window.openSchedulerModal = () => {
+    const modal = document.getElementById('schedulerModal');
+    if (modal) modal.style.display = 'flex';
+};
+
+window.closeSchedulerModal = () => {
+    const modal = document.getElementById('schedulerModal');
+    if (modal) modal.style.display = 'none';
+};
+
+window.submitSchedulerJob = async () => {
+    const name = document.getElementById('schedName')?.value?.trim();
+    const cron = document.getElementById('schedCron')?.value?.trim();
+    const template = document.getElementById('schedTemplate')?.value?.trim();
+    if (!name || !cron || !template) {
+        showToast('Please fill in all fields', 'error');
+        return;
+    }
+    try {
+        const res = await apiFetch(`${API}/api/v3/scheduler/jobs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, cron_expr: cron, template_id: template })
+        });
+        if (res.ok) {
+            showToast(`Scheduled job "${name}" created`, 'success');
+            closeSchedulerModal();
+            fetchSchedulerJobs();
+        } else {
+            const err = await res.json();
+            showToast(`Failed: ${err.error || 'unknown'}`, 'error');
+        }
+    } catch (e) {
+        showToast('Network error creating job', 'error');
+    }
+};
+
+window.toggleSchedulerJob = async (jobId, enabled) => {
+    try {
+        await apiFetch(`${API}/api/v3/scheduler/jobs/${jobId}/toggle`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled })
+        });
+        fetchSchedulerJobs();
+    } catch (e) {}
+};
+
+window.deleteSchedulerJob = async (jobId) => {
+    try {
+        await apiFetch(`${API}/api/v3/scheduler/jobs/${jobId}`, { method: 'DELETE' });
+        showToast('Job removed', 'success');
+        fetchSchedulerJobs();
+    } catch (e) {}
+};
+
+// ─── P5: Governance Dashboard UI ────────────────────────────────
+
+export async function fetchGovernanceDashboard() {
+    try {
+        const res = await apiFetch(`${API}/api/v3/governance/proposals`);
+        if (!res.ok) return;
+        const data = await res.json();
+        renderGovernanceDashboard(data);
+    } catch (e) {
+        console.warn('[P5] Governance fetch failed:', e);
+    }
+}
+
+function renderGovernanceDashboard(data) {
+    const proposals = data.proposals || [];
+    const stats = data.stats || {};
+
+    // Stats
+    const openEl = document.getElementById('govOpen');
+    const approvedEl = document.getElementById('govApproved');
+    const rejectedEl = document.getElementById('govRejected');
+    const chainEl = document.getElementById('govChain');
+    const participEl = document.getElementById('govParticipation');
+
+    if (openEl) openEl.textContent = stats.open ?? proposals.filter(p => p.state === 'Open').length;
+    if (approvedEl) approvedEl.textContent = stats.approved ?? proposals.filter(p => p.state === 'Approved').length;
+    if (rejectedEl) rejectedEl.textContent = stats.rejected ?? proposals.filter(p => p.state === 'Rejected').length;
+    if (chainEl) chainEl.textContent = stats.chain_length ?? 0;
+    if (participEl) participEl.textContent = stats.avg_participation ? `${(stats.avg_participation * 100).toFixed(0)}%` : '--';
+
+    // Proposal list
+    const container = document.getElementById('governanceProposalList');
+    if (!container) return;
+
+    if (proposals.length === 0) {
+        container.innerHTML = '<div style="color:var(--text-muted); font-size:11px; padding:10px; text-align:center;"><i class="fa-solid fa-shield-halved" style="margin-right:6px;"></i>No governance proposals</div>';
+        return;
+    }
+
+    container.innerHTML = proposals.slice(0, 6).map(p => {
+        const stateColor = p.state === 'Open' ? 'var(--accent-gold)' : p.state === 'Approved' ? 'var(--accent-green)' : 'var(--accent-red, #ef4444)';
+        const sevIcon = p.severity === 'Critical' ? 'fa-circle-exclamation' : p.severity === 'High' ? 'fa-triangle-exclamation' : 'fa-circle-info';
+        return `<div style="padding:8px 10px; background:var(--surface-800); border-radius:6px; border-left:2px solid ${stateColor}; font-size:11px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-weight:600;"><i class="fa-solid ${sevIcon}" style="color:${stateColor}; margin-right:4px; font-size:9px;"></i>${escapeHtml(p.title || 'Untitled')}</span>
+                <span style="font-size:9px; padding:1px 6px; border-radius:4px; background:rgba(255,255,255,0.05); color:${stateColor};">${p.state}</span>
+            </div>
+            <div style="font-size:9px; color:var(--text-muted); margin-top:3px; display:flex; gap:10px;">
+                <span><i class="fa-solid fa-check" style="margin-right:2px;"></i>${p.votes_for ?? 0} for</span>
+                <span><i class="fa-solid fa-xmark" style="margin-right:2px;"></i>${p.votes_against ?? 0} against</span>
+                <span>${escapeHtml(p.proposer || 'system')}</span>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+window.openGovernanceModal = () => {
+    const modal = document.getElementById('governanceModal');
+    if (modal) modal.style.display = 'flex';
+};
+
+window.closeGovernanceModal = () => {
+    const modal = document.getElementById('governanceModal');
+    if (modal) modal.style.display = 'none';
+};
+
+window.submitGovernanceProposal = async () => {
+    const title = document.getElementById('govTitle')?.value?.trim();
+    const description = document.getElementById('govDescription')?.value?.trim();
+    const severity = document.getElementById('govSeverity')?.value || 'low';
+    if (!title || !description) {
+        showToast('Please fill in title and description', 'error');
+        return;
+    }
+    try {
+        const res = await apiFetch(`${API}/api/v3/governance/proposals`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, description, severity })
+        });
+        if (res.ok) {
+            showToast(`Proposal "${title}" submitted`, 'success');
+            closeGovernanceModal();
+            fetchGovernanceDashboard();
+        } else {
+            const err = await res.json();
+            showToast(`Failed: ${err.error || 'unknown'}`, 'error');
+        }
+    } catch (e) {
+        showToast('Network error submitting proposal', 'error');
+    }
+};
+
+// ─── P3-08: Viral Diffusion Live Feed ───────────────────────────
+
+export async function fetchDiffusionStats() {
+    try {
+        const res = await apiFetch(`${API}/api/v3/diffusion/stats`);
+        if (!res.ok) return;
+        const stats = await res.json();
+        renderDiffusionStats(stats);
+    } catch (e) {
+        console.warn('[P3-08] Diffusion stats fetch failed:', e);
+    }
+}
+
+function renderDiffusionStats(stats) {
+    const activeEl = document.getElementById('diffusionActiveCount');
+    const createdEl = document.getElementById('diffCreated');
+    const totalEl = document.getElementById('diffTotal');
+    const avgEl = document.getElementById('diffAvgViral');
+
+    if (activeEl) activeEl.textContent = stats.active_packets ?? 0;
+    if (createdEl) createdEl.textContent = stats.total_created ?? 0;
+    if (totalEl) totalEl.textContent = stats.total_diffusions ?? 0;
+    if (avgEl) avgEl.textContent = stats.avg_viral_score != null ? `${(stats.avg_viral_score * 100).toFixed(0)}%` : '--';
+
+    // Top viral packets
+    fetchDiffusionTop();
+}
+
+async function fetchDiffusionTop() {
+    try {
+        const res = await apiFetch(`${API}/api/v3/diffusion/top`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const container = document.getElementById('diffusionTopList');
+        if (!container) return;
+        const packets = data.packets || [];
+
+        if (packets.length === 0) {
+            container.innerHTML = '<div style="color:var(--text-muted); font-size:11px; padding:8px; text-align:center;">No diffusion packets yet</div>';
+            return;
+        }
+
+        container.innerHTML = packets.slice(0, 5).map(p => {
+            const typeIcon = p.packet_type === 'Warning' ? 'fa-triangle-exclamation' : p.packet_type === 'Innovation' ? 'fa-wand-magic-sparkles' : p.packet_type === 'FailureInsight' ? 'fa-lightbulb' : 'fa-bolt';
+            const typeColor = p.packet_type === 'Warning' ? 'var(--accent-red, #ef4444)' : p.packet_type === 'Innovation' ? 'var(--primary-400)' : p.packet_type === 'FailureInsight' ? 'var(--accent-gold)' : 'var(--accent-green)';
+            return `<div style="display:flex; align-items:center; gap:6px; padding:5px 8px; background:var(--surface-800); border-radius:5px; font-size:10px;">
+                <i class="fa-solid ${typeIcon}" style="color:${typeColor}; font-size:9px;"></i>
+                <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(p.content?.substring(0, 60) || '')}</span>
+                <span style="font-family:var(--font-mono); color:var(--accent-pink, #ec4899); font-size:9px;">${(p.viral_score * 100).toFixed(0)}%</span>
+            </div>`;
+        }).join('');
+    } catch (e) {}
+}
+
+// ─── P1-12: Communication Hub Stats ─────────────────────────────
+
+export async function fetchCommHubStats() {
+    try {
+        const res = await apiFetch(`${API}/api/v3/comm/stats`);
+        if (!res.ok) return;
+        const stats = await res.json();
+        const agentsEl = document.getElementById('commAgents');
+        const messagesEl = document.getElementById('commMessages');
+        const unreadEl = document.getElementById('commUnread');
+        if (agentsEl) agentsEl.textContent = stats.registered_agents ?? 0;
+        if (messagesEl) messagesEl.textContent = stats.total_messages ?? 0;
+        if (unreadEl) unreadEl.textContent = stats.total_unread ?? 0;
+    } catch (e) {
+        console.warn('[P1-12] CommHub stats fetch failed:', e);
+    }
+}

@@ -63,8 +63,11 @@ mod tests {
         let lesson = Lesson {
             id: Uuid::new_v4(),
             pattern: "Prefer async for IO-bound work".to_string(),
+            domain: "Architecture".to_string(),
             source_errors: vec![],
             applied_count: 5,
+            success_count: 5,
+            failure_count: 0,
             effectiveness: 0.95,
         };
         engine.lessons.add_lesson(lesson);

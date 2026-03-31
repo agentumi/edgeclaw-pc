@@ -53,7 +53,7 @@ pub async fn handle_connection(
     let method = parts[0];
     let full_uri = parts[1];
     let raw_path = full_uri.split('?').next().unwrap_or(full_uri);
-    
+
     // V2.4 Legacy Route Redirector 🏮
     let path_owned: String;
     let path = if raw_path.starts_with("/api/v2.3/") {
@@ -667,12 +667,32 @@ pub async fn handle_connection(
             handlers::templates::handle_automation_create(stream, engine, &body, cors_origin).await
         }
 
+        // P6-01 & P6-04
+        ("GET", "/api/v3/passport") => {
+            handlers::monetization::handle_passport_get(stream, engine, cors_origin).await
+        }
+        ("POST", "/api/v3/passport") => {
+            let body = extract_body(&request_full);
+            handlers::monetization::handle_passport_create(stream, engine, &body, cors_origin).await
+        }
+        ("POST", "/api/v3/delegation/route") => {
+            let body = extract_body(&request_full);
+            handlers::monetization::handle_delegation_route(stream, engine, &body, cors_origin).await
+        }
+        ("GET", "/api/v3/delegation/contracts") => {
+            handlers::monetization::handle_delegation_list(stream, engine, &request_full, cors_origin).await
+        }
+
         // V3: Process Type Selection API
         ("POST", "/api/v3/process-type") => {
             let body = extract_body(&request_full);
             let pt_str = serde_json::from_str::<serde_json::Value>(&body)
                 .ok()
-                .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(|s| s.to_lowercase()))
+                .and_then(|v| {
+                    v.get("type")
+                        .and_then(|t| t.as_str())
+                        .map(|s| s.to_lowercase())
+                })
                 .unwrap_or_else(|| "fleet".to_string());
             let pt = match pt_str.as_str() {
                 "quantum" => crate::ai::ProcessType::Quantum,
@@ -713,7 +733,10 @@ pub async fn handle_connection(
         // V3: Quantum Pattern Vault — full pattern + insights listing (P7-11)
         ("GET", "/api/v3/quantum/patterns") => {
             let json = {
-                let qe = engine.quantum_engine.lock().unwrap_or_else(|e| e.into_inner());
+                let qe = engine
+                    .quantum_engine
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 let resp = serde_json::json!({
                     "e_max": qe.hub.e_max_patterns.iter().map(|p| serde_json::json!({
                         "id": p.id, "name": p.name, "domain": p.domain,
@@ -735,12 +758,14 @@ pub async fn handle_connection(
         }
 
         // ─── V2 Collective Intelligence API ─────────────────────────
-
         ("POST", "/api/v2/orchestrate") => {
             let body = extract_body(&request_full);
             let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
             let mission_desc = parsed.get("mission").and_then(|v| v.as_str()).unwrap_or("");
-            let force_type = parsed.get("process_type").and_then(|v| v.as_str()).unwrap_or("Auto");
+            let force_type = parsed
+                .get("process_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Auto");
 
             if mission_desc.is_empty() {
                 let resp = serde_json::json!({"error": "mission field is required"});
@@ -751,15 +776,21 @@ pub async fn handle_connection(
             // Detect domain and suggest experts
             let domain = crate::ai::DomainDetector::detect_domain(mission_desc);
             let expert_roles = crate::ai::DomainDetector::get_expert_roles(domain);
-            let role_labels: Vec<String> = expert_roles.iter().map(|r| r.label().to_string()).collect();
+            let role_labels: Vec<String> =
+                expert_roles.iter().map(|r| r.label().to_string()).collect();
 
             // Build planning prompt
             let peer_count = {
-                let pm = engine.peer_manager.lock().unwrap_or_else(|e| e.into_inner());
+                let pm = engine
+                    .peer_manager
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 pm.list_peers().len().max(1)
             };
             let planning_prompt = crate::ai::FleetMissionPlanner::build_mission_planning_prompt(
-                mission_desc, domain, peer_count
+                mission_desc,
+                domain,
+                peer_count,
             );
 
             // Execute via AI manager
@@ -786,8 +817,12 @@ pub async fn handle_connection(
                     let quality = if let Some(ref intent) = resp.intent {
                         if let Some(ref mission) = intent.mission {
                             crate::ai::MissionQualityEvaluator::evaluate(mission)
-                        } else { 0.0 }
-                    } else { 0.0 };
+                        } else {
+                            0.0
+                        }
+                    } else {
+                        0.0
+                    };
 
                     let orchestr_resp = serde_json::json!({
                         "ok": true,
@@ -814,13 +849,19 @@ pub async fn handle_connection(
         ("POST", "/api/v2/review") => {
             let body = extract_body(&request_full);
             let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
-            let mission_id = parsed.get("mission_id").and_then(|v| v.as_str()).unwrap_or("");
+            let mission_id = parsed
+                .get("mission_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let result_text = parsed.get("result").and_then(|v| v.as_str()).unwrap_or("");
 
             // Quality evaluation via MissionQualityEvaluator
-            let hallucination_score = crate::ai::MissionQualityEvaluator::detect_hallucination(result_text);
+            let hallucination_score =
+                crate::ai::MissionQualityEvaluator::detect_hallucination(result_text);
             let word_count = result_text.split_whitespace().count();
-            let has_structure = result_text.contains('#') || result_text.contains("```") || result_text.contains("- ");
+            let has_structure = result_text.contains('#')
+                || result_text.contains("```")
+                || result_text.contains("- ");
 
             let review_score = if hallucination_score > 0.7 {
                 0.2 // High hallucination → low quality
@@ -848,17 +889,34 @@ pub async fn handle_connection(
         ("POST", "/api/v3/quantum/pattern") => {
             let body = extract_body(&request_full);
             let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
-            let name = parsed.get("name").and_then(|v| v.as_str()).unwrap_or("unnamed");
-            let domain = parsed.get("domain").and_then(|v| v.as_str()).unwrap_or("general");
-            let success_rate = parsed.get("success_rate").and_then(|v| v.as_f64()).unwrap_or(0.5);
-            let pattern_type = match parsed.get("type").and_then(|v| v.as_str()).unwrap_or("emax") {
+            let name = parsed
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unnamed");
+            let domain = parsed
+                .get("domain")
+                .and_then(|v| v.as_str())
+                .unwrap_or("general");
+            let success_rate = parsed
+                .get("success_rate")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.5);
+            let pattern_type = match parsed
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("emax")
+            {
                 "cmax" | "CMax" => crate::quantum_engine::PatternType::CMax,
                 _ => crate::quantum_engine::PatternType::EMax,
             };
 
             let pattern_id = {
-                let mut qe = engine.quantum_engine.lock().unwrap_or_else(|e| e.into_inner());
-                qe.hub.register_pattern(name, domain, success_rate, pattern_type)
+                let mut qe = engine
+                    .quantum_engine
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                qe.hub
+                    .register_pattern(name, domain, success_rate, pattern_type)
             };
 
             let resp = serde_json::json!({
@@ -885,6 +943,486 @@ pub async fn handle_connection(
         ("GET", "/api/sessions") => {
             handlers::activities::handle_sessions_list(stream, engine, &request_full, cors_origin)
                 .await
+        }
+
+        // ─── P2-18: Scheduler API ─────────────────────────────────
+        ("GET", "/api/v3/scheduler/jobs") => {
+            let json = {
+                let sched = engine
+                    .cron_scheduler()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                let jobs: Vec<_> = sched
+                    .list_jobs()
+                    .iter()
+                    .map(|j| {
+                        serde_json::json!({
+                            "id": j.id, "name": j.name, "cron_expr": j.cron_expr,
+                            "template_id": j.template_id, "enabled": j.enabled,
+                            "last_run": j.last_run, "run_count": j.run_count,
+                            "max_runs": j.max_runs, "created_at": j.created_at,
+                        })
+                    })
+                    .collect();
+                serde_json::to_vec(&serde_json::json!({"jobs": jobs})).unwrap_or_default()
+            }; // MutexGuard dropped here
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+        ("POST", "/api/v3/scheduler/jobs") => {
+            let body = extract_body(&request_full);
+            let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+            let name = parsed
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unnamed");
+            let cron_expr = parsed
+                .get("cron_expr")
+                .and_then(|v| v.as_str())
+                .unwrap_or("0 9 * * 1");
+            let template_id = parsed
+                .get("template_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            let result = {
+                let mut sched = engine
+                    .cron_scheduler()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                sched.add_job(name, cron_expr, template_id)
+            };
+
+            match result {
+                Ok(job) => {
+                    let resp =
+                        serde_json::json!({"ok": true, "job": {"id": job.id, "name": job.name}});
+                    let json = serde_json::to_vec(&resp).unwrap_or_default();
+                    send_response(stream, 200, "application/json", &json, cors_origin).await
+                }
+                Err(e) => {
+                    let resp = serde_json::json!({"error": e});
+                    let json = serde_json::to_vec(&resp).unwrap_or_default();
+                    send_response(stream, 400, "application/json", &json, cors_origin).await
+                }
+            }
+        }
+
+        // ─── P1-05 + P7-09: Persona API ─────────────────────────
+        ("GET", "/api/v3/persona") => {
+            let json = {
+                let persona = engine.persona().lock().unwrap_or_else(|e| e.into_inner());
+                let specs: Vec<_> = persona
+                    .specializations
+                    .iter()
+                    .map(|s| {
+                        serde_json::json!({
+                            "domain": s.domain, "confidence": s.confidence,
+                            "completed_tasks": s.completed_tasks, "lessons_applied": s.lessons_applied,
+                        })
+                    })
+                    .collect();
+                let resp = serde_json::json!({
+                    "name": persona.name, "avatar": persona.avatar,
+                    "preset": format!("{:?}", persona.preset),
+                    "communication_style": persona.communication_style,
+                    "traits": {
+                        "caution": persona.traits.caution,
+                        "creativity": persona.traits.creativity,
+                        "autonomy": persona.traits.autonomy,
+                        "verbosity": persona.traits.verbosity,
+                    },
+                    "specializations": specs,
+                });
+                serde_json::to_vec(&resp).unwrap_or_default()
+            }; // MutexGuard<AgentPersona> dropped here before .await
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+
+        // ─── P0-13 + P7-14: Mission Comparison API ─────────────
+        ("POST", "/api/v3/missions/compare") => {
+            let body = extract_body(&request_full);
+            let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+            let mission_a_id = parsed
+                .get("mission_a")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let mission_b_id = parsed
+                .get("mission_b")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            let (json, status) = {
+                let ai = engine
+                    .ai_manager()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                let registry = ai.mission_registry();
+                let missions = registry.missions.read().unwrap_or_else(|e| e.into_inner());
+
+                let ma = missions.get(mission_a_id);
+                let mb = missions.get(mission_b_id);
+
+                if let (Some(a), Some(b)) = (ma, mb) {
+                    let comparison = crate::ai::MissionComparisonEngine::compare(a, b);
+                    let resp = serde_json::json!({
+                        "ok": true,
+                        "mission_a_id": comparison.mission_a_id,
+                        "mission_b_id": comparison.mission_b_id,
+                        "quality_score_a": comparison.quality_score_a,
+                        "quality_score_b": comparison.quality_score_b,
+                        "speed_ratio": comparison.speed_ratio,
+                        "task_overlap_ratio": comparison.task_overlap_ratio,
+                        "winner": comparison.winner,
+                        "recommendation": comparison.recommendation,
+                    });
+                    (serde_json::to_vec(&resp).unwrap_or_default(), 200)
+                } else {
+                    let resp = serde_json::json!({"error": "One or both missions not found"});
+                    (serde_json::to_vec(&resp).unwrap_or_default(), 404)
+                }
+            };
+            send_response(stream, status, "application/json", &json, cors_origin).await
+        }
+
+        // ─── P5: Governance API ─────────────────────────────────
+        ("GET", "/api/v3/governance/proposals") => {
+            let json = {
+                let gov = engine
+                    .governance()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                let proposals: Vec<_> = gov
+                    .list_proposals()
+                    .iter()
+                    .map(|p| {
+                        serde_json::json!({
+                            "id": p.id, "title": p.title, "proposer": p.proposer,
+                            "severity": format!("{:?}", p.severity),
+                            "state": format!("{:?}", p.state),
+                            "approval_weight": p.approval_weight,
+                            "rejection_weight": p.rejection_weight,
+                            "votes": p.votes.len(),
+                            "eligible_voters": p.eligible_voters,
+                            "deadline": p.deadline, "created_at": p.created_at,
+                        })
+                    })
+                    .collect();
+                serde_json::to_vec(&serde_json::json!({"proposals": proposals})).unwrap_or_default()
+            };
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+        ("POST", "/api/v3/governance/proposals") => {
+            let body = extract_body(&request_full);
+            let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+            let title = parsed
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Untitled");
+            let desc = parsed
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let proposer = parsed
+                .get("proposer")
+                .and_then(|v| v.as_str())
+                .unwrap_or("anonymous");
+            let severity = match parsed
+                .get("severity")
+                .and_then(|v| v.as_str())
+                .unwrap_or("low")
+            {
+                "medium" | "Medium" => crate::quantum_governance::ProposalSeverity::Medium,
+                "high" | "High" => crate::quantum_governance::ProposalSeverity::High,
+                "critical" | "Critical" => crate::quantum_governance::ProposalSeverity::Critical,
+                _ => crate::quantum_governance::ProposalSeverity::Low,
+            };
+            let proposal = engine.submit_governance_proposal(title, desc, proposer, severity);
+            let resp = serde_json::json!({"ok": true, "proposal": {"id": proposal.id, "title": proposal.title, "state": "Open"}});
+            let json = serde_json::to_vec(&resp).unwrap_or_default();
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+        ("POST", "/api/v3/governance/vote") => {
+            let body = extract_body(&request_full);
+            let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+            let proposal_id = parsed
+                .get("proposal_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let agent_id = parsed
+                .get("agent_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let approve = parsed
+                .get("approve")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            let reason = parsed
+                .get("reason")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+
+            let result = {
+                let mut gov = engine
+                    .governance()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                gov.cast_vote(proposal_id, agent_id, approve, reason)
+            };
+
+            match result {
+                Ok(vote) => {
+                    let resp = serde_json::json!({"ok": true, "vote": {"agent": vote.agent_id, "approve": vote.approve, "weight": vote.weight}});
+                    let json = serde_json::to_vec(&resp).unwrap_or_default();
+                    send_response(stream, 200, "application/json", &json, cors_origin).await
+                }
+                Err(e) => {
+                    let resp = serde_json::json!({"error": e});
+                    let json = serde_json::to_vec(&resp).unwrap_or_default();
+                    send_response(stream, 400, "application/json", &json, cors_origin).await
+                }
+            }
+        }
+        ("GET", "/api/v3/governance/stats") => {
+            let json = {
+                let gov = engine
+                    .governance()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                serde_json::to_vec(&gov.stats()).unwrap_or_default()
+            };
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+
+        // ─── P3-08: Viral Diffusion API ──────────────────────────
+        ("GET", "/api/v3/diffusion/stats") => {
+            let json = {
+                let diff = engine.diffusion().lock().unwrap_or_else(|e| e.into_inner());
+                serde_json::to_vec(&diff.stats()).unwrap_or_default()
+            };
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+        ("GET", "/api/v3/diffusion/top") => {
+            let json = {
+                let diff = engine.diffusion().lock().unwrap_or_else(|e| e.into_inner());
+                let top: Vec<_> = diff.top_viral(10).iter().map(|p| {
+                    serde_json::json!({
+                        "id": p.id, "origin": p.origin_agent, "domain": p.domain,
+                        "type": format!("{:?}", p.packet_type),
+                        "viral_score": p.viral_score, "diffusions": p.diffusion_count,
+                        "content": if p.content.len() > 100 { &p.content[..100] } else { &p.content },
+                        "created_at": p.created_at,
+                    })
+                }).collect();
+                serde_json::to_vec(&serde_json::json!({"packets": top})).unwrap_or_default()
+            };
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+
+        // ─── P6-05: Agent Marketplace API ────────────────────────
+        ("GET", "/api/v3/marketplace/listings") => {
+            let json = {
+                let registry = engine.agent_registry();
+                let agents = registry.list_all();
+                let rep = engine.reputation_score();
+                let listings: Vec<_> = agents.iter().map(|a| {
+                    serde_json::json!({
+                        "agent_id": a.id,
+                        "name": a.name,
+                        "profile": a.profile,
+                        "status": format!("{:?}", a.status),
+                        "capabilities": a.capabilities,
+                        "reputation": rep,
+                        "available": a.status == crate::registry::AgentStatus::Online,
+                        "hourly_rate_usd": 0.05,
+                    })
+                }).collect();
+                serde_json::to_vec(&serde_json::json!({
+                    "listings": listings,
+                    "total": listings.len(),
+                    "marketplace_status": "active",
+                })).unwrap_or_default()
+            };
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+        ("GET", "/api/v3/marketplace/stats") => {
+            let agent_count = engine.agent_registry().list_all().len();
+            let rep = engine.reputation_score();
+            let gov_stats = {
+                let gov = engine.governance().lock().unwrap_or_else(|e| e.into_inner());
+                gov.stats()
+            };
+            let resp = serde_json::json!({
+                "total_agents": agent_count,
+                "active_listings": agent_count,
+                "avg_reputation": rep,
+                "total_transactions": 0,
+                "total_volume_usd": 0.0,
+                "governance_proposals": gov_stats.total_proposals,
+                "marketplace_health": "healthy",
+            });
+            let json = serde_json::to_vec(&resp).unwrap_or_default();
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+
+        // ─── P6-06: Revenue Dashboard API ────────────────────────
+        ("GET", "/api/v3/revenue/dashboard") => {
+            let rep_score = engine.reputation_score();
+            let qstats = engine.quantum_hub_stats();
+            let diff_stats = {
+                let d = engine.diffusion().lock().unwrap_or_else(|e| e.into_inner());
+                d.stats()
+            };
+            let comm_stats = {
+                let c = engine.comm_hub().lock().unwrap_or_else(|e| e.into_inner());
+                c.stats()
+            };
+            // Simulated revenue based on system activity
+            let task_revenue = qstats.e_max_count as f64 * 0.02 + qstats.c_max_count as f64 * 0.05;
+            let insight_revenue = qstats.failure_insights_count as f64 * 0.01;
+            let total_revenue = task_revenue + insight_revenue;
+            let resp = serde_json::json!({
+                "total_revenue_usd": total_revenue,
+                "task_revenue_usd": task_revenue,
+                "insight_revenue_usd": insight_revenue,
+                "reputation_score": rep_score,
+                "patterns_monetized": qstats.e_max_count + qstats.c_max_count,
+                "insights_generated": qstats.failure_insights_count,
+                "diffusion_stats": diff_stats,
+                "comm_stats": comm_stats,
+                "period": "lifetime",
+                "currency": "USD",
+            });
+            let json = serde_json::to_vec(&resp).unwrap_or_default();
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+
+        // ─── P6-07: Mining / Staking API ─────────────────────────
+        ("GET", "/api/v3/mining/status") => {
+            let uptime_secs = engine.uptime_secs();
+            let rep = engine.reputation_score();
+            let qstats = engine.quantum_hub_stats();
+            // PoP (Proof of Performance) mining simulation
+            let pop_score = rep * 0.4 + (qstats.total_cycles as f64 * 0.001).min(0.3) + (uptime_secs as f64 / 86400.0 * 0.003).min(0.3);
+            let mined_tokens = pop_score * uptime_secs as f64 / 3600.0 * 0.001;
+            let resp = serde_json::json!({
+                "mining_active": true,
+                "algorithm": "Proof-of-Performance (PoP)",
+                "pop_score": (pop_score * 1000.0).round() / 1000.0,
+                "mined_tokens": (mined_tokens * 10000.0).round() / 10000.0,
+                "token_symbol": "ECLAW",
+                "uptime_hours": uptime_secs as f64 / 3600.0,
+                "reputation_factor": rep,
+                "quantum_cycles_factor": qstats.total_cycles,
+                "staking_apy": 12.5,
+                "staked_amount": 0.0,
+                "next_reward_in_secs": 3600 - (uptime_secs % 3600),
+            });
+            let json = serde_json::to_vec(&resp).unwrap_or_default();
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+
+        // ─── P1-10: Agent Nurturing / Growth API ─────────────────
+        ("GET", "/api/v3/nurturing/growth") => {
+            let persona_data = {
+                let persona = engine.persona().lock().unwrap_or_else(|e| e.into_inner());
+                let specs: Vec<_> = persona.specializations.iter().map(|s| {
+                    serde_json::json!({
+                        "domain": s.domain, "confidence": s.confidence,
+                        "completed_tasks": s.completed_tasks, "lessons_applied": s.lessons_applied,
+                    })
+                }).collect();
+                serde_json::json!({
+                    "name": persona.name,
+                    "preset": format!("{:?}", persona.preset),
+                    "traits": {
+                        "caution": persona.traits.caution,
+                        "creativity": persona.traits.creativity,
+                        "autonomy": persona.traits.autonomy,
+                        "verbosity": persona.traits.verbosity,
+                    },
+                    "specializations": specs,
+                    "total_specializations": specs.len(),
+                })
+            };
+            let memory_data = {
+                let mem = engine.memory_engine().lock().unwrap_or_else(|e| e.into_inner());
+                serde_json::json!({
+                    "total_memories": mem.tiers.m30.len() + mem.tiers.m90.len() + mem.tiers.m365.len(),
+                    "m30_count": mem.tiers.m30.len(),
+                    "m90_count": mem.tiers.m90.len(),
+                    "m365_count": mem.tiers.m365.len(),
+                    "lessons_count": mem.lessons.lessons.len(),
+                    "knowledge_items": mem.knowledge.items.len(),
+                })
+            };
+            let qstats = engine.quantum_hub_stats();
+            let resp = serde_json::json!({
+                "persona": persona_data,
+                "memory": memory_data,
+                "quantum": {
+                    "e_max_patterns": qstats.e_max_count,
+                    "c_max_patterns": qstats.c_max_count,
+                    "failure_insights": qstats.failure_insights_count,
+                },
+                "growth_score": {
+                    "level": "Apprentice",
+                    "xp": qstats.e_max_count * 100 + qstats.c_max_count * 150 + qstats.failure_insights_count * 50,
+                    "next_level_xp": 1000,
+                },
+            });
+            let json = serde_json::to_vec(&resp).unwrap_or_default();
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+
+        // ─── P1-12: Agent Communication API ──────────────────────
+        ("GET", "/api/v3/comm/stats") => {
+            let json = {
+                let hub = engine.comm_hub().lock().unwrap_or_else(|e| e.into_inner());
+                serde_json::to_vec(&hub.stats()).unwrap_or_default()
+            };
+            send_response(stream, 200, "application/json", &json, cors_origin).await
+        }
+        ("POST", "/api/v3/comm/send") => {
+            let body = extract_body(&request_full);
+            let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+            let from = parsed
+                .get("from")
+                .and_then(|v| v.as_str())
+                .unwrap_or("self");
+            let to = parsed.get("to").and_then(|v| v.as_str()).unwrap_or("");
+            let subject = parsed.get("subject").and_then(|v| v.as_str()).unwrap_or("");
+            let msg_body = parsed.get("body").and_then(|v| v.as_str()).unwrap_or("");
+            let domain = parsed
+                .get("domain")
+                .and_then(|v| v.as_str())
+                .unwrap_or("general");
+
+            let result = {
+                let mut hub = engine.comm_hub().lock().unwrap_or_else(|e| e.into_inner());
+                hub.send_message(
+                    from,
+                    to,
+                    crate::agent_comm::A2AMessageType::Query,
+                    subject,
+                    msg_body,
+                    crate::agent_comm::MessagePriority::Normal,
+                    domain,
+                    None,
+                )
+            };
+
+            match result {
+                Ok(msg) => {
+                    let resp = serde_json::json!({"ok": true, "message_id": msg.id});
+                    let json = serde_json::to_vec(&resp).unwrap_or_default();
+                    send_response(stream, 200, "application/json", &json, cors_origin).await
+                }
+                Err(e) => {
+                    let resp = serde_json::json!({"error": e});
+                    let json = serde_json::to_vec(&resp).unwrap_or_default();
+                    send_response(stream, 400, "application/json", &json, cors_origin).await
+                }
+            }
         }
 
         _ => {
@@ -954,7 +1492,14 @@ pub async fn handle_connection(
             } else if path.starts_with("/api/agents/") && method == "POST" {
                 let agent_id = path.strip_prefix("/api/agents/").unwrap_or("");
                 let body = extract_body(&request_full);
-                handlers::registry::handle_update_agent(stream, engine, agent_id, &body, cors_origin).await
+                handlers::registry::handle_update_agent(
+                    stream,
+                    engine,
+                    agent_id,
+                    &body,
+                    cors_origin,
+                )
+                .await
             } else if path.starts_with("/api/agents/") && method == "GET" {
                 let agent_id = path.strip_prefix("/api/agents/").unwrap_or("");
                 handlers::agents::handle_agent_profile(stream, engine, agent_id, cors_origin).await
@@ -1113,8 +1658,12 @@ pub async fn handle_connection(
                 .await
             } else {
                 // V2.4 Silence diagnostic requests (Chrome DevTools, Favicon, etc.) 🤫
-                if path.ends_with("com.chrome.devtools.json") || path.contains(".well-known") || path.ends_with("favicon.ico") {
-                   return send_response(stream, 404, "application/json", b"{}", cors_origin).await;
+                if path.ends_with("com.chrome.devtools.json")
+                    || path.contains(".well-known")
+                    || path.ends_with("favicon.ico")
+                {
+                    return send_response(stream, 404, "application/json", b"{}", cors_origin)
+                        .await;
                 }
 
                 println!("[V2.4][404] Route not found: {} {}", method, path);

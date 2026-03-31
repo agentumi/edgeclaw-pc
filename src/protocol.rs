@@ -31,6 +31,14 @@ pub enum MessageType {
     ContextResponse = 0x25,
     /// Activity acknowledgement (team sync)
     ActivityAck = 0x26,
+    /// Task sync broadcast (creation)
+    TaskCreate = 0x27,
+    /// Task sync broadcast (update)
+    TaskUpdate = 0x28,
+    /// Task query
+    TaskQuery = 0x29,
+    /// Task query response
+    TaskResponse = 0x2A,
 
     // ─── Phase 5: V2 Protocol Extensions ───
 
@@ -77,6 +85,10 @@ impl TryFrom<u8> for MessageType {
             0x24 => Ok(MessageType::ContextRequest),
             0x25 => Ok(MessageType::ContextResponse),
             0x26 => Ok(MessageType::ActivityAck),
+            0x27 => Ok(MessageType::TaskCreate),
+            0x28 => Ok(MessageType::TaskUpdate),
+            0x29 => Ok(MessageType::TaskQuery),
+            0x2A => Ok(MessageType::TaskResponse),
 
             // Identity & Economy
             0x30 => Ok(MessageType::PassportQuery),
@@ -299,6 +311,14 @@ mod tests {
         assert_eq!(
             MessageType::try_from(0x26).unwrap(),
             MessageType::ActivityAck
+        );
+        assert_eq!(
+            MessageType::try_from(0x27).unwrap(),
+            MessageType::TaskCreate
+        );
+        assert_eq!(
+            MessageType::try_from(0x2A).unwrap(),
+            MessageType::TaskResponse
         );
 
         // V2 Tests

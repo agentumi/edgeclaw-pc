@@ -1,6 +1,6 @@
 // No direct serde imports needed since we use serde_json::json! macro or other providers
+use super::{parse_cloud_response, ureq_post_json_with_auth, AiProvider, AiRequest, AiResponse};
 use crate::error::AgentError;
-use super::{AiProvider, AiRequest, AiResponse, ureq_post_json_with_auth, parse_cloud_response};
 use std::time::Duration;
 
 /// HuggingFace Inference API Provider
@@ -23,9 +23,15 @@ impl HuggingFaceProvider {
 }
 
 impl AiProvider for HuggingFaceProvider {
-    fn name(&self) -> &str { "huggingface" }
-    fn is_available(&self) -> bool { !self.api_key.is_empty() }
-    fn is_local(&self) -> bool { false }
+    fn name(&self) -> &str {
+        "huggingface"
+    }
+    fn is_available(&self) -> bool {
+        !self.api_key.is_empty()
+    }
+    fn is_local(&self) -> bool {
+        false
+    }
 
     fn set_model(&mut self, model: &str) -> Result<(), AgentError> {
         self.model = model.to_string();
@@ -34,7 +40,11 @@ impl AiProvider for HuggingFaceProvider {
     }
 
     fn list_models(&self) -> Vec<String> {
-        vec!["mistralai/Mistral-7B-v0.1".into(), "meta-llama/Llama-2-7b-hf".into(), "gpt2".into()]
+        vec![
+            "mistralai/Mistral-7B-v0.1".into(),
+            "meta-llama/Llama-2-7b-hf".into(),
+            "gpt2".into(),
+        ]
     }
 
     fn process(&self, request: &AiRequest) -> Result<AiResponse, AgentError> {
@@ -59,12 +69,8 @@ impl AiProvider for HuggingFaceProvider {
             }
         });
 
-        let response_str = ureq_post_json_with_auth(
-            &self.endpoint,
-            &body,
-            &self.api_key,
-            self.timeout
-        )?;
+        let response_str =
+            ureq_post_json_with_auth(&self.endpoint, &body, &self.api_key, self.timeout)?;
 
         // HuggingFace usually returns: [{"generated_text": "..."}] OR {"error": "..."}
         if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&response_str) {
@@ -76,7 +82,10 @@ impl AiProvider for HuggingFaceProvider {
                     }
                 }
             } else if let Some(error) = json_val.get("error") {
-                return Err(AgentError::ConnectionError(format!("HuggingFace API Error: {}", error)));
+                return Err(AgentError::ConnectionError(format!(
+                    "HuggingFace API Error: {}",
+                    error
+                )));
             }
         }
 

@@ -325,7 +325,8 @@ impl ActivityCollector {
             | AgentEvent::MissionStatusChanged { .. }
             | AgentEvent::ConsensusStarted { .. }
             | AgentEvent::ConsensusReached { .. }
-            | AgentEvent::KnowledgeRetrieved { .. } => None,
+            | AgentEvent::KnowledgeRetrieved { .. }
+            | AgentEvent::KillSwitchTriggered { .. } => None,
         }
     }
 }

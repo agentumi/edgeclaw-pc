@@ -157,6 +157,8 @@ pub struct IdentityConfigUpdate {
     pub phone: Option<String>,
     #[serde(default)]
     pub language: Option<String>,
+    #[serde(default)]
+    pub instance_index: Option<u16>,
 }
 
 /// PUT /api/config/identity — Update agent identity fields (JSON body).
@@ -190,32 +192,67 @@ pub async fn handle_config_identity_update(
     };
 
     let mut config = crate::config::AgentConfig::load(&config_path)?;
-    if !device_name.is_empty() {
-        config.agent.device_name = device_name.to_string();
-    }
-    if !display_name.is_empty() {
-        config.agent.display_name = display_name.to_string();
-    }
-    if let Some(value) = req.avatar_url.as_deref().map(str::trim) {
-        config.agent.avatar_url = value.to_string();
-    }
-    if let Some(value) = req.persona.as_deref().map(str::trim) {
-        config.agent.persona = value.to_string();
-    }
-    if let Some(value) = req.role.as_deref().map(str::trim) {
-        config.agent.role = value.to_string();
-    }
-    if let Some(value) = req.email.as_deref().map(str::trim) {
-        config.agent.email = value.to_string();
-    }
-    if let Some(value) = req.messenger.as_deref().map(str::trim) {
-        config.agent.messenger = value.to_string();
-    }
-    if let Some(value) = req.phone.as_deref().map(str::trim) {
-        config.agent.phone = value.to_string();
-    }
-    if let Some(value) = req.language.as_deref().map(str::trim) {
-        config.agent.language = value.to_string();
+    if let Some(index) = req.instance_index {
+        let mut entry = config
+            .webui
+            .fleet_identities
+            .get(&index)
+            .cloned()
+            .unwrap_or_else(|| crate::config::AgentSection {
+                device_name: format!("{}-{}", config.agent.device_name, index + 1),
+                ..config.agent.clone()
+            });
+
+        if !display_name.is_empty() {
+            entry.display_name = display_name.to_string();
+        }
+        if let Some(value) = req.avatar_url.as_deref().map(str::trim) {
+            entry.avatar_url = value.to_string();
+        }
+        if let Some(value) = req.persona.as_deref().map(str::trim) {
+            entry.persona = value.to_string();
+        }
+        if let Some(value) = req.role.as_deref().map(str::trim) {
+            entry.role = value.to_string();
+        }
+        if let Some(value) = req.email.as_deref().map(str::trim) {
+            entry.email = value.to_string();
+        }
+        if let Some(value) = req.messenger.as_deref().map(str::trim) {
+            entry.messenger = value.to_string();
+        }
+        if let Some(value) = req.phone.as_deref().map(str::trim) {
+            entry.phone = value.to_string();
+        }
+        config.webui.fleet_identities.insert(index, entry);
+    } else {
+        if !device_name.is_empty() {
+            config.agent.device_name = device_name.to_string();
+        }
+        if !display_name.is_empty() {
+            config.agent.display_name = display_name.to_string();
+        }
+        if let Some(value) = req.avatar_url.as_deref().map(str::trim) {
+            config.agent.avatar_url = value.to_string();
+        }
+        if let Some(value) = req.persona.as_deref().map(str::trim) {
+            config.agent.persona = value.to_string();
+        }
+        if let Some(value) = req.role.as_deref().map(str::trim) {
+            config.agent.role = value.to_string();
+        }
+        if let Some(value) = req.email.as_deref().map(str::trim) {
+            config.agent.email = value.to_string();
+        }
+        if let Some(value) = req.messenger.as_deref().map(str::trim) {
+            config.agent.messenger = value.to_string();
+        }
+        if let Some(value) = req.phone.as_deref().map(str::trim) {
+            config.agent.phone = value.to_string();
+        }
+        if let Some(value) = req.language.as_deref().map(str::trim) {
+            config.agent.language = value.to_string();
+        }
     }
     config.save(&config_path)?;
 

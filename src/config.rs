@@ -175,6 +175,50 @@ pub struct WebUiSection {
     /// CORS allowed origin (default: auto from bind+port)
     #[serde(default)]
     pub cors_origin: String,
+    /// Per-instance identity settings (index -> AgentSection)
+    #[serde(default = "default_fleet_identities")]
+    pub fleet_identities: std::collections::HashMap<u16, AgentSection>,
+}
+
+fn default_fleet_identities() -> std::collections::HashMap<u16, AgentSection> {
+    let mut m = std::collections::HashMap::new();
+    
+    // Index 0 is reserved for the "Global/Main" identity.
+    // We will start our fleet workers from Index 1.
+
+    // SE: Software Engineer 1
+    m.insert(1, AgentSection {
+        display_name: "System Architect".to_string(),
+        persona: "Core engineering expert specializing in distributed systems, CI/CD pipelines, and high-performance Rust logic.".to_string(),
+        role: "Software Engineer".to_string(),
+        ..default_agent()
+    });
+    
+    // SE: Software Engineer 2
+    m.insert(2, AgentSection {
+        display_name: "DevOps Engineer".to_string(),
+        persona: "Infrastructure and deployment specialist focusing on automation, containerization, and system reliability.".to_string(),
+        role: "Software Engineer".to_string(),
+        ..default_agent()
+    });
+    
+    // GM: Growth Marketer
+    m.insert(3, AgentSection {
+        display_name: "Growth Hacker".to_string(),
+        persona: "Marketing expert specializing in rapid experimentation, SEO/SNS optimization, and viral user acquisition.".to_string(),
+        role: "Growth Marketer".to_string(),
+        ..default_agent()
+    });
+    
+    // QA: QA Guardian
+    m.insert(4, AgentSection {
+        display_name: "Security Guardian".to_string(),
+        persona: "Security and testing expert dedicated to zero-trust verification, vulnerability scanning, and quality assurance.".to_string(),
+        role: "QA Guardian".to_string(),
+        ..default_agent()
+    });
+
+    m
 }
 
 impl Default for WebUiSection {
@@ -189,6 +233,7 @@ impl Default for WebUiSection {
             work_profile: default_work_profile(),
             auth_password: String::new(),
             cors_origin: String::new(),
+            fleet_identities: default_fleet_identities(),
         }
     }
 }
@@ -200,7 +245,7 @@ fn default_webui_bind() -> String {
     "127.0.0.1".to_string()
 }
 fn default_max_agents() -> u16 {
-    4
+    5
 }
 fn default_license_tier() -> String {
     "pro".to_string()
@@ -597,10 +642,10 @@ impl WebUiSection {
 fn default_agent() -> AgentSection {
     AgentSection {
         device_name: default_device_name(),
-        display_name: String::new(),
+        display_name: "Strategic Analyst".to_string(),
         avatar_url: String::new(),
-        persona: String::new(),
-        role: String::new(),
+        persona: "Executive strategy expert focusing on market data, KPI optimization, and high-level ROI analysis.".to_string(),
+        role: "Business Analyst".to_string(),
         email: String::new(),
         messenger: String::new(),
         phone: String::new(),

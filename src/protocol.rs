@@ -64,6 +64,12 @@ pub enum MessageType {
     TaskProgress = 0x53,
     TaskComplete = 0x54,
     TaskSchedule = 0x55,
+
+    // V3: Risk & Governance (0x60-0x65)
+    KillSwitch = 0x60,
+
+    // V3: App Logic (0x70-0x75)
+    ArbTelemetry = 0x70,
 }
 
 impl TryFrom<u8> for MessageType {
@@ -112,6 +118,11 @@ impl TryFrom<u8> for MessageType {
             0x53 => Ok(MessageType::TaskProgress),
             0x54 => Ok(MessageType::TaskComplete),
             0x55 => Ok(MessageType::TaskSchedule),
+
+            0x60 => Ok(MessageType::KillSwitch),
+
+            // V3: App Logic
+            0x70 => Ok(MessageType::ArbTelemetry),
 
             _ => Err(AgentError::InvalidParameter(format!(
                 "unknown message type: 0x{value:02x}"
@@ -172,6 +183,15 @@ pub struct ExecutionResult {
     pub stderr: String,
     pub duration_ms: u64,
     pub timestamp: String,
+}
+
+/// Arbitrage Telemetry
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ArbTelemetryMessage {
+    pub pnl: f64,
+    pub latency: f64,
+    pub active_neurons: u32,
+    pub message: String,
 }
 
 /// Create an ECM JSON payload

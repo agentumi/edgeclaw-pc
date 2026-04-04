@@ -35,14 +35,17 @@ pub struct IncomingMessage {
 pub struct TcpServer {
     config: TcpServerConfig,
     shutdown_tx: Option<broadcast::Sender<()>>,
+    broadcast_tx: broadcast::Sender<EcnpMessage>,
     conn_tracker: Arc<ConnectionTracker>,
 }
 
 impl TcpServer {
     pub fn new(config: TcpServerConfig) -> Self {
+        let (broadcast_tx, _) = broadcast::channel(128);
         Self {
             config,
             shutdown_tx: None,
+            broadcast_tx,
             conn_tracker: Arc::new(ConnectionTracker::new()),
         }
     }
@@ -95,11 +98,12 @@ impl TcpServer {
                             let tx = message_tx.clone();
                             let count = conn_count.clone();
                             let mut shutdown = shutdown_tx.subscribe();
+                            let b_rx = self.broadcast_tx.subscribe();
                             let hs_timeout = self.config.handshake_timeout_secs;
 
                             tokio::spawn(async move {
                                 info!(peer = %addr, "client connected");
-                                if let Err(e) = handle_connection(stream, addr.to_string(), tx, &mut shutdown, hs_timeout).await {
+                                if let Err(e) = handle_connection(stream, addr.to_string(), tx, &mut shutdown, b_rx, hs_timeout).await {
                                     error!(peer = %addr, error = %e, "connection error");
                                 }
                                 count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
@@ -127,6 +131,16 @@ impl TcpServer {
             let _ = tx.send(());
         }
     }
+
+    /// Get the broadcast sender for this server
+    pub fn broadcast_tx(&self) -> &broadcast::Sender<EcnpMessage> {
+        &self.broadcast_tx
+    }
+
+    /// Broadcast a message to all connected clients
+    pub fn broadcast(&self, msg: EcnpMessage) {
+        let _ = self.broadcast_tx.send(msg);
+    }
 }
 
 /// Handle a single TCP connection with handshake timeout
@@ -135,6 +149,7 @@ async fn handle_connection(
     peer_addr: String,
     message_tx: tokio::sync::mpsc::Sender<IncomingMessage>,
     shutdown: &mut broadcast::Receiver<()>,
+    mut broadcast_rx: broadcast::Receiver<EcnpMessage>,
     handshake_timeout_secs: u64,
 ) -> Result<(), AgentError> {
     let mut buf = vec![0u8; 65536]; // 64KB read buffer
@@ -208,6 +223,10 @@ async fn handle_connection(
             }
             _ = shutdown.recv() => {
                 break;
+            }
+            Ok(msg) = broadcast_rx.recv() => {
+                let frame = EcnpCodec::encode(msg.msg_type.try_into().unwrap_or(MessageType::Data), &msg.payload)?;
+                let _ = stream.write_all(&frame).await;
             }
         }
     }

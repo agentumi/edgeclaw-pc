@@ -92,8 +92,13 @@ export async function fetchMemory() {
                     meta.style.color = 'var(--text-muted)';
                     meta.textContent = `Effectiveness: ${lesson.effectiveness ?? '-'}`;
 
+                    const actions = document.createElement('div');
+                    actions.style.marginTop = '4px';
+                    actions.innerHTML = `<button onclick="window.deleteMemory('${lesson.id}')" style="background:none; border:none; color:var(--accent-red); cursor:pointer; font-size:10px;"><i class="fa-solid fa-trash"></i> Delete</button>`;
+
                     item.appendChild(title);
                     item.appendChild(meta);
+                    item.appendChild(actions);
                     contentArea.appendChild(item);
                 });
             }
@@ -117,7 +122,11 @@ export async function fetchMemory() {
                     const meta = document.createElement('div');
                     meta.style.fontSize = '11px';
                     meta.style.color = 'var(--text-muted)';
-                    meta.textContent = new Date(m.created_at).toLocaleString();
+                    meta.style.display = 'flex';
+                    meta.style.justifyContent = 'space-between';
+                    meta.style.marginTop = '4px';
+                    meta.innerHTML = `<span>${new Date(m.created_at).toLocaleString()}</span>
+                                      <button onclick="window.deleteMemory('${m.id}')" style="background:none; border:none; color:var(--accent-red); cursor:pointer; font-size:10px;"><i class="fa-solid fa-trash"></i></button>`;
 
                     row.appendChild(content);
                     row.appendChild(meta);
@@ -245,6 +254,22 @@ export async function submitMemoryEdit() {
         }
     }
 }
+
+// Delete memory entry
+window.deleteMemory = async function(id) {
+    if(!confirm("Are you sure you want to delete this memory node?")) return;
+    try {
+        const res = await apiFetch(`${API}/api/memory/` + encodeURIComponent(id), { method: 'DELETE' });
+        if(res.ok) {
+            showToast("Memory deleted", "success");
+            fetchMemory();
+        } else {
+            showToast("Failed to delete memory", "error");
+        }
+    } catch(e) {
+        showToast("Error deleting memory", "error");
+    }
+};
 
 // --- RENDERING FUNCTIONS ---
 

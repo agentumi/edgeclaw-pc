@@ -34,11 +34,19 @@ pub enum SyncMessage {
         uptime_secs: u64,
         active_peers: usize,
         active_sessions: usize,
+        /// V3: Integrated PNL from Quantum Hub.
+        pnl: f64,
+        /// V3: Integrated Latency from Quantum Hub.
+        latency: f64,
     },
-    /// Heartbeat / keep-alive.
+    /// Heartbeat request.
     Ping { timestamp: u64 },
     /// Heartbeat response.
     Pong { timestamp: u64 },
+    /// Remote trigger for global kill-switch.
+    KillSwitch { active: bool, reason: String },
+    /// Explicit status request (mobile → desktop).
+    GetStatus,
 }
 
 /// Sync server configuration.
@@ -84,14 +92,17 @@ pub struct SyncClient {
 pub struct SyncServer {
     config: SyncConfig,
     clients: std::sync::Arc<std::sync::Mutex<Vec<SyncClient>>>,
+    broadcast_tx: tokio::sync::broadcast::Sender<SyncMessage>,
 }
 
 impl SyncServer {
     /// Create a new sync server with the given configuration.
     pub fn new(config: SyncConfig) -> Self {
+        let (broadcast_tx, _) = tokio::sync::broadcast::channel(16);
         Self {
             config,
             clients: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            broadcast_tx,
         }
     }
 
@@ -149,6 +160,8 @@ impl SyncServer {
         uptime: u64,
         peers: usize,
         sessions: usize,
+        pnl: f64,
+        latency: f64,
     ) -> SyncMessage {
         SyncMessage::StatusPush {
             cpu_percent: cpu,
@@ -157,6 +170,8 @@ impl SyncServer {
             uptime_secs: uptime,
             active_peers: peers,
             active_sessions: sessions,
+            pnl,
+            latency,
         }
     }
 
@@ -172,8 +187,30 @@ impl SyncServer {
     }
 
     /// Process an incoming sync message and return a response if needed.
-    pub fn handle_message(&self, msg: &SyncMessage) -> Result<Option<SyncMessage>, AgentError> {
+    pub fn handle_message(
+        &self,
+        msg: &SyncMessage,
+        engine: &crate::AgentEngine,
+        event_bus: &crate::events::EventBus,
+    ) -> Result<Option<SyncMessage>, AgentError> {
         match msg {
+            SyncMessage::GetStatus => {
+                let sys = engine.get_system_info();
+                let arb = {
+                    let lock = engine.arb_telemetry.lock().unwrap();
+                    lock.clone()
+                };
+                Ok(Some(Self::build_status_push(
+                    sys.cpu_usage.into(),
+                    sys.memory_usage_percent.into(),
+                    0.0,
+                    sys.uptime_secs,
+                    0,
+                    0,
+                    arb.pnl,
+                    arb.latency,
+                )))
+            }
             SyncMessage::Ping { timestamp } => Ok(Some(SyncMessage::Pong {
                 timestamp: *timestamp,
             })),
@@ -183,14 +220,111 @@ impl SyncServer {
             }
             SyncMessage::RemoteExec { command, args } => {
                 tracing::info!(cmd = %command, "Remote exec request");
-                // In production, this would call executor
                 Ok(Some(SyncMessage::ExecResult {
                     success: true,
                     output: format!("Executed: {command} {}", args.join(" ")),
                     exit_code: 0,
                 }))
             }
+            SyncMessage::KillSwitch { active, reason } => {
+                tracing::warn!(active = %active, reason = %reason, "GLOBAL KILL-SWITCH TRIGGERED FROM MOBILE");
+                event_bus.publish(crate::events::AgentEvent::KillSwitchTriggered {
+                    active: *active,
+                    reason: reason.clone(),
+                });
+                Ok(None)
+            }
             _ => Ok(None),
+        }
+    }
+
+    /// Start the sync server in a background task.
+    pub async fn start(
+        self: std::sync::Arc<Self>,
+        engine: std::sync::Arc<crate::AgentEngine>,
+        event_bus: std::sync::Arc<crate::events::EventBus>,
+    ) -> Result<(), AgentError> {
+        let addr = format!("0.0.0.0:{}", self.config.port);
+        let listener = tokio::net::TcpListener::bind(&addr).await.map_err(|e| {
+            AgentError::ConnectionError(format!("Failed to bind sync port {}: {}", addr, e))
+        })?;
+
+        tracing::info!(addr = %addr, "Sync server listening for mobile clients");
+
+        // Background status push loop
+        let server_push = self.clone();
+        let engine_push = engine.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(server_push.config.push_interval_secs));
+            loop {
+                interval.tick().await;
+                
+                // Aggregate status (System + Arb Telemetry)
+                let sys = engine_push.get_system_info();
+                let arb = {
+                    let lock = engine_push.arb_telemetry.lock().unwrap();
+                    lock.clone()
+                };
+                
+                let push_msg = Self::build_status_push(
+                    sys.cpu_usage.into(),
+                    sys.memory_usage_percent.into(),
+                    0.0, // disk
+                    sys.uptime_secs,
+                    0, // peers
+                    0, // sessions
+                    arb.pnl,
+                    arb.latency,
+                );
+                
+                let _ = server_push.broadcast_tx.send(push_msg);
+            }
+        });
+
+        loop {
+            let (mut stream, peer_addr) = listener.accept().await.map_err(|e| {
+                AgentError::ConnectionError(format!("Accept error: {}", e))
+            })?;
+
+            let server = self.clone();
+            let bus = event_bus.clone();
+            let engine_inner = engine.clone();
+            let mut b_rx = self.broadcast_tx.subscribe();
+
+            tokio::spawn(async move {
+                tracing::info!(peer = %peer_addr, "Mobile sync client connected");
+                let mut buf = vec![0u8; 4096];
+                
+                loop {
+                    tokio::select! {
+                        // Forward broadcasts to client
+                        Ok(msg) = b_rx.recv() => {
+                            if let Ok(rb) = Self::encode_message(&msg) {
+                                let _ = tokio::io::AsyncWriteExt::write_all(&mut stream, &rb).await;
+                            }
+                        }
+                        // Handle client requests
+                        read_res = tokio::io::AsyncReadExt::read(&mut stream, &mut buf) => {
+                            match read_res {
+                                Ok(0) => break,
+                                Ok(n) => {
+                                    if let Ok(msg) = Self::decode_message(&buf[..n]) {
+                                        if let Ok(resp) = server.handle_message(&msg, &engine_inner, &bus) {
+                                            if let Some(r) = resp {
+                                                if let Ok(rb) = Self::encode_message(&r) {
+                                                    let _ = tokio::io::AsyncWriteExt::write_all(&mut stream, &rb).await;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(_) => break,
+                            }
+                        }
+                    }
+                }
+                tracing::info!(peer = %peer_addr, "Mobile sync client disconnected");
+            });
         }
     }
 }
@@ -318,9 +452,10 @@ mod tests {
 
     #[test]
     fn test_ping_pong() {
+        let bus = crate::events::EventBus::new(10);
         let server = SyncServer::new(SyncConfig::default());
         let ping = SyncMessage::Ping { timestamp: 12345 };
-        let response = server.handle_message(&ping).unwrap();
+        let response = server.handle_message(&ping, &bus).unwrap();
         assert!(response.is_some());
         if let Some(SyncMessage::Pong { timestamp }) = response {
             assert_eq!(timestamp, 12345);
@@ -331,12 +466,13 @@ mod tests {
 
     #[test]
     fn test_handle_remote_exec() {
+        let bus = crate::events::EventBus::new(10);
         let server = SyncServer::new(SyncConfig::default());
         let msg = SyncMessage::RemoteExec {
             command: "echo".into(),
             args: vec!["hello".into()],
         };
-        let response = server.handle_message(&msg).unwrap();
+        let response = server.handle_message(&msg, &bus).unwrap();
         assert!(response.is_some());
         if let Some(SyncMessage::ExecResult {
             success, output, ..
@@ -346,6 +482,26 @@ mod tests {
             assert!(output.contains("echo"));
         } else {
             panic!("Expected ExecResult");
+        }
+    }
+
+    #[test]
+    fn test_handle_kill_switch() {
+        let bus = crate::events::EventBus::new(10);
+        let mut rx = bus.subscribe();
+        let server = SyncServer::new(SyncConfig::default());
+        let msg = SyncMessage::KillSwitch {
+            active: true,
+            reason: "test".into(),
+        };
+        let _ = server.handle_message(&msg, &bus).unwrap();
+        
+        let event = rx.try_recv().unwrap();
+        if let crate::events::AgentEvent::KillSwitchTriggered { active, reason } = event {
+            assert!(active);
+            assert_eq!(reason, "test");
+        } else {
+            panic!("Expected KillSwitchTriggered event");
         }
     }
 
@@ -385,17 +541,19 @@ mod tests {
 
     #[test]
     fn test_handle_config_sync() {
+        let bus = crate::events::EventBus::new(10);
         let server = SyncServer::new(SyncConfig::default());
         let msg = SyncMessage::ConfigSync {
             config_hash: "abc123".into(),
             config_data: "[agent]\nname = \"test\"".into(),
         };
-        let response = server.handle_message(&msg).unwrap();
+        let response = server.handle_message(&msg, &bus).unwrap();
         assert!(response.is_none()); // ConfigSync returns None
     }
 
     #[test]
     fn test_handle_status_push() {
+        let bus = crate::events::EventBus::new(10);
         let server = SyncServer::new(SyncConfig::default());
         let msg = SyncMessage::StatusPush {
             cpu_percent: 50.0,
@@ -405,7 +563,7 @@ mod tests {
             active_peers: 2,
             active_sessions: 1,
         };
-        let response = server.handle_message(&msg).unwrap();
+        let response = server.handle_message(&msg, &bus).unwrap();
         assert!(response.is_none()); // StatusPush returns None
     }
 

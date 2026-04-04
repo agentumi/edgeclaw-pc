@@ -39,7 +39,23 @@ export async function loadSettingsIdentity() {
         const res = await apiFetch(`${API}/api/config`);
         if (res.ok) {
             const config = await res.json();
-            const agent = config.agent || {};
+            const indexVal = document.getElementById('settingsAgentIndex')?.value || 'main';
+            let agent = config.agent || {};
+
+            if (indexVal !== 'main') {
+                const idx = parseInt(indexVal);
+                if (config.webui && config.webui.fleet_identities && config.webui.fleet_identities[idx]) {
+                    agent = config.webui.fleet_identities[idx];
+                } else {
+                    // Default fallbacks if not explicitly set in config
+                    agent = {
+                        display_name: `Agent-${idx + 1}`,
+                        persona: '',
+                        role: '',
+                        device_name: config.agent.device_name + '-' + (idx + 1)
+                    };
+                }
+            }
             
             // Map values to actual input fields from settings.html
             const el = (id) => document.getElementById(id);
@@ -52,9 +68,13 @@ export async function loadSettingsIdentity() {
             if (el('settingsMessenger')) el('settingsMessenger').value = agent.messenger || '';
             if (el('settingsPhone')) el('settingsPhone').value = agent.phone || '';
 
-            if (el('settingsAvatarPreview') && agent.avatar_url) {
-                el('settingsAvatarPreview').src = agent.avatar_url;
-                el('settingsAvatarPreview').style.display = 'block';
+            if (el('settingsAvatarPreview')) {
+                if (agent.avatar_url) {
+                    el('settingsAvatarPreview').src = agent.avatar_url;
+                    el('settingsAvatarPreview').style.display = 'block';
+                } else {
+                    el('settingsAvatarPreview').style.display = 'none';
+                }
             }
             
             // Bind Save Button Event (Inject Persona)
@@ -71,6 +91,7 @@ export async function loadSettingsIdentity() {
 
 async function saveIdentityConfig() {
     const el = (id) => document.getElementById(id)?.value || '';
+    const indexVal = document.getElementById('settingsAgentIndex')?.value || 'main';
     const payload = {
         display_name: el('settingsDisplayName'),
         device_name: el('settingsDeviceName'),
@@ -80,7 +101,8 @@ async function saveIdentityConfig() {
         email: el('settingsEmail'),
         messenger: el('settingsMessenger'),
         phone: el('settingsPhone'),
-        language: document.getElementById('aiChatLangSelect')?.value || 'english'
+        language: document.getElementById('aiChatLangSelect')?.value || 'english',
+        instance_index: indexVal === 'main' ? null : parseInt(indexVal)
     };
 
     const btn = document.getElementById('settingsIdentitySaveBtn');

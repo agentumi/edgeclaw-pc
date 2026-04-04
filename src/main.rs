@@ -58,6 +58,12 @@ enum Commands {
     Init,
     /// Interactive chat with AI
     Chat,
+    /// Launch native desktop UI
+    Gui {
+        /// Port for the backend API
+        #[arg(short, long)]
+        port: Option<u16>,
+    },
     /// Show AI provider status
     AiStatus,
     /// Show audit log
@@ -70,15 +76,6 @@ enum Commands {
     AuditVerify,
     /// Check agent health (for monitoring/Docker)
     Health,
-    /// Launch web chat UI (opens browser)
-    WebUi {
-        /// Port for the web UI server
-        #[arg(short, long)]
-        port: Option<u16>,
-        /// Don't auto-open browser
-        #[arg(long)]
-        no_open: bool,
-    },
     /// Manage multi-agent network
     Agents {
         #[command(subcommand)]
@@ -256,6 +253,11 @@ async fn main() -> anyhow::Result<()> {
         )
         .json()
         .init();
+
+    // V2.4.1: Fix process-level CryptoProvider panic (Rustls 0.23+)
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
 
     let config_path = PathBuf::from(&cli.config);
     let mut config = AgentConfig::load(&config_path).unwrap_or_else(|e| {
@@ -597,13 +599,29 @@ async fn main() -> anyhow::Result<()> {
                             webui_engine,
                         );
                         if auto_open {
-                            let _ = open_browser(&webui_url);
+                            // V4.0: Replace browser auto-open with native GUI window
+                            // info!("Launching Web UI in browser");
+                            // let _ = open_browser(&webui_url);
+                            info!(url = %webui_url, "Web UI agent is ready for GUI connection");
                         }
                         if let Err(e) = webui.start().await {
                             error!(error = %e, agent = agent_idx, "Web UI server error");
                         }
                     });
                 }
+                
+                // If GUI is requested or we're on a desktop with auto_open, launch the Tauri window
+                if config.webui.enabled && config.webui.auto_open {
+                    let gui_engine = engine.clone();
+                    let gui_url = format!("http://{}:{}", config.webui.bind, config.webui.port);
+                    info!("Launching EdgeClaw Desktop GUI...");
+                    
+                    // Tauri must run on the main thread
+                    edgeclaw_agent::gui::run_gui(gui_engine, gui_url);
+                    // run_gui blocks until close, so we don't need the ctrl_c below
+                    return Ok(());
+                }
+
                 if num_agents > 1 {
                     println!(
                         "  Agents: {} instances on ports {}-{}",
@@ -640,6 +658,19 @@ async fn main() -> anyhow::Result<()> {
                 });
             }
 
+            // Start Sync server for mobile clients
+            {
+                let sync_config = edgeclaw_agent::sync::SyncConfig::default();
+                let sync_server = std::sync::Arc::new(edgeclaw_agent::sync::SyncServer::new(sync_config));
+                let sync_event_bus = engine.event_bus().clone();
+                let sync_engine = engine.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = sync_server.start(sync_engine, sync_event_bus).await {
+                        error!(error = %e, "Sync server error");
+                    }
+                });
+            }
+
             // Start TCP server
             let bind_addr = format!("0.0.0.0:{}", engine.config().agent.listen_port);
             let (msg_tx, mut msg_rx) =
@@ -671,6 +702,24 @@ async fn main() -> anyhow::Result<()> {
                     max_connections: engine.config().agent.max_connections,
                     handshake_timeout_secs: 5,
                 });
+
+            // V3: Event-to-TCP broadcast bridge
+            let mut event_rx = engine.event_bus().subscribe();
+            let b_tx = tcp_server.broadcast_tx().clone();
+            tokio::spawn(async move {
+                while let Ok(event) = event_rx.recv().await {
+                   if let edgeclaw_agent::events::AgentEvent::KillSwitchTriggered { active, reason } = event {
+                       let payload = serde_json::json!({ "active": active, "reason": reason }).to_string();
+                       let msg = edgeclaw_agent::ecnp::EcnpMessage {
+                           version: 0x01,
+                           msg_type: edgeclaw_agent::protocol::MessageType::KillSwitch as u8,
+                           payload: payload.into_bytes(),
+                       };
+                       let _ = b_tx.send(msg);
+                       info!(active = %active, reason = %reason, "Broadcasted global kill-switch to all ECNP clients");
+                   }
+                }
+            });
 
             // Message handler task — dispatch by message type
             let _handler_engine = engine.clone();
@@ -740,6 +789,14 @@ async fn main() -> anyhow::Result<()> {
                                 }
                             }
                         }
+                        Ok(MessageType::ArbTelemetry) => {
+                            info!(peer = %msg.peer_addr, "ArbTelemetry received");
+                            if let Ok(telemetry) = serde_json::from_slice::<edgeclaw_agent::protocol::ArbTelemetryMessage>(&msg.message.payload) {
+                                let mut cache = _handler_engine.arb_telemetry.lock().unwrap();
+                                *cache = telemetry;
+                                info!(pnl = %cache.pnl, latency = %cache.latency, "Updated Arb Telemetry Cache from App");
+                            }
+                        }
                         Ok(mt) => {
                             info!(
                                 peer = %msg.peer_addr,
@@ -774,35 +831,37 @@ async fn main() -> anyhow::Result<()> {
             info!("EdgeClaw Agent stopped");
             Ok(())
         }
-        Commands::WebUi { port, no_open } => {
+        Commands::Gui { port } => {
             let engine = Arc::new(AgentEngine::new(config.clone()));
             engine.generate_identity()?;
-            engine.add_peer("web-client", "WebUI", "browser", "127.0.0.1", "owner")?;
+            
+            // Start background tasks
+            engine.clone().start_background_tasks();
+            engine.boot_ritual();
 
             let webui_port = port.unwrap_or(config.webui.port);
             let webui_bind = format!("{}:{}", config.webui.bind, webui_port);
             let webui_url = format!("http://{}", webui_bind);
 
-            println!("EdgeClaw Web Chat UI");
-            println!("  URL: {}", webui_url);
-            println!("  AI:  {}", engine.ai_status()["provider"]);
-            println!("Press Ctrl+C to stop.\n");
+            // Spawn WebUI backend
+            let server_engine = engine.clone();
+            let auth_pw = config.webui.auth_password.clone();
+            let cors_orig = config.webui.cors_origin.clone();
+            
+            tokio::spawn(async move {
+                let mut webui = WebUiServer::new(
+                    WebUiConfig {
+                        bind_addr: webui_bind,
+                        auth_password: auth_pw,
+                        cors_origin: cors_orig,
+                    },
+                    server_engine,
+                );
+                let _ = webui.start().await;
+            });
 
-            if !no_open {
-                let _ = open_browser(&webui_url);
-            }
-
-            let mut webui = WebUiServer::new(
-                WebUiConfig {
-                    bind_addr: webui_bind,
-                    auth_password: config.webui.auth_password.clone(),
-                    cors_origin: config.webui.cors_origin.clone(),
-                },
-                engine,
-            );
-            if let Err(e) = webui.start().await {
-                error!(error = %e, "Web UI server error");
-            }
+            info!("Launching EdgeClaw Desktop GUI...");
+            edgeclaw_agent::gui::run_gui(engine, webui_url);
             Ok(())
         }
         Commands::Passport { action } => {

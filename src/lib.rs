@@ -86,6 +86,7 @@ pub mod wasm;
 pub mod webhook;
 pub mod websocket;
 pub mod webui;
+pub mod gui;
 pub mod workflow_engine;
 pub mod workflows;
 pub mod x402_payment;
@@ -148,6 +149,8 @@ pub struct AgentEngine {
     pub agent_router: Mutex<crate::agent_router::AgentRouter>,
     /// P6-01: Agent Passport NFT
     pub agent_passport: Mutex<Option<crate::identity_passport::AgentPassport>>,
+    /// V3: Arb Telemetry Cache
+    pub arb_telemetry: Mutex<crate::protocol::ArbTelemetryMessage>,
 }
 
 impl AgentEngine {
@@ -855,6 +858,12 @@ impl AgentEngine {
             comm_hub: Mutex::new(crate::agent_comm::CommunicationHub::new()),
             agent_router: Mutex::new(crate::agent_router::AgentRouter::new()),
             agent_passport: Mutex::new(None),
+            arb_telemetry: Mutex::new(crate::protocol::ArbTelemetryMessage {
+                pnl: 0.0,
+                latency: 0.0,
+                active_neurons: 0,
+                message: "Initializing...".into(),
+            }),
             config,
         }
     }

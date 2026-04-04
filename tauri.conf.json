@@ -1,0 +1,52 @@
+{
+  "build": {
+    "beforeBuildCommand": "",
+    "beforeDevCommand": "",
+    "devPath": "static",
+    "distDir": "static",
+    "withGlobalTauri": true
+  },
+  "package": {
+    "productName": "EdgeClaw",
+    "version": "2.4.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": true,
+      "window": {
+        "all": true
+      }
+    },
+    "bundle": {
+      "active": true,
+      "category": "Office",
+      "copyright": "EdgeClaw Foundation",
+      "identifier": "com.edgeclaw.desktop",
+      "icon": [
+        "icons/icon.png"
+      ],
+      "shortDescription": "Zero-Trust Edge AI Executor",
+      "targets": ["msi", "app"]
+    },
+    "security": {
+      "csp": null
+    },
+    "systemTray": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true,
+      "menuOnLeftClick": true
+    },
+    "windows": [
+      {
+        "fullscreen": false,
+        "width": 1000,
+        "height": 720,
+        "resizable": true,
+        "title": "EdgeClaw Desktop Agent",
+        "theme": "Light",
+        "label": "main",
+        "center": true
+      }
+    ]
+  }
+}

@@ -67,7 +67,21 @@ pub async fn handle_agents_info(
         let port = config.webui.agent_port(i);
         let id = local_agent_id(i);
         let peer_id = local_agent_peer_id(i);
-        let name = local_agent_name(base_name, i);
+        
+        let (name, role, persona) = if i == 0 {
+            let n = if config.agent.display_name.trim().is_empty() { "Strategic Analyst".to_string() } else { config.agent.display_name.clone() };
+            let r = if config.agent.role.trim().is_empty() { "Business Analyst".to_string() } else { config.agent.role.clone() };
+            let p = if config.agent.persona.trim().is_empty() { "Executive strategy expert focusing on market data, KPI optimization, and high-level ROI analysis.".to_string() } else { config.agent.persona.clone() };
+            (n, r, p)
+        } else if let Some(fid) = config.webui.fleet_identities.get(&i) {
+            (
+                if fid.display_name.trim().is_empty() { local_agent_name(base_name, i) } else { fid.display_name.clone() },
+                if fid.role.trim().is_empty() { "Worker".to_string() } else { fid.role.clone() },
+                fid.persona.clone()
+            )
+        } else {
+            (local_agent_name(base_name, i), config.webui.work_profile.clone(), "".to_string())
+        };
 
         instances.push(serde_json::json!({
             "index": i,
@@ -79,7 +93,8 @@ pub async fn handle_agents_info(
         local_agents.push(serde_json::json!({
             "id": id,
             "name": name,
-            "profile": config.webui.work_profile,
+            "profile": role,
+            "persona": persona,
             "address": config.webui.bind,
             "port": port,
             "status": "online",
@@ -90,11 +105,15 @@ pub async fn handle_agents_info(
         }));
     }
 
-    // Include remote agents from the persistent registry
+    // Include remote agents from the persistent registry with port-based deduplication
+    let local_ids: std::collections::HashSet<String> = local_agents.iter().filter_map(|a| a["id"].as_str().map(|s| s.to_string())).collect();
+    let local_ports: std::collections::HashSet<u16> = instances.iter().filter_map(|i| i["port"].as_u64().map(|p| p as u16)).collect();
+
     let registered: Vec<serde_json::Value> = engine
         .agent_registry()
         .list_all()
-        .iter()
+        .into_iter()
+        .filter(|a| !local_ids.contains(&a.id) && !local_ports.contains(&a.port))
         .map(|a| {
             serde_json::json!({
                 "id": a.id,
@@ -106,6 +125,8 @@ pub async fn handle_agents_info(
                 "version": a.version,
                 "capabilities": a.capabilities,
                 "source": "remote",
+                "persona": a.persona,
+                "performance_rating": a.performance_rating,
             })
         })
         .collect();
@@ -286,17 +307,31 @@ pub async fn handle_agent_profile(
         } else {
             &engine.config().agent.display_name
         };
-        let name = local_agent_name(base_name, index);
         let id = local_agent_id(index);
         let port = engine.config().webui.agent_port(index);
         let peer_id = local_agent_peer_id(index);
         let tasks = engine.list_tasks_filtered(None, Some(&id));
         let agent_cfg = engine.config().agent.clone();
+        
+        let (name, role, persona) = if index == 0 {
+            let n = if agent_cfg.display_name.trim().is_empty() { "Strategic Analyst".to_string() } else { agent_cfg.display_name.clone() };
+            let r = if agent_cfg.role.trim().is_empty() { "Business Analyst".to_string() } else { agent_cfg.role.clone() };
+            let p = if agent_cfg.persona.trim().is_empty() { "Executive strategy expert focusing on market data, KPI optimization, and high-level ROI analysis.".to_string() } else { agent_cfg.persona.clone() };
+            (n, r, p)
+        } else if let Some(fid) = engine.config().webui.fleet_identities.get(&index) {
+            (
+                if fid.display_name.trim().is_empty() { local_agent_name(base_name, index) } else { fid.display_name.clone() },
+                if fid.role.trim().is_empty() { "Worker".to_string() } else { fid.role.clone() },
+                fid.persona.clone()
+            )
+        } else {
+            (local_agent_name(base_name, index), engine.config().webui.work_profile.clone(), agent_cfg.persona.clone())
+        };
 
         let body = serde_json::json!({
             "id": id,
             "name": name,
-            "profile": engine.config().webui.work_profile,
+            "profile": role,
             "status": "online",
             "reputation_score": score,
             "capabilities": engine.get_capabilities(),
@@ -306,10 +341,10 @@ pub async fn handle_agent_profile(
             "peer_id": peer_id,
             "identity": {
                 "device_name": agent_cfg.device_name,
-                "display_name": agent_cfg.display_name,
+                "display_name": name,
                 "avatar_url": agent_cfg.avatar_url,
-                "persona": agent_cfg.persona,
-                "role": agent_cfg.role,
+                "persona": persona,
+                "role": role,
                 "email": agent_cfg.email,
                 "messenger": agent_cfg.messenger,
                 "phone": agent_cfg.phone,

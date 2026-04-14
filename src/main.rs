@@ -609,13 +609,13 @@ async fn main() -> anyhow::Result<()> {
                         }
                     });
                 }
-                
+
                 // If GUI is requested or we're on a desktop with auto_open, launch the Tauri window
                 if config.webui.enabled && config.webui.auto_open {
                     let gui_engine = engine.clone();
                     let gui_url = format!("http://{}:{}", config.webui.bind, config.webui.port);
                     info!("Launching EdgeClaw Desktop GUI...");
-                    
+
                     // Tauri must run on the main thread
                     edgeclaw_agent::gui::run_gui(gui_engine, gui_url);
                     // run_gui blocks until close, so we don't need the ctrl_c below
@@ -661,7 +661,8 @@ async fn main() -> anyhow::Result<()> {
             // Start Sync server for mobile clients
             {
                 let sync_config = edgeclaw_agent::sync::SyncConfig::default();
-                let sync_server = std::sync::Arc::new(edgeclaw_agent::sync::SyncServer::new(sync_config));
+                let sync_server =
+                    std::sync::Arc::new(edgeclaw_agent::sync::SyncServer::new(sync_config));
                 let sync_event_bus = engine.event_bus().clone();
                 let sync_engine = engine.clone();
                 tokio::spawn(async move {
@@ -708,16 +709,21 @@ async fn main() -> anyhow::Result<()> {
             let b_tx = tcp_server.broadcast_tx().clone();
             tokio::spawn(async move {
                 while let Ok(event) = event_rx.recv().await {
-                   if let edgeclaw_agent::events::AgentEvent::KillSwitchTriggered { active, reason } = event {
-                       let payload = serde_json::json!({ "active": active, "reason": reason }).to_string();
-                       let msg = edgeclaw_agent::ecnp::EcnpMessage {
-                           version: 0x01,
-                           msg_type: edgeclaw_agent::protocol::MessageType::KillSwitch as u8,
-                           payload: payload.into_bytes(),
-                       };
-                       let _ = b_tx.send(msg);
-                       info!(active = %active, reason = %reason, "Broadcasted global kill-switch to all ECNP clients");
-                   }
+                    if let edgeclaw_agent::events::AgentEvent::KillSwitchTriggered {
+                        active,
+                        reason,
+                    } = event
+                    {
+                        let payload =
+                            serde_json::json!({ "active": active, "reason": reason }).to_string();
+                        let msg = edgeclaw_agent::ecnp::EcnpMessage {
+                            version: 0x01,
+                            msg_type: edgeclaw_agent::protocol::MessageType::KillSwitch as u8,
+                            payload: payload.into_bytes(),
+                        };
+                        let _ = b_tx.send(msg);
+                        info!(active = %active, reason = %reason, "Broadcasted global kill-switch to all ECNP clients");
+                    }
                 }
             });
 
@@ -758,10 +764,15 @@ async fn main() -> anyhow::Result<()> {
                             info!(peer = %msg.peer_addr, "telemetry received");
                         }
                         // P3-02: Memory Sync
-                        Ok(MessageType::MemorySyncRequest) | Ok(MessageType::MemorySyncResponse) => {
+                        Ok(MessageType::MemorySyncRequest)
+                        | Ok(MessageType::MemorySyncResponse) => {
                             info!(peer = %msg.peer_addr, "MemorySync received");
-                            if let Ok(diff) = serde_json::from_slice::<edgeclaw_agent::memory_engine::MemoryDiff>(&msg.message.payload) {
-                                let (mem_count, lesson_count) = _handler_engine.import_memory_diff(&diff);
+                            if let Ok(diff) = serde_json::from_slice::<
+                                edgeclaw_agent::memory_engine::MemoryDiff,
+                            >(&msg.message.payload)
+                            {
+                                let (mem_count, lesson_count) =
+                                    _handler_engine.import_memory_diff(&diff);
                                 info!(
                                     peer = %msg.peer_addr,
                                     mem_imported = mem_count,
@@ -778,8 +789,9 @@ async fn main() -> anyhow::Result<()> {
                             if let Ok(
                                 edgeclaw_agent::task_board::TaskSyncMessage::TaskCreate { task }
                                 | edgeclaw_agent::task_board::TaskSyncMessage::TaskUpdate { task },
-                            ) = edgeclaw_agent::task_board::TaskSyncMessage::from_bytes(&msg.message.payload)
-                            {
+                            ) = edgeclaw_agent::task_board::TaskSyncMessage::from_bytes(
+                                &msg.message.payload,
+                            ) {
                                 let mut board = _handler_engine
                                     .task_board()
                                     .lock()
@@ -791,7 +803,11 @@ async fn main() -> anyhow::Result<()> {
                         }
                         Ok(MessageType::ArbTelemetry) => {
                             info!(peer = %msg.peer_addr, "ArbTelemetry received");
-                            if let Ok(telemetry) = serde_json::from_slice::<edgeclaw_agent::protocol::ArbTelemetryMessage>(&msg.message.payload) {
+                            if let Ok(telemetry) =
+                                serde_json::from_slice::<
+                                    edgeclaw_agent::protocol::ArbTelemetryMessage,
+                                >(&msg.message.payload)
+                            {
                                 let mut cache = _handler_engine.arb_telemetry.lock().unwrap();
                                 *cache = telemetry;
                                 info!(pnl = %cache.pnl, latency = %cache.latency, "Updated Arb Telemetry Cache from App");
@@ -834,7 +850,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Gui { port } => {
             let engine = Arc::new(AgentEngine::new(config.clone()));
             engine.generate_identity()?;
-            
+
             // Start background tasks
             engine.clone().start_background_tasks();
             engine.boot_ritual();
@@ -847,7 +863,7 @@ async fn main() -> anyhow::Result<()> {
             let server_engine = engine.clone();
             let auth_pw = config.webui.auth_password.clone();
             let cors_orig = config.webui.cors_origin.clone();
-            
+
             tokio::spawn(async move {
                 let mut webui = WebUiServer::new(
                     WebUiConfig {

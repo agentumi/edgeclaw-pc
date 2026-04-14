@@ -85,6 +85,9 @@ dirs = "5"
 # V4.0: Full-text search
 tantivy = "0.22"
 
+# V3.1: Knowledge Graph (MindVault integration)
+petgraph = "0.7"
+
 # V4.0: CBOR binary encoding
 ciborium = "0.2"
 serde_cbor = "0.11"

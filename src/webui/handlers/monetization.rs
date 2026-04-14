@@ -10,7 +10,10 @@ pub async fn handle_passport_get(
     cors_origin: &str,
 ) -> Result<(), AgentError> {
     let passport = {
-        let lock = engine.agent_passport.lock().unwrap_or_else(|e| e.into_inner());
+        let lock = engine
+            .agent_passport
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         lock.clone()
     };
 
@@ -63,7 +66,10 @@ pub async fn handle_passport_create(
     );
 
     let cloned_p = {
-        let mut lock = engine.agent_passport.lock().unwrap_or_else(|e| e.into_inner());
+        let mut lock = engine
+            .agent_passport
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *lock = Some(p.clone());
         p
     };
@@ -97,8 +103,16 @@ pub async fn handle_delegation_route(
     };
 
     let result = {
-        let mut router = engine.agent_router.lock().unwrap_or_else(|e| e.into_inner());
-        router.route(&req.delegator_id, &req.capability, &req.description, req.escrow_amount)
+        let mut router = engine
+            .agent_router
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        router.route(
+            &req.delegator_id,
+            &req.capability,
+            &req.description,
+            req.escrow_amount,
+        )
     };
 
     match result {
@@ -133,17 +147,25 @@ pub async fn handle_delegation_list(
     raw_request: &str,
     cors_origin: &str,
 ) -> Result<(), AgentError> {
-    let delegator = crate::webui::http::parse_query_param(raw_request, "delegator")
-        .unwrap_or("all");
+    let delegator =
+        crate::webui::http::parse_query_param(raw_request, "delegator").unwrap_or("all");
 
     let contracts = {
-        let mut router = engine.agent_router.lock().unwrap_or_else(|e| e.into_inner());
+        let mut router = engine
+            .agent_router
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if delegator == "all" {
             // We shouldn't do this easily with current API, but let's mock empty
             // To get all, we could have a method, but delegation doesn't expose it.
             vec![]
         } else {
-            router.delegation_mut().list_contracts(delegator).iter().map(|c| (*c).clone()).collect::<Vec<_>>()
+            router
+                .delegation_mut()
+                .list_contracts(delegator)
+                .iter()
+                .map(|c| (*c).clone())
+                .collect::<Vec<_>>()
         }
     };
 

@@ -164,9 +164,7 @@ impl CommunicationHub {
     pub fn register_agent(&mut self, agent_id: &str) {
         if !self.registered_agents.contains(&agent_id.to_string()) {
             self.registered_agents.push(agent_id.to_string());
-            self.mailboxes
-                .entry(agent_id.to_string())
-                .or_default();
+            self.mailboxes.entry(agent_id.to_string()).or_default();
         }
     }
 
@@ -199,17 +197,11 @@ impl CommunicationHub {
         };
 
         // Deliver to recipient
-        let mailbox = self
-            .mailboxes
-            .entry(to.to_string())
-            .or_default();
+        let mailbox = self.mailboxes.entry(to.to_string()).or_default();
         mailbox.receive(msg.clone());
 
         // Record in sender's sent list
-        let sender_box = self
-            .mailboxes
-            .entry(from.to_string())
-            .or_default();
+        let sender_box = self.mailboxes.entry(from.to_string()).or_default();
         sender_box.record_sent(msg.clone());
 
         Ok(msg)

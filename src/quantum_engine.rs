@@ -369,28 +369,49 @@ impl QuantumMemoryHub {
     /// P3-07: Classify failure into a category based on keywords
     fn classify_failure(failure_desc: &str) -> FailureCategory {
         let desc = failure_desc.to_lowercase();
-        if desc.contains("timeout") || desc.contains("connection") || desc.contains("memory")
-            || desc.contains("disk") || desc.contains("resource") || desc.contains("oom")
+        if desc.contains("timeout")
+            || desc.contains("connection")
+            || desc.contains("memory")
+            || desc.contains("disk")
+            || desc.contains("resource")
+            || desc.contains("oom")
         {
             FailureCategory::Infrastructure
-        } else if desc.contains("api") || desc.contains("service") || desc.contains("external")
-            || desc.contains("network") || desc.contains("http") || desc.contains("dns")
+        } else if desc.contains("api")
+            || desc.contains("service")
+            || desc.contains("external")
+            || desc.contains("network")
+            || desc.contains("http")
+            || desc.contains("dns")
         {
             FailureCategory::ExternalDependency
-        } else if desc.contains("assert") || desc.contains("validation") || desc.contains("parse")
-            || desc.contains("invalid") || desc.contains("mismatch") || desc.contains("null")
+        } else if desc.contains("assert")
+            || desc.contains("validation")
+            || desc.contains("parse")
+            || desc.contains("invalid")
+            || desc.contains("mismatch")
+            || desc.contains("null")
         {
             FailureCategory::Logic
-        } else if desc.contains("config") || desc.contains("permission") || desc.contains("path")
-            || desc.contains("env") || desc.contains("missing")
+        } else if desc.contains("config")
+            || desc.contains("permission")
+            || desc.contains("path")
+            || desc.contains("env")
+            || desc.contains("missing")
         {
             FailureCategory::Configuration
-        } else if desc.contains("slow") || desc.contains("latency") || desc.contains("cpu")
-            || desc.contains("perf") || desc.contains("bottleneck")
+        } else if desc.contains("slow")
+            || desc.contains("latency")
+            || desc.contains("cpu")
+            || desc.contains("perf")
+            || desc.contains("bottleneck")
         {
             FailureCategory::Performance
-        } else if desc.contains("auth") || desc.contains("token") || desc.contains("cert")
-            || desc.contains("encrypt") || desc.contains("forbidden")
+        } else if desc.contains("auth")
+            || desc.contains("token")
+            || desc.contains("cert")
+            || desc.contains("encrypt")
+            || desc.contains("forbidden")
         {
             FailureCategory::Security
         } else {
@@ -399,18 +420,25 @@ impl QuantumMemoryHub {
     }
 
     /// P3-07: Generate pivot strategies based on failure category
-    fn generate_pivot_strategies(category: &FailureCategory, failure_desc: &str) -> Vec<PivotStrategy> {
+    fn generate_pivot_strategies(
+        category: &FailureCategory,
+        failure_desc: &str,
+    ) -> Vec<PivotStrategy> {
         match category {
             FailureCategory::Infrastructure => vec![
                 PivotStrategy {
                     strategy_type: "retry_with_backoff".to_string(),
                     description: "Implement exponential backoff retry with jitter".to_string(),
                     estimated_success_rate: 0.75,
-                    required_changes: vec!["Add retry logic".to_string(), "Configure backoff params".to_string()],
+                    required_changes: vec![
+                        "Add retry logic".to_string(),
+                        "Configure backoff params".to_string(),
+                    ],
                 },
                 PivotStrategy {
                     strategy_type: "fallback_resource".to_string(),
-                    description: "Switch to fallback infrastructure or reduce resource usage".to_string(),
+                    description: "Switch to fallback infrastructure or reduce resource usage"
+                        .to_string(),
                     estimated_success_rate: 0.65,
                     required_changes: vec!["Configure fallback endpoints".to_string()],
                 },
@@ -418,64 +446,70 @@ impl QuantumMemoryHub {
             FailureCategory::ExternalDependency => vec![
                 PivotStrategy {
                     strategy_type: "circuit_breaker".to_string(),
-                    description: "Apply circuit breaker pattern to isolate failing dependency".to_string(),
+                    description: "Apply circuit breaker pattern to isolate failing dependency"
+                        .to_string(),
                     estimated_success_rate: 0.70,
-                    required_changes: vec!["Add circuit breaker".to_string(), "Define fallback response".to_string()],
+                    required_changes: vec![
+                        "Add circuit breaker".to_string(),
+                        "Define fallback response".to_string(),
+                    ],
                 },
                 PivotStrategy {
                     strategy_type: "cache_last_good".to_string(),
-                    description: "Use cached last-known-good response while dependency recovers".to_string(),
+                    description: "Use cached last-known-good response while dependency recovers"
+                        .to_string(),
                     estimated_success_rate: 0.60,
                     required_changes: vec!["Implement response cache".to_string()],
                 },
             ],
-            FailureCategory::Logic => vec![
-                PivotStrategy {
-                    strategy_type: "input_sanitization".to_string(),
-                    description: "Add stricter input validation and edge case handling".to_string(),
-                    estimated_success_rate: 0.85,
-                    required_changes: vec!["Add validation layer".to_string(), "Write edge case tests".to_string()],
-                },
-            ],
-            FailureCategory::Configuration => vec![
-                PivotStrategy {
-                    strategy_type: "auto_detect_config".to_string(),
-                    description: "Auto-detect and apply sensible defaults for missing config".to_string(),
-                    estimated_success_rate: 0.80,
-                    required_changes: vec!["Add default config fallback".to_string()],
-                },
-            ],
-            FailureCategory::Performance => vec![
-                PivotStrategy {
-                    strategy_type: "optimize_critical_path".to_string(),
-                    description: format!("Profile and optimize the bottleneck: {}", &failure_desc[..failure_desc.len().min(50)]),
-                    estimated_success_rate: 0.70,
-                    required_changes: vec!["Profile code".to_string(), "Optimize hot path".to_string()],
-                },
-            ],
-            FailureCategory::Security => vec![
-                PivotStrategy {
-                    strategy_type: "credential_refresh".to_string(),
-                    description: "Refresh credentials/tokens and retry with valid auth".to_string(),
-                    estimated_success_rate: 0.80,
-                    required_changes: vec!["Implement token refresh".to_string()],
-                },
-            ],
-            FailureCategory::Unknown => vec![
-                PivotStrategy {
-                    strategy_type: "diagnostic_deep_dive".to_string(),
-                    description: "Collect detailed diagnostics and escalate for manual analysis".to_string(),
-                    estimated_success_rate: 0.50,
-                    required_changes: vec!["Add diagnostic logging".to_string(), "Alert on-call team".to_string()],
-                },
-            ],
+            FailureCategory::Logic => vec![PivotStrategy {
+                strategy_type: "input_sanitization".to_string(),
+                description: "Add stricter input validation and edge case handling".to_string(),
+                estimated_success_rate: 0.85,
+                required_changes: vec![
+                    "Add validation layer".to_string(),
+                    "Write edge case tests".to_string(),
+                ],
+            }],
+            FailureCategory::Configuration => vec![PivotStrategy {
+                strategy_type: "auto_detect_config".to_string(),
+                description: "Auto-detect and apply sensible defaults for missing config"
+                    .to_string(),
+                estimated_success_rate: 0.80,
+                required_changes: vec!["Add default config fallback".to_string()],
+            }],
+            FailureCategory::Performance => vec![PivotStrategy {
+                strategy_type: "optimize_critical_path".to_string(),
+                description: format!(
+                    "Profile and optimize the bottleneck: {}",
+                    &failure_desc[..failure_desc.len().min(50)]
+                ),
+                estimated_success_rate: 0.70,
+                required_changes: vec!["Profile code".to_string(), "Optimize hot path".to_string()],
+            }],
+            FailureCategory::Security => vec![PivotStrategy {
+                strategy_type: "credential_refresh".to_string(),
+                description: "Refresh credentials/tokens and retry with valid auth".to_string(),
+                estimated_success_rate: 0.80,
+                required_changes: vec!["Implement token refresh".to_string()],
+            }],
+            FailureCategory::Unknown => vec![PivotStrategy {
+                strategy_type: "diagnostic_deep_dive".to_string(),
+                description: "Collect detailed diagnostics and escalate for manual analysis"
+                    .to_string(),
+                estimated_success_rate: 0.50,
+                required_changes: vec![
+                    "Add diagnostic logging".to_string(),
+                    "Alert on-call team".to_string(),
+                ],
+            }],
         }
     }
 
     /// P3-07: Compute dynamic viral score based on failure category and context
     fn compute_viral_score(category: &FailureCategory, failure_desc: &str) -> f64 {
         let base = match category {
-            FailureCategory::Security => 0.9,      // Security issues spread fast
+            FailureCategory::Security => 0.9, // Security issues spread fast
             FailureCategory::Infrastructure => 0.7,
             FailureCategory::ExternalDependency => 0.65,
             FailureCategory::Performance => 0.6,
@@ -513,7 +547,13 @@ impl QuantumMemoryHub {
             // Structured analysis without external LLM
             let strategy_summary: Vec<String> = strategies
                 .iter()
-                .map(|s| format!("• {} (예상 성공률: {:.0}%)", s.description, s.estimated_success_rate * 100.0))
+                .map(|s| {
+                    format!(
+                        "• {} (예상 성공률: {:.0}%)",
+                        s.description,
+                        s.estimated_success_rate * 100.0
+                    )
+                })
                 .collect();
             format!(
                 "[{:?}] '{}' 실패 분석:\n컨텍스트: {}\n\n권장 피봇 전략:\n{}",
@@ -525,12 +565,18 @@ impl QuantumMemoryHub {
         };
 
         let business_value = match category {
-            FailureCategory::Infrastructure => "인프라 회복력 강화 → 가동 시간 개선 → 비용 절감".to_string(),
-            FailureCategory::ExternalDependency => "의존성 격리 → 장애 전파 차단 → 서비스 안정성 향상".to_string(),
+            FailureCategory::Infrastructure => {
+                "인프라 회복력 강화 → 가동 시간 개선 → 비용 절감".to_string()
+            }
+            FailureCategory::ExternalDependency => {
+                "의존성 격리 → 장애 전파 차단 → 서비스 안정성 향상".to_string()
+            }
             FailureCategory::Logic => "데이터 정합성 보장 → 버그 사전 방지 → 품질 향상".to_string(),
             FailureCategory::Performance => "성능 최적화 → UX 개선 → 사용자 이탈 방지".to_string(),
             FailureCategory::Security => "보안 강화 → 컴플라이언스 준수 → 리스크 감소".to_string(),
-            FailureCategory::Configuration => "설정 자동화 → 배포 실패 방지 → 운영 효율화".to_string(),
+            FailureCategory::Configuration => {
+                "설정 자동화 → 배포 실패 방지 → 운영 효율화".to_string()
+            }
             FailureCategory::Unknown => "진단 프로세스 개선 → 미래 장애 대응 시간 단축".to_string(),
         };
 

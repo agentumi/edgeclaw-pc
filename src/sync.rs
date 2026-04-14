@@ -255,17 +255,19 @@ impl SyncServer {
         let server_push = self.clone();
         let engine_push = engine.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(server_push.config.push_interval_secs));
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(
+                server_push.config.push_interval_secs,
+            ));
             loop {
                 interval.tick().await;
-                
+
                 // Aggregate status (System + Arb Telemetry)
                 let sys = engine_push.get_system_info();
                 let arb = {
                     let lock = engine_push.arb_telemetry.lock().unwrap();
                     lock.clone()
                 };
-                
+
                 let push_msg = Self::build_status_push(
                     sys.cpu_usage.into(),
                     sys.memory_usage_percent.into(),
@@ -276,15 +278,16 @@ impl SyncServer {
                     arb.pnl,
                     arb.latency,
                 );
-                
+
                 let _ = server_push.broadcast_tx.send(push_msg);
             }
         });
 
         loop {
-            let (mut stream, peer_addr) = listener.accept().await.map_err(|e| {
-                AgentError::ConnectionError(format!("Accept error: {}", e))
-            })?;
+            let (mut stream, peer_addr) = listener
+                .accept()
+                .await
+                .map_err(|e| AgentError::ConnectionError(format!("Accept error: {}", e)))?;
 
             let server = self.clone();
             let bus = event_bus.clone();
@@ -294,7 +297,7 @@ impl SyncServer {
             tokio::spawn(async move {
                 tracing::info!(peer = %peer_addr, "Mobile sync client connected");
                 let mut buf = vec![0u8; 4096];
-                
+
                 loop {
                     tokio::select! {
                         // Forward broadcasts to client
@@ -436,7 +439,7 @@ mod tests {
 
     #[test]
     fn test_status_push() {
-        let msg = SyncServer::build_status_push(45.0, 72.0, 55.0, 3600, 3, 2);
+        let msg = SyncServer::build_status_push(45.0, 72.0, 55.0, 3600, 3, 2, 0.0, 0.0);
         if let SyncMessage::StatusPush {
             cpu_percent,
             active_peers,
@@ -453,9 +456,10 @@ mod tests {
     #[test]
     fn test_ping_pong() {
         let bus = crate::events::EventBus::new(10);
+        let engine = crate::AgentEngine::new(crate::config::AgentConfig::default());
         let server = SyncServer::new(SyncConfig::default());
         let ping = SyncMessage::Ping { timestamp: 12345 };
-        let response = server.handle_message(&ping, &bus).unwrap();
+        let response = server.handle_message(&ping, &engine, &bus).unwrap();
         assert!(response.is_some());
         if let Some(SyncMessage::Pong { timestamp }) = response {
             assert_eq!(timestamp, 12345);
@@ -467,12 +471,13 @@ mod tests {
     #[test]
     fn test_handle_remote_exec() {
         let bus = crate::events::EventBus::new(10);
+        let engine = crate::AgentEngine::new(crate::config::AgentConfig::default());
         let server = SyncServer::new(SyncConfig::default());
         let msg = SyncMessage::RemoteExec {
             command: "echo".into(),
             args: vec!["hello".into()],
         };
-        let response = server.handle_message(&msg, &bus).unwrap();
+        let response = server.handle_message(&msg, &engine, &bus).unwrap();
         assert!(response.is_some());
         if let Some(SyncMessage::ExecResult {
             success, output, ..
@@ -488,14 +493,15 @@ mod tests {
     #[test]
     fn test_handle_kill_switch() {
         let bus = crate::events::EventBus::new(10);
+        let engine = crate::AgentEngine::new(crate::config::AgentConfig::default());
         let mut rx = bus.subscribe();
         let server = SyncServer::new(SyncConfig::default());
         let msg = SyncMessage::KillSwitch {
             active: true,
             reason: "test".into(),
         };
-        let _ = server.handle_message(&msg, &bus).unwrap();
-        
+        let _ = server.handle_message(&msg, &engine, &bus).unwrap();
+
         let event = rx.try_recv().unwrap();
         if let crate::events::AgentEvent::KillSwitchTriggered { active, reason } = event {
             assert!(active);
@@ -530,6 +536,8 @@ mod tests {
                 uptime_secs: 100,
                 active_peers: 1,
                 active_sessions: 1,
+                pnl: 0.0,
+                latency: 0.0,
             },
         ];
         for msg in &messages {
@@ -542,18 +550,20 @@ mod tests {
     #[test]
     fn test_handle_config_sync() {
         let bus = crate::events::EventBus::new(10);
+        let engine = crate::AgentEngine::new(crate::config::AgentConfig::default());
         let server = SyncServer::new(SyncConfig::default());
         let msg = SyncMessage::ConfigSync {
             config_hash: "abc123".into(),
             config_data: "[agent]\nname = \"test\"".into(),
         };
-        let response = server.handle_message(&msg, &bus).unwrap();
+        let response = server.handle_message(&msg, &engine, &bus).unwrap();
         assert!(response.is_none()); // ConfigSync returns None
     }
 
     #[test]
     fn test_handle_status_push() {
         let bus = crate::events::EventBus::new(10);
+        let engine = crate::AgentEngine::new(crate::config::AgentConfig::default());
         let server = SyncServer::new(SyncConfig::default());
         let msg = SyncMessage::StatusPush {
             cpu_percent: 50.0,
@@ -562,8 +572,10 @@ mod tests {
             uptime_secs: 1000,
             active_peers: 2,
             active_sessions: 1,
+            pnl: 0.0,
+            latency: 0.0,
         };
-        let response = server.handle_message(&msg, &bus).unwrap();
+        let response = server.handle_message(&msg, &engine, &bus).unwrap();
         assert!(response.is_none()); // StatusPush returns None
     }
 

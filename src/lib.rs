@@ -48,10 +48,15 @@ pub mod federation;
 pub mod gateway;
 pub mod git_integration;
 pub mod groups;
+pub mod gui;
 pub mod identity;
 pub mod identity_passport;
 pub mod intent_engine;
 pub mod k8s;
+pub mod knowledge_graph;
+pub mod knowledge_ingest;
+pub mod knowledge_query;
+pub mod knowledge_wiki;
 pub mod license;
 pub mod memory_distiller;
 pub mod memory_engine;
@@ -86,7 +91,6 @@ pub mod wasm;
 pub mod webhook;
 pub mod websocket;
 pub mod webui;
-pub mod gui;
 pub mod workflow_engine;
 pub mod workflows;
 pub mod x402_payment;
@@ -987,7 +991,10 @@ impl AgentEngine {
     }
 
     /// P3-02: Export local memory diff for P2P synchronization
-    pub fn export_memory_diff(&self, since: &chrono::DateTime<chrono::Utc>) -> crate::memory_engine::MemoryDiff {
+    pub fn export_memory_diff(
+        &self,
+        since: &chrono::DateTime<chrono::Utc>,
+    ) -> crate::memory_engine::MemoryDiff {
         let mem = self.memory_engine.lock().unwrap_or_else(|e| e.into_inner());
         let identity = self.get_identity().unwrap_or_default();
         mem.generate_diff(since, &identity.device_id)
@@ -998,8 +1005,8 @@ impl AgentEngine {
         let mut mem = self.memory_engine.lock().unwrap_or_else(|e| e.into_inner());
         let stats = mem.apply_diff(diff);
         tracing::info!(
-            memories = stats.0, 
-            lessons = stats.1, 
+            memories = stats.0,
+            lessons = stats.1,
             source = %diff.source_agent,
             "[P3-02] Imported memory diff"
         );
@@ -2451,7 +2458,9 @@ mod tests {
             .add_peer("p1", "User", "mobile", "10.0.0.1", "owner")
             .unwrap();
         // Chat should work even without identity (uses "unknown" for audit)
-        let _response = engine.chat("p1", "/models", None, Vec::new(), None).unwrap();
+        let _response = engine
+            .chat("p1", "/models", None, Vec::new(), None)
+            .unwrap();
     }
 
     #[test]

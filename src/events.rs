@@ -157,10 +157,7 @@ pub enum AgentEvent {
         doc_titles: Vec<String>,
     },
     /// Kill-switch was triggered or reset
-    KillSwitchTriggered {
-        active: bool,
-        reason: String,
-    },
+    KillSwitchTriggered { active: bool, reason: String },
 }
 
 /// Output stream type

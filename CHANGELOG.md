@@ -5,6 +5,15 @@ All notable changes to EdgeClaw Desktop Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-04-14
+
+### Added
+- **MindVault Integration (V3 Phase 1)**:
+  - `knowledge_graph.rs`: Layer 2 graph engine with petgraph (BFS/DFS, custom community detection).
+  - `knowledge_ingest.rs`: Incremental SHA256-cached AST/Regex parser for Rust, MD, and TOML context injection.
+  - `knowledge_wiki.rs`: Layer 3 community-based Markdown wiki generator.
+  - `knowledge_query.rs`: 3-layer query orchestrator enforcing token budgets (~60,000 to ~900 tokens).
+
 ## [2.0.0] - 2026-03-08
 
 ### Added

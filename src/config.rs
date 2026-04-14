@@ -182,7 +182,7 @@ pub struct WebUiSection {
 
 fn default_fleet_identities() -> std::collections::HashMap<u16, AgentSection> {
     let mut m = std::collections::HashMap::new();
-    
+
     // Index 0 is reserved for the "Global/Main" identity.
     // We will start our fleet workers from Index 1.
 
@@ -193,7 +193,7 @@ fn default_fleet_identities() -> std::collections::HashMap<u16, AgentSection> {
         role: "Software Engineer".to_string(),
         ..default_agent()
     });
-    
+
     // SE: Software Engineer 2
     m.insert(2, AgentSection {
         display_name: "DevOps Engineer".to_string(),
@@ -201,7 +201,7 @@ fn default_fleet_identities() -> std::collections::HashMap<u16, AgentSection> {
         role: "Software Engineer".to_string(),
         ..default_agent()
     });
-    
+
     // GM: Growth Marketer
     m.insert(3, AgentSection {
         display_name: "Growth Hacker".to_string(),
@@ -209,7 +209,7 @@ fn default_fleet_identities() -> std::collections::HashMap<u16, AgentSection> {
         role: "Growth Marketer".to_string(),
         ..default_agent()
     });
-    
+
     // QA: QA Guardian
     m.insert(4, AgentSection {
         display_name: "Security Guardian".to_string(),

@@ -683,8 +683,7 @@ impl MissionComparisonEngine {
         let task_overlap_ratio = intersection / union;
 
         // Determine winner
-        let score_a =
-            quality_a * 0.6 + speed_ratio.min(2.0) * 0.2 + task_overlap_ratio * 0.2;
+        let score_a = quality_a * 0.6 + speed_ratio.min(2.0) * 0.2 + task_overlap_ratio * 0.2;
         let score_b = quality_b * 0.6
             + (1.0 / speed_ratio.max(0.01)).min(2.0) * 0.2
             + task_overlap_ratio * 0.2;

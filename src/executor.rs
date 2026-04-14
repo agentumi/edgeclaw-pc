@@ -168,7 +168,9 @@ impl Executor {
         if let Some(ref bus) = self.event_bus {
             bus.publish(crate::events::AgentEvent::CommandStarted {
                 execution_id: execution_id.clone(),
-                command: format!("{} {:?}", request.command, request.args).trim().to_string(),
+                command: format!("{} {:?}", request.command, request.args)
+                    .trim()
+                    .to_string(),
                 peer_id: "local".into(),
                 timestamp: chrono::Utc::now(),
             });
@@ -226,14 +228,16 @@ impl Executor {
         }
 
         // Execute with timeout
-        let status = match tokio::time::timeout(std::time::Duration::from_secs(timeout), child.wait()).await {
-            Ok(Ok(s)) => s,
-            Ok(Err(e)) => return Err(AgentError::ExecutionError(e.to_string())),
-            Err(_) => {
-                let _ = child.kill().await;
-                return Err(AgentError::Timeout(timeout));
-            }
-        };
+        let status =
+            match tokio::time::timeout(std::time::Duration::from_secs(timeout), child.wait()).await
+            {
+                Ok(Ok(s)) => s,
+                Ok(Err(e)) => return Err(AgentError::ExecutionError(e.to_string())),
+                Err(_) => {
+                    let _ = child.kill().await;
+                    return Err(AgentError::Timeout(timeout));
+                }
+            };
 
         let duration_ms = start.elapsed().as_millis() as u64;
 

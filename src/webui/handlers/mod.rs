@@ -8,11 +8,11 @@ pub mod fleet;
 pub mod groups;
 pub mod memory;
 pub mod metrics;
+pub mod monetization;
 pub mod registry;
 pub mod status;
 pub mod tasks;
 pub mod templates;
-pub mod monetization;
 
 use crate::AgentEngine;
 use std::path::PathBuf;

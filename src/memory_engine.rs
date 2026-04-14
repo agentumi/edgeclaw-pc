@@ -200,9 +200,7 @@ impl LessonStore {
             .lessons
             .iter()
             .filter(|l| {
-                domain.is_none_or(|d| {
-                    l.domain.eq_ignore_ascii_case(d) || l.domain.is_empty()
-                })
+                domain.is_none_or(|d| l.domain.eq_ignore_ascii_case(d) || l.domain.is_empty())
             })
             .collect();
         filtered.sort_by(|a, b| {

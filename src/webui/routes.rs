@@ -677,10 +677,17 @@ pub async fn handle_connection(
         }
         ("POST", "/api/v3/delegation/route") => {
             let body = extract_body(&request_full);
-            handlers::monetization::handle_delegation_route(stream, engine, &body, cors_origin).await
+            handlers::monetization::handle_delegation_route(stream, engine, &body, cors_origin)
+                .await
         }
         ("GET", "/api/v3/delegation/contracts") => {
-            handlers::monetization::handle_delegation_list(stream, engine, &request_full, cors_origin).await
+            handlers::monetization::handle_delegation_list(
+                stream,
+                engine,
+                &request_full,
+                cors_origin,
+            )
+            .await
         }
 
         // V3: Process Type Selection API
@@ -1224,23 +1231,27 @@ pub async fn handle_connection(
                 let registry = engine.agent_registry();
                 let agents = registry.list_all();
                 let rep = engine.reputation_score();
-                let listings: Vec<_> = agents.iter().map(|a| {
-                    serde_json::json!({
-                        "agent_id": a.id,
-                        "name": a.name,
-                        "profile": a.profile,
-                        "status": format!("{:?}", a.status),
-                        "capabilities": a.capabilities,
-                        "reputation": rep,
-                        "available": a.status == crate::registry::AgentStatus::Online,
-                        "hourly_rate_usd": 0.05,
+                let listings: Vec<_> = agents
+                    .iter()
+                    .map(|a| {
+                        serde_json::json!({
+                            "agent_id": a.id,
+                            "name": a.name,
+                            "profile": a.profile,
+                            "status": format!("{:?}", a.status),
+                            "capabilities": a.capabilities,
+                            "reputation": rep,
+                            "available": a.status == crate::registry::AgentStatus::Online,
+                            "hourly_rate_usd": 0.05,
+                        })
                     })
-                }).collect();
+                    .collect();
                 serde_json::to_vec(&serde_json::json!({
                     "listings": listings,
                     "total": listings.len(),
                     "marketplace_status": "active",
-                })).unwrap_or_default()
+                }))
+                .unwrap_or_default()
             };
             send_response(stream, 200, "application/json", &json, cors_origin).await
         }
@@ -1248,7 +1259,10 @@ pub async fn handle_connection(
             let agent_count = engine.agent_registry().list_all().len();
             let rep = engine.reputation_score();
             let gov_stats = {
-                let gov = engine.governance().lock().unwrap_or_else(|e| e.into_inner());
+                let gov = engine
+                    .governance()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 gov.stats()
             };
             let resp = serde_json::json!({
@@ -1302,7 +1316,9 @@ pub async fn handle_connection(
             let rep = engine.reputation_score();
             let qstats = engine.quantum_hub_stats();
             // PoP (Proof of Performance) mining simulation
-            let pop_score = rep * 0.4 + (qstats.total_cycles as f64 * 0.001).min(0.3) + (uptime_secs as f64 / 86400.0 * 0.003).min(0.3);
+            let pop_score = rep * 0.4
+                + (qstats.total_cycles as f64 * 0.001).min(0.3)
+                + (uptime_secs as f64 / 86400.0 * 0.003).min(0.3);
             let mined_tokens = pop_score * uptime_secs as f64 / 3600.0 * 0.001;
             let resp = serde_json::json!({
                 "mining_active": true,
@@ -1345,7 +1361,10 @@ pub async fn handle_connection(
                 })
             };
             let memory_data = {
-                let mem = engine.memory_engine().lock().unwrap_or_else(|e| e.into_inner());
+                let mem = engine
+                    .memory_engine()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 serde_json::json!({
                     "total_memories": mem.tiers.m30.len() + mem.tiers.m90.len() + mem.tiers.m365.len(),
                     "m30_count": mem.tiers.m30.len(),

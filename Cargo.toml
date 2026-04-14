@@ -80,7 +80,7 @@ base64 = "0.22"
 hex = "0.4"
 
 # Directory management
-dirs = "5"
+dirs = "6"
 
 # V4.0: Full-text search
 tantivy = "0.22"
